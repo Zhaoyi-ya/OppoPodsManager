@@ -5,37 +5,66 @@
         Topmost="True" ResizeMode="NoResize" SizeToContent="WidthAndHeight"
         Background="Transparent">
     <Border Background="#E8202020" BorderBrush="#33FFFFFF" BorderThickness="1"
-            CornerRadius="8" Padding="16,12" MinWidth="240"
-            Effect="{DynamicResource DropShadow}">
-        <StackPanel>
-            <TextBlock x:Name="TitleBlock" Text="OPPO Pods" FontSize="13" FontWeight="SemiBold"
-                       Foreground="White" Margin="0,0,0,10" HorizontalAlignment="Center"/>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
-                </Grid.ColumnDefinitions>
-                <!-- Left -->
-                <StackPanel Grid.Column="0" HorizontalAlignment="Center">
-                    <TextBlock x:Name="LeftPct" Text="- %" FontSize="24" FontWeight="Bold"
-                               Foreground="White" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="10" Foreground="#888"
-                               HorizontalAlignment="Center" Margin="0,2,0,0"/>
+            CornerRadius="8" Padding="16,12" MinWidth="240">
+        <Grid>
+            <!-- 正常电量显示（始终保留以固定窗口尺寸） -->
+            <StackPanel x:Name="BatteryPanel">
+                <TextBlock x:Name="TitleBlock" Text="OPPO Pods" FontSize="13" FontWeight="SemiBold"
+                           Foreground="White" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                        <TextBlock x:Name="LeftPct" Text="- %" FontSize="24" FontWeight="Bold"
+                                   Foreground="White" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="10" Foreground="#888"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock x:Name="CasePct" Text="- %" FontSize="24" FontWeight="Bold"
+                                   Foreground="White" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="10" Foreground="#888"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                        <TextBlock x:Name="RightPct" Text="- %" FontSize="24" FontWeight="Bold"
+                                   Foreground="White" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="RightLabel" Text="右耳" FontSize="10" Foreground="#888"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+
+            <!-- 低电量覆盖层 -->
+            <Border x:Name="LowBatteryOverlay" Background="#FF202020" CornerRadius="8"
+                    Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="⚡ 低电量" FontSize="24" FontWeight="Bold"
+                               Foreground="#FFAA00" HorizontalAlignment="Center"/>
+                    <TextBlock Text="建议尽快充电" FontSize="12"
+                               Foreground="#888" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                 </StackPanel>
-                <!-- Case -->
-                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
-                    <TextBlock x:Name="CasePct" Text="- %" FontSize="24" FontWeight="Bold"
-                               Foreground="White" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="10" Foreground="#888"
-                               HorizontalAlignment="Center" Margin="0,2,0,0"/>
+            </Border>
+
+            <!-- 极低电量覆盖层 -->
+            <Border x:Name="CriticalBatteryOverlay" Background="#FF202020" CornerRadius="8"
+                    Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                    <TextBlock Text="⚡ 电量极低" FontSize="24" FontWeight="Bold"
+                               Foreground="#FF4444" HorizontalAlignment="Center"/>
+                    <TextBlock Text="请立即充电" FontSize="12"
+                               Foreground="#FF6666" HorizontalAlignment="Center" Margin="0,4,0,0"/>
                 </StackPanel>
-                <!-- Right -->
-                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
-                    <TextBlock x:Name="RightPct" Text="- %" FontSize="24" FontWeight="Bold"
-                               Foreground="White" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="RightLabel" Text="右耳" FontSize="10" Foreground="#888"
-                               HorizontalAlignment="Center" Margin="0,2,0,0"/>
-                </StackPanel>
-            </Grid>
-        </StackPanel>
+            </Border>
+
+            <!-- 断连内容（替换电量面板，保持相同尺寸） -->
+            <StackPanel x:Name="DisconnectPanel" Visibility="Collapsed">
+                <TextBlock x:Name="DisconnectTitle" Text="" FontSize="13" FontWeight="SemiBold"
+                           Foreground="White" Margin="0,0,0,10" HorizontalAlignment="Center"/>
+                <TextBlock Text="连接已断开" FontSize="18" FontWeight="Bold"
+                           Foreground="#FF5555" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
     </Border>
 </Window>

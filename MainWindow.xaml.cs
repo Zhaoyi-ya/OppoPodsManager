@@ -50,6 +50,8 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private string? _modelOverride;   // null=自动检测, 非null=强制型号
     private bool _gameModeCompat;     // 游戏模式兼容实现
     private bool _wasConnected;        // 追踪连接状态，首次连上时弹提示
+    private bool _lowBatteryAlerted;   // 低电量提醒已触发过，防止重复弹
+    private bool _criticalBatteryAlerted; // 极低电量提醒
 
     public MainWindow()
     {
@@ -172,13 +174,22 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
         else
         {
+            var wasConnected = _wasConnected;
+            _wasConnected = false;
+            _lowBatteryAlerted = false;
+            _criticalBatteryAlerted = false;
+
             StatusDot.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x55, 0x55));
             var err = _rfcomm.LastError;
             StatusText.Text = err ?? "未连接";
             StatusText.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x88, 0x88));
             BtnReconnect.Visibility = Visibility.Visible;
             _trayIcon.Icon = _iconDisconnected;
-            _wasConnected = false;
+
+            // 从已连接变为未连接时弹断连提示
+            if (wasConnected)
+                _ = ToastWindow.ShowDisconnectedAsync(caps.ModelName);
+
             ResetUi();
             return;
         }
@@ -198,6 +209,26 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SetBat(LeftBar, LeftLabel, batL);
         SetBat(RightBar, RightLabel, batR);
         SetBat(CaseBar, CaseLabel, s.Battery.GetValueOrDefault("C"));
+
+        // 低电量检测：左或右耳 ≤20% 时弹提醒（每次连接周期仅一次）
+        if (!_lowBatteryAlerted)
+        {
+            if ((batL is { } l && l.Lvl <= 20) || (batR is { } r && r.Lvl <= 20))
+            {
+                _lowBatteryAlerted = true;
+                _ = ToastWindow.ShowLowBatteryAsync(s, caps.ModelName);
+            }
+        }
+
+        // 极低电量检测：左或右耳 ≤10% 时弹红色警告（每次连接周期仅一次）
+        if (!_criticalBatteryAlerted)
+        {
+            if ((batL is { } l && l.Lvl <= 10) || (batR is { } r && r.Lvl <= 10))
+            {
+                _criticalBatteryAlerted = true;
+                _ = ToastWindow.ShowCriticalBatteryAsync(s, caps.ModelName);
+            }
+        }
 
         // 托盘悬浮提示
         var parts = new List<string>();
@@ -584,8 +615,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
         if (s.Connected)
         {
-            // ANC 主模式
-            foreach (var (label, tag) in new[] { ("关闭", "Off"), ("自适应", "Adaptive"), ("通透", "Transparency"), ("降噪", "Smart") })
+            // ANC 主模式（降噪按钮后面显示当前子模式）
+            var ancLabel = "降噪";
+            if (_ancMain == "Smart" && !string.IsNullOrEmpty(_ancLevel))
+                ancLabel = $"降噪 · {_ancLevel}";
+            foreach (var (label, tag) in new[] { ("关闭", "Off"), ("自适应", "Adaptive"), ("通透", "Transparency"), (ancLabel, "Smart") })
             {
                 var isMain = _ancMain == tag;
                 stack.Children.Add(CreateMenuRow(label, isMain, () =>
