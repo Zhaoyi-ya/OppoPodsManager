@@ -242,13 +242,19 @@
                     <TextBlock Text="设置" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"
                                HorizontalAlignment="Center"/>
 
-                    <TextBlock x:Name="ModelNote" Text="" FontSize="10" HorizontalAlignment="Center" Opacity="0.5" Margin="0,0,0,8"/>
+                    <TextBlock Text="设备型号" FontSize="12" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                    <ComboBox x:Name="CbModel" SelectionChanged="CbModel_Changed" Height="30" Padding="8,0" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="ModelNote" Text="" FontSize="10" HorizontalAlignment="Center" Opacity="0.5" Margin="0,-8,0,8"/>
 
                     <TextBlock Text="自定义设备名称" FontSize="12" Margin="0,0,0,2" HorizontalAlignment="Center"/>
                     <TextBox x:Name="TbCustomName" TextChanged="TbCustomName_Changed" Height="30" Padding="8,4" Margin="0,0,0,12"
                              HorizontalContentAlignment="Center"/>
 
-                    <!-- 游戏模式默认兼容 -->
+                    <TextBlock Text="游戏模式实现" FontSize="12" Margin="0,0,0,2" HorizontalAlignment="Center"/>
+                    <ComboBox x:Name="CbGameMode" SelectionChanged="CbGameMode_Changed" Height="30" Padding="8,0" Margin="0,0,0,12">
+                        <ComboBoxItem Content="标准 (28)"/>
+                        <ComboBoxItem Content="兼容 (28+06)"/>
+                    </ComboBox>
 
                     <TextBlock Text="主题" FontSize="12" Margin="0,0,0,2" HorizontalAlignment="Center"/>
                     <ComboBox x:Name="CbTheme" SelectionChanged="CbTheme_Changed" Height="30" Padding="8,0" Margin="0,0,0,12">

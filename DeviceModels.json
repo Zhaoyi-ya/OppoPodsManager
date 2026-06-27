@@ -541,6 +541,64 @@
     "uuid": "0000079A-D102-11E1-9B23-00025B00A5A5"
   },
   {
+    "minVersion": 16003000,
+    "function": {
+      "batteryInfo": 1,
+      "wearDetection": 1,
+      "fastDiscovery": 1,
+      "related": 1,
+      "equalizer": 2,
+      "multiDevicesConnect": 1,
+      "diagnostic": 1,
+      "findDevice": 1,
+      "clickTakePic": 1,
+      "autoFirmwareUpdate": 1,
+      "customDress": 1,
+      "noiseReductionMode": [
+        {
+          "modeType": 5,
+          "childrenMode": [
+            { "modeType": 7, "protocolIndex": 7 },
+            { "modeType": 4, "protocolIndex": 4 },
+            { "modeType": 8, "protocolIndex": 5 },
+            { "modeType": 3, "protocolIndex": 6 }
+          ],
+          "protocolIndex": 1
+        },
+        {
+          "modeType": 1,
+          "childrenMode": [
+            { "modeType": 1, "protocolIndex": 3 }
+          ],
+          "protocolIndex": 0
+        },
+        {
+          "modeType": 2,
+          "childrenMode": [
+            { "modeType": 2, "protocolIndex": 8 }
+          ],
+          "protocolIndex": 2
+        }
+      ],
+      "equalizerMode": [
+        { "modeType": 22, "protocolIndex": 0 },
+        { "modeType": 31, "protocolIndex": 1 },
+        { "modeType": 32, "protocolIndex": 2 }
+      ],
+      "gameSoundList": [
+        { "type": 3 },
+        { "type": 0 }
+      ],
+      "gameSoundMutexes": [1]
+    },
+    "name": "OPPO Enco Air4 Pro",
+    "id": "06B810",
+    "type": "T1",
+    "supportSpp": true,
+    "brand": "oppo",
+    "uuid": "0000079A-D102-11E1-9B23-00025B00A5A5"
+  },
+  {
     "rssi": {
       "rightOffset": 0,
       "leftOffset": 0,

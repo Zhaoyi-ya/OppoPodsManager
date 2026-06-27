@@ -425,9 +425,12 @@ public class RfcommService : IDisposable
     public void SendSpatial(bool on) => Send(OppoProtocol.BuildFeaturePacket(OppoProtocol.FeatureSpatial, on));
     public void SendSpatialAudio(string mode) => Send(OppoProtocol.PktSpatialAudio(mode));
     public void SendDualDevice(bool on) => Send(OppoProtocol.BuildFeaturePacket(OppoProtocol.FeatureDualDevice, on));
-    public void SendGameMode(bool on)
+    public void SendGameMode(bool on, bool compatible = false)
     {
+        // 标准: 只发 28; 兼容: 发 28 + 06 (顺序执行, 无阻塞延迟)
         Send(OppoProtocol.BuildFeaturePacket(OppoProtocol.FeatureGameMain, on));
+        if (compatible)
+            Send(OppoProtocol.BuildFeaturePacket(OppoProtocol.FeatureGameLL, on));
     }
     public void SendEq(string name)
     {

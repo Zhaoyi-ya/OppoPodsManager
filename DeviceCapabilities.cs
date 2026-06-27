@@ -102,6 +102,19 @@ public class DeviceCapabilities
         return Default();
     }
 
+    /// <summary>获取所有已知设备型号名称列表</summary>
+    public static List<string> GetModelNames()
+    {
+        var names = new List<string>();
+        foreach (var entry in _deviceModels)
+        {
+            var name = entry.GetProperty("name").GetString();
+            if (!string.IsNullOrEmpty(name))
+                names.Add(name);
+        }
+        return names;
+    }
+
     /// <summary>从 whitelist JSON 条目解析设备能力</summary>
     private static DeviceCapabilities FromJson(JsonElement entry, string deviceName)
     {
