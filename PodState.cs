@@ -1,3 +1,4 @@
+﻿using System;
 using System.Collections.Generic;
 
 namespace OppoPodsWPF;
@@ -13,7 +14,14 @@ public class ConnectedDeviceInfo
     public bool IsCurrentDevice { get; set; }
     public bool IsMainAudioDevice { get; set; }
 
-    /// <summary>显示名称（当前设备加标记）</summary>
+    /// <summary>显示名称（当前设备加标记�?/summary>
+        public string ConnectionStatus => ConnectionState switch
+    {
+        2 => IsCurrentDevice ? "当前设备" : "已连接",
+        1 => "连接中",
+        _ => "已断开"
+    };
+
     public string DisplayName => (IsCurrentDevice ? "▶ " : "") + DeviceName;
 }
 
@@ -29,4 +37,10 @@ public class PodState
     public string SpatialMode { get; set; } = "Off";
     public bool GameMode { get; set; }
     public bool DualDevice { get; set; }
+
+    /// <summary>���豸�����б�����Զ����̼���</summary>
+    public List<ConnectedDeviceInfo> ConnectedDevices { get; set; } = new();
+
+    /// <summary>���豸�б�������ʱ��</summary>
+    public DateTime MultiConnectListUpdatedAt { get; set; } = DateTime.MinValue;
 }

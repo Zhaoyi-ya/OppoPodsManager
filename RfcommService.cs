@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -124,6 +125,8 @@ public class RfcommService : IDisposable
                 Send(OppoProtocol.PktQueryEq);
                 Thread.Sleep(80);
                 Send(OppoProtocol.PktRegisterNotify);
+                Thread.Sleep(80);
+                Send(OppoProtocol.PktMultiConnectInfo);
                 Thread.Sleep(500);
                 ReadResponses(3000);
             }
@@ -322,6 +325,9 @@ public class RfcommService : IDisposable
             case OppoProtocol.CmdBatchQueryResp:
                 ParseBatchStatus(pkt, payloadStart, payLen);
                 break;
+            case OppoProtocol.CmdMultiConnectResp:
+                ParseMultiConnect(pkt, payloadStart, payLen);
+                break;
         }
     }
 
@@ -414,6 +420,92 @@ public class RfcommService : IDisposable
         StateChanged?.Invoke();
     }
 
+    /// <summary>解析多设备连接列表响应 (cmd 0x8112)</summary>
+    private void ParseMultiConnect(byte[] pkt, int start, int len)
+    {
+        try
+        {
+            System.Diagnostics.Debug.WriteLine("[BT] ParseMultiConnect: len=" + len + ", full=" + BitConverter.ToString(pkt, start, Math.Min(len, 48)));
+            var devices = new List<ConnectedDeviceInfo>();
+            if (len < 2) return;
+
+            int count = pkt[start + 1];
+            if (count <= 0 || count > 8)
+            {
+                System.Diagnostics.Debug.WriteLine("[BT]  invalid count=" + count);
+                return;
+            }
+
+            int pos = start + 2;
+            for (int i = 0; i < count && pos + 8 < start + len; i++)
+            {
+                // Format: [addr(6)] [state(1)] [type(1)] [reserved(1)] [nameLen(1)] [name(nameLen)]
+                var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + j].ToString("X2")));
+                pos += 6;
+
+                int stateFlags = pkt[pos++];   // bitmask: bit3=current, bit2=mainAudio, bit1=audioActive, bit0=connected?
+                int connState = pkt[pos++];    // 0=disconnected, 2=connected
+                int reserved = pkt[pos++];
+                int nameLen = pkt[pos++];
+
+                if (nameLen < 0 || pos + nameLen > start + len)
+                {
+                    System.Diagnostics.Debug.WriteLine("[BT]  MultiDevice [" + i + "]: invalid nameLen=" + nameLen);
+                    break;
+                }
+
+                string deviceName = nameLen > 0
+                    ? System.Text.Encoding.UTF8.GetString(pkt, pos, nameLen).TrimEnd("\0".ToCharArray())
+                    : "Device " + addr.Substring(Math.Max(0, addr.Length - 5));
+                pos += Math.Max(nameLen, 0);
+
+                bool isCurrent = (stateFlags & 0x08) != 0;
+                bool isAudioActive = (stateFlags & 0x02) != 0;
+                bool isMainAudio = (stateFlags & 0x04) != 0;
+
+                devices.Add(new ConnectedDeviceInfo
+                {
+                    Address = addr,
+                    DeviceName = deviceName,
+                    ConnectionState = connState,
+                    DeviceType = 0,
+                    IsCurrentDevice = isCurrent,
+                    IsAudioActive = isAudioActive,
+                    IsMainAudioDevice = isMainAudio,
+                });
+                System.Diagnostics.Debug.WriteLine("[BT]  MultiDevice [" + i + "]: addr=" + addr + ", name=\"" + deviceName + "\", connState=" + connState + ", flags=0x" + stateFlags.ToString("X2") + ", cur=" + isCurrent);
+            }
+
+            if (devices.Count > 0)
+            {
+                // 当前设备排最前
+                devices = devices.OrderByDescending(d => d.IsCurrentDevice).ThenBy(d => d.DeviceName).ToList();
+                State.ConnectedDevices = devices;
+                State.MultiConnectListUpdatedAt = DateTime.Now;
+                System.Diagnostics.Debug.WriteLine("[BT] Multi-device list updated: " + devices.Count + " devices, names: " + string.Join(", ", devices.Select(d => d.DeviceName)));
+                StateChanged?.Invoke();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[BT] ParseMultiConnect error: " + ex.Message);
+        }
+    }
+
+    /// <summary>主动查询多设备连接列表</summary>
+    public void SendMultiConnectInfo() => Send(OppoProtocol.PktMultiConnectInfo);
+
+    /// <summary>切换多设备中的活动设备</summary>
+    public void SendOperateHandheld(string targetAddress, bool connect = true)
+    {
+        // cmd 0x0429: [操作类型(1), 地址(6)]
+        var addrBytes = targetAddress.Split(':').Select(b => Convert.ToByte(b, 16)).ToArray();
+        var payload = new byte[1 + addrBytes.Length];
+        payload[0] = (byte)(connect ? 0x01 : 0x00);
+        Buffer.BlockCopy(addrBytes, 0, payload, 1, addrBytes.Length);
+        Send(OppoProtocol.BuildPacket(OppoProtocol.CmdOperateHandheld, payload));
+    }
+
     public void SendAnc(string mode)
     {
         // 旧版 ANC 值交换
@@ -470,6 +562,13 @@ public class RfcommService : IDisposable
                         ReadResponses(400);
                     }
 
+                    if (tick % 4 == 0)  // 每 4 轮查多设备连接列表（与功能状态同步）
+                    {
+                        Send(OppoProtocol.PktMultiConnectInfo);
+                        Thread.Sleep(100);
+                        ReadResponses(400);
+                    }
+
                     // 前 10 轮 2s，之后放缓到 5s
                     if (tick == 10) intervalMs = 5000;
                     Thread.Sleep(intervalMs);
@@ -515,3 +614,7 @@ public class RfcommService : IDisposable
         _disposed = true;
     }
 }
+
+
+
+

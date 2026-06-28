@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -101,7 +101,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _trayIcon.MouseUp += (_, e) =>
         {
             if (e.Button == Forms.MouseButtons.Left) ToggleFromTray();
-            else if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
+        else if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
         };
 
         // 先填充默认 EQ 列表，连接成功后会根据设备型号更新
@@ -138,10 +138,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             await _rfcomm.ConnectAsync();
             if (_rfcomm.IsConnected)
-            {
+        {
                 _pollCts = new CancellationTokenSource();
                 await _rfcomm.PollAsync(_pollCts.Token);
-            }
+        }
             // 连接失败或断连后反馈状态，等 5 秒重试
             Dispatcher.Invoke(() => OnStateChanged());
             if (!_realClose) await Task.Delay(5000);
@@ -166,10 +166,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
             // 首次连上且已获取到电量时弹出提示
             if (!_wasConnected && s.Battery.Count > 0)
-            {
+        {
                 _wasConnected = true;
                 _ = ToastWindow.ShowAsync(s, caps.ModelName);
-            }
+        }
         }
         else
         {
@@ -213,20 +213,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (!_lowBatteryAlerted)
         {
             if ((batL is { } l && l.Lvl <= 20) || (batR is { } r && r.Lvl <= 20))
-            {
+        {
                 _lowBatteryAlerted = true;
                 _ = ToastWindow.ShowLowBatteryAsync(s, caps.ModelName);
-            }
+        }
         }
 
         // 极低电量检测：左或右耳 ≤10% 时弹红色警告（每次连接周期仅一次）
         if (!_criticalBatteryAlerted)
         {
             if ((batL is { } l && l.Lvl <= 10) || (batR is { } r && r.Lvl <= 10))
-            {
+        {
                 _criticalBatteryAlerted = true;
                 _ = ToastWindow.ShowCriticalBatteryAsync(s, caps.ModelName);
-            }
+        }
         }
 
         // 托盘悬浮提示
@@ -246,14 +246,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (s.AncMode is not "?" && (DateTime.Now - _ancUserSetAt).TotalSeconds > 3)
         {
             if (s.AncMode is "Off" or "Adaptive" or "Transparency")
-            { _ancMain = s.AncMode; AncSub.Visibility = Visibility.Collapsed; }
-            else if (s.AncMode is "Smart" or "Light" or "Medium" or "Deep")
-            {
+        { _ancMain = s.AncMode; AncSub.Visibility = Visibility.Collapsed; }
+        else if (s.AncMode is "Smart" or "Light" or "Medium" or "Deep")
+        {
                 _ancMain = "Smart";
                 // 仅在首次同步时设置子模式（_ancLevel 为空），之后由用户手动切换决定
                 if (string.IsNullOrEmpty(_ancLevel)) _ancLevel = s.AncMode;
                 AncSub.Visibility = Visibility.Visible;
-            }
+        }
         }
         Highlight();
 
@@ -266,6 +266,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SpatialAudioPanel.Visibility = caps.HasSpatialAudio ? Visibility.Visible : Visibility.Collapsed;
         CbSpatial.Visibility = caps.HasSpatialSound ? Visibility.Visible : Visibility.Collapsed;
         CbDualDevice.Visibility = caps.HasDualDevice ? Visibility.Visible : Visibility.Collapsed;
+
+        // 多设备连接列表
+        MultiDevicePanel.Visibility = caps.HasDualDevice && _rfcomm.State.DualDevice ? Visibility.Visible : Visibility.Collapsed;
+        if (_rfcomm.State.ConnectedDevices.Count > 0)
+        {
+            MultiDeviceList.ItemsSource = _rfcomm.State.ConnectedDevices;
+            MultiDeviceEmpty.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            MultiDeviceList.ItemsSource = null;
+            MultiDeviceEmpty.Visibility = Visibility.Visible;
+        }
         BtnAdaptive.Visibility = caps.HasAdaptiveAnc ? Visibility.Visible : Visibility.Collapsed;
 
         // 更新型号备注
@@ -361,6 +374,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         _rfcomm.State.DualDevice = CbDualDevice.IsChecked == true;
         _rfcomm.SendDualDevice(CbDualDevice.IsChecked == true);
+        MultiDevicePanel.Visibility = _rfcomm.Caps.HasDualDevice && CbDualDevice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CbGame_Changed(object s, RoutedEventArgs e)
@@ -384,7 +398,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             using var k = Registry.CurrentUser.OpenSubKey(AppConst.RegRun, true)!;
             if (CbAuto.IsChecked == true) k.SetValue(AppConst.RegRunName, $"\"{Environment.ProcessPath!}\" --minimized");
-            else k.DeleteValue(AppConst.RegRunName, false);
+        else k.DeleteValue(AppConst.RegRunName, false);
         }
         catch { }
     }
@@ -413,7 +427,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             using var k = Registry.CurrentUser.CreateSubKey(path);
             if (v == null) k.DeleteValue(name, false);
-            else k.SetValue(name, v);
+        else k.SetValue(name, v);
         }
         catch { }
     }
@@ -446,7 +460,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             tb.Tag = "hooked";
             tb.TextChanged += (_, _) =>
-            {
+        {
                 if (_inTextChanged) return;
                 _inTextChanged = true;
                 var filter = tb.Text;
@@ -472,7 +486,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 _filtering = false;
                 tb.CaretIndex = filter.Length;
                 _inTextChanged = false;
-            };
+        };
         }
     }
 
@@ -508,6 +522,19 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SpatialAudioPanel.Visibility = caps.HasSpatialAudio ? Visibility.Visible : Visibility.Collapsed;
         CbSpatial.Visibility = caps.HasSpatialSound ? Visibility.Visible : Visibility.Collapsed;
         CbDualDevice.Visibility = caps.HasDualDevice ? Visibility.Visible : Visibility.Collapsed;
+
+        // 多设备连接列表
+        MultiDevicePanel.Visibility = caps.HasDualDevice && _rfcomm.State.DualDevice ? Visibility.Visible : Visibility.Collapsed;
+        if (_rfcomm.State.ConnectedDevices.Count > 0)
+        {
+            MultiDeviceList.ItemsSource = _rfcomm.State.ConnectedDevices;
+            MultiDeviceEmpty.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            MultiDeviceList.ItemsSource = null;
+            MultiDeviceEmpty.Visibility = Visibility.Visible;
+        }
         BtnAdaptive.Visibility = caps.HasAdaptiveAnc ? Visibility.Visible : Visibility.Collapsed;
 
         ModelNote.Text = sel == "自动检测"
@@ -621,7 +648,11 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         AncSub.Visibility = Visibility.Collapsed;
         CbSpatial.IsChecked = false;
         CbGame.IsChecked = false;
+        MultiDevicePanel.Visibility = Visibility.Collapsed;
+        MultiDeviceList.ItemsSource = null;
     }
+
+    private void BtnRefreshMulti_Click(object s, RoutedEventArgs e) => _rfcomm.SendMultiConnectInfo();
 
     private void OnWindowClosing(object? s, CancelEventArgs e)
     {
@@ -665,10 +696,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Padding = new Thickness(4),
             Width = 200,
             Effect = new System.Windows.Media.Effects.DropShadowEffect
-            {
+        {
                 Color = System.Windows.Media.Color.FromArgb(0x80, 0, 0, 0),
                 BlurRadius = 8, ShadowDepth = 2, Direction = 270, Opacity = 0.35
-            }
+        }
         };
 
         var stack = new StackPanel();
@@ -698,18 +729,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (_ancMain == "Smart" && !string.IsNullOrEmpty(_ancLevel))
                 ancLabel = $"降噪 · {_ancLevel}";
             foreach (var (label, tag) in new[] { ("关闭", "Off"), ("自适应", "Adaptive"), ("通透", "Transparency"), (ancLabel, "Smart") })
-            {
+        {
                 var isMain = _ancMain == tag;
                 stack.Children.Add(CreateMenuRow(label, isMain, () =>
                 {
                     SwitchAncMain(tag);
                     closeMenu();
                 }));
-            }
+        }
 
             // ANC 深度子模式（缩进显示）
             foreach (var (label, tag) in new[] { ("智能", "Smart"), ("轻度", "Light"), ("中度", "Medium"), ("深度", "Deep") })
-            {
+        {
                 var row = CreateMenuRow(label, _ancLevel == tag, () =>
                 {
                     SwitchAncSub(tag);
@@ -718,7 +749,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 row.Padding = new Thickness(24, 0, 10, 0);
                 row.Visibility = _ancMain == "Smart" ? Visibility.Visible : Visibility.Collapsed;
                 stack.Children.Add(row);
-            }
+        }
 
             stack.Children.Add(CreateMenuSeparator());
 
