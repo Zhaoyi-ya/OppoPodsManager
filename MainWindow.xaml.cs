@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
@@ -52,7 +53,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     private bool _wasConnected;        // 追踪连接状态，首次连上时弹提示
     private bool _lowBatteryAlerted;   // 低电量提醒已触发过，防止重复弹
     private bool _criticalBatteryAlerted; // 极低电量提醒
-    private List<string> _allModelNames = new();  // 设备型号完整列表，用于搜索过滤
+    private List<string> _allModelNames = new();  // 设备型号完整列表
+
+    // 三级联动：品牌 → 子系列 → 机型
+    private readonly ObservableCollection<string> _brandList = new();
+    private readonly ObservableCollection<string> _seriesList = new();
+    private readonly ObservableCollection<string> _modelList = new();
+    // brand → (series → models)
+    private Dictionary<string, Dictionary<string, List<string>>> _brandTree = new();
 
     public MainWindow()
     {
@@ -101,7 +109,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         _trayIcon.MouseUp += (_, e) =>
         {
             if (e.Button == Forms.MouseButtons.Left) ToggleFromTray();
-        else if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
+            else if (e.Button == Forms.MouseButtons.Right) ShowTrayMenu();
         };
 
         // 先填充默认 EQ 列表，连接成功后会根据设备型号更新
@@ -109,13 +117,40 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         CbTray.IsChecked = ReadRegBool(AppConst.RegBase, "TrayEnabled");
         CbAuto.IsChecked = ReadRegBool(AppConst.RegRun, AppConst.RegRunName);
 
-        // 设备型号选择（从 JSON 动态加载）
+        // 设备型号选择（三级联动：品牌 → 子系列 → 机型）
         _allModelNames = DeviceCapabilities.GetModelNames();
-        CbModel.Items.Add("自动检测");
-        foreach (var name in _allModelNames)
-            CbModel.Items.Add(name);
+        _brandTree = BuildBrandTree(_allModelNames);
+
+        CbBrand.ItemsSource = _brandList;
+        CbSeries.ItemsSource = _seriesList;
+        CbModel.ItemsSource = _modelList;
+
+        _brandList.Add("自动检测");
+        foreach (var brand in _brandTree.Keys.OrderBy(b => b)) _brandList.Add(brand);
+
         _modelOverride = ReadRegStr(AppConst.RegBase, "ModelOverride");
-        CbModel.SelectedItem = _modelOverride ?? "自动检测";
+        if (string.IsNullOrEmpty(_modelOverride))
+        {
+            CbBrand.SelectedItem = "自动检测";
+        }
+        else
+        {
+            // 恢复之前手动选择的型号
+            var (brand, series) = FindBrandSeries(_modelOverride, _brandTree);
+            CbBrand.SelectedItem = brand ?? "自动检测";
+            if (brand != null)
+            {
+                _seriesList.Clear();
+                _seriesList.Add("（全部子系列）");
+                foreach (var s in _brandTree[brand].Keys.OrderBy(s => s)) _seriesList.Add(s);
+                CbSeries.SelectedItem = series ?? "（全部子系列）";
+                _modelList.Clear();
+                _modelList.Add("（全部机型）");
+                foreach (var m in _brandTree[brand][series ?? _brandTree[brand].Keys.First()].OrderBy(m => m))
+                    _modelList.Add(m);
+                CbModel.SelectedItem = _modelOverride;
+            }
+        }
 
         // 游戏模式实现
         _gameModeCompat = ReadRegBool(AppConst.RegBase, "GameModeCompat");
@@ -138,10 +173,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             await _rfcomm.ConnectAsync();
             if (_rfcomm.IsConnected)
-        {
+            {
                 _pollCts = new CancellationTokenSource();
                 await _rfcomm.PollAsync(_pollCts.Token);
-        }
+            }
             // 连接失败或断连后反馈状态，等 5 秒重试
             Dispatcher.Invoke(() => OnStateChanged());
             if (!_realClose) await Task.Delay(5000);
@@ -166,10 +201,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 
             // 首次连上且已获取到电量时弹出提示
             if (!_wasConnected && s.Battery.Count > 0)
-        {
+            {
                 _wasConnected = true;
                 _ = ToastWindow.ShowAsync(s, caps.ModelName);
-        }
+            }
         }
         else
         {
@@ -213,20 +248,20 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (!_lowBatteryAlerted)
         {
             if ((batL is { } l && l.Lvl <= 20) || (batR is { } r && r.Lvl <= 20))
-        {
+            {
                 _lowBatteryAlerted = true;
                 _ = ToastWindow.ShowLowBatteryAsync(s, caps.ModelName);
-        }
+            }
         }
 
         // 极低电量检测：左或右耳 ≤10% 时弹红色警告（每次连接周期仅一次）
         if (!_criticalBatteryAlerted)
         {
             if ((batL is { } l && l.Lvl <= 10) || (batR is { } r && r.Lvl <= 10))
-        {
+            {
                 _criticalBatteryAlerted = true;
                 _ = ToastWindow.ShowCriticalBatteryAsync(s, caps.ModelName);
-        }
+            }
         }
 
         // 托盘悬浮提示
@@ -246,14 +281,14 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         if (s.AncMode is not "?" && (DateTime.Now - _ancUserSetAt).TotalSeconds > 3)
         {
             if (s.AncMode is "Off" or "Adaptive" or "Transparency")
-        { _ancMain = s.AncMode; AncSub.Visibility = Visibility.Collapsed; }
-        else if (s.AncMode is "Smart" or "Light" or "Medium" or "Deep")
-        {
+            { _ancMain = s.AncMode; AncSub.Visibility = Visibility.Collapsed; }
+            else if (s.AncMode is "Smart" or "Light" or "Medium" or "Deep")
+            {
                 _ancMain = "Smart";
                 // 仅在首次同步时设置子模式（_ancLevel 为空），之后由用户手动切换决定
                 if (string.IsNullOrEmpty(_ancLevel)) _ancLevel = s.AncMode;
                 AncSub.Visibility = Visibility.Visible;
-        }
+            }
         }
         Highlight();
 
@@ -266,19 +301,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SpatialAudioPanel.Visibility = caps.HasSpatialAudio ? Visibility.Visible : Visibility.Collapsed;
         CbSpatial.Visibility = caps.HasSpatialSound ? Visibility.Visible : Visibility.Collapsed;
         CbDualDevice.Visibility = caps.HasDualDevice ? Visibility.Visible : Visibility.Collapsed;
-
-        // 多设备连接列表
-        MultiDevicePanel.Visibility = caps.HasDualDevice && _rfcomm.State.DualDevice ? Visibility.Visible : Visibility.Collapsed;
-        if (_rfcomm.State.ConnectedDevices.Count > 0)
-        {
-            MultiDeviceList.ItemsSource = _rfcomm.State.ConnectedDevices;
-            MultiDeviceEmpty.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            MultiDeviceList.ItemsSource = null;
-            MultiDeviceEmpty.Visibility = Visibility.Visible;
-        }
         BtnAdaptive.Visibility = caps.HasAdaptiveAnc ? Visibility.Visible : Visibility.Collapsed;
 
         // 更新型号备注
@@ -374,7 +396,6 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
     {
         _rfcomm.State.DualDevice = CbDualDevice.IsChecked == true;
         _rfcomm.SendDualDevice(CbDualDevice.IsChecked == true);
-        MultiDevicePanel.Visibility = _rfcomm.Caps.HasDualDevice && CbDualDevice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void CbGame_Changed(object s, RoutedEventArgs e)
@@ -398,7 +419,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             using var k = Registry.CurrentUser.OpenSubKey(AppConst.RegRun, true)!;
             if (CbAuto.IsChecked == true) k.SetValue(AppConst.RegRunName, $"\"{Environment.ProcessPath!}\" --minimized");
-        else k.DeleteValue(AppConst.RegRunName, false);
+            else k.DeleteValue(AppConst.RegRunName, false);
         }
         catch { }
     }
@@ -427,89 +448,122 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         {
             using var k = Registry.CurrentUser.CreateSubKey(path);
             if (v == null) k.DeleteValue(name, false);
-        else k.SetValue(name, v);
+            else k.SetValue(name, v);
         }
         catch { }
     }
 
-    private bool _filtering;  // 防止搜索过滤时触发 CbModel_Changed
-    private bool _inTextChanged;  // 防止 TextChanged 递归
+    // ========== 设备型号三级联动 ==========
+    // 把设备名按"品牌 → 子系列 → 机型"分组
+    private static readonly string[] _knownBrands = { "OPPO", "OnePlus", "realme" };
 
-    private void CbModel_PreviewMouseDown(object s, MouseButtonEventArgs e)
+    private static Dictionary<string, Dictionary<string, List<string>>> BuildBrandTree(IEnumerable<string> modelNames)
     {
-        if (CbModel.IsDropDownOpen) return;
-        // 强制布局完成后再打开下拉（首次进入设置页时控件可能尚未完成布局）
-        CbModel.UpdateLayout();
-        CbModel.IsDropDownOpen = true;
+        var tree = new Dictionary<string, Dictionary<string, List<string>>>();
+        foreach (var name in modelNames)
+        {
+            var (brand, series) = SplitName(name);
+            if (!tree.TryGetValue(brand, out var seriesMap))
+            {
+                seriesMap = new Dictionary<string, List<string>>();
+                tree[brand] = seriesMap;
+            }
+            if (!seriesMap.TryGetValue(series, out var modelList))
+            {
+                modelList = new List<string>();
+                seriesMap[series] = modelList;
+            }
+            modelList.Add(name);
+        }
+        return tree;
     }
 
-    private void CbModel_DropDownOpened(object s, EventArgs e)
+    private static (string brand, string series) SplitName(string name)
     {
-        // 保存当前选中值，清空后重建列表再恢复选中
-        var prev = _modelOverride ?? "自动检测";
-        _filtering = true;
-        CbModel.Items.Clear();
-        CbModel.Items.Add("自动检测");
-        foreach (var name in _allModelNames) CbModel.Items.Add(name);
-        CbModel.SelectedItem = prev;
-        CbModel.Text = prev;
-        _filtering = false;
-
-        // 监听输入实现实时模糊搜索（只绑定一次）
-        if (CbModel.Template.FindName("PART_EditableTextBox", CbModel) is TextBox tb && tb.Tag is null)
+        // 第一个已知 brand token 当品牌；剩余部分第一个 token 当子系列
+        var tokens = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string brand = "其他";
+        string series = "(未分类)";
+        if (tokens.Length >= 1)
         {
-            tb.Tag = "hooked";
-            tb.TextChanged += (_, _) =>
-        {
-                if (_inTextChanged) return;
-                _inTextChanged = true;
-                var filter = tb.Text;
-                if (string.IsNullOrEmpty(filter))
+            foreach (var b in _knownBrands)
+            {
+                if (string.Equals(tokens[0], b, StringComparison.OrdinalIgnoreCase))
                 {
-                    _filtering = true;
-                    CbModel.IsDropDownOpen = true;
-                    CbModel.Items.Clear();
-                    CbModel.Items.Add("自动检测");
-                    foreach (var name in _allModelNames) CbModel.Items.Add(name);
-                    _filtering = false;
-                    _inTextChanged = false;
-                    return;
+                    brand = b;
+                    break;
                 }
-                _filtering = true;
-                CbModel.IsDropDownOpen = true;
-                CbModel.Items.Clear();
-                CbModel.Items.Add("自动检测");
-                foreach (var name in _allModelNames)
-                    if (name.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                        CbModel.Items.Add(name);
-                CbModel.Text = filter;
-                _filtering = false;
-                tb.CaretIndex = filter.Length;
-                _inTextChanged = false;
-        };
+            }
         }
-    }
-
-    private void CbModel_DropDownClosed(object s, EventArgs e)
-    {
-        // 关闭下拉时恢复正确显示文本，防止搜索后未选择导致显示为空
-        var display = _modelOverride ?? "自动检测";
-        if (CbModel.Text != display)
+        if (tokens.Length >= 2)
         {
-            _inTextChanged = true;
-            CbModel.Text = display;
-            _inTextChanged = false;
+            series = tokens[1];
         }
+        else if (tokens.Length == 1)
+        {
+            series = tokens[0];
+        }
+        return (brand, series);
     }
 
-    private void CbModel_Changed(object s, SelectionChangedEventArgs e)
+    private static (string? brand, string? series) FindBrandSeries(
+        string modelName,
+        Dictionary<string, Dictionary<string, List<string>>> tree)
     {
-        if (_filtering) return;
+        foreach (var (brand, seriesMap) in tree)
+        {
+            foreach (var (series, models) in seriesMap)
+            {
+                if (models.Contains(modelName)) return (brand, series);
+            }
+        }
+        return (null, null);
+    }
+
+    private void CbBrand_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (CbBrand.SelectedItem is not string sel) return;
+        _seriesList.Clear();
+        if (sel == "自动检测")
+        {
+            _modelList.Clear();
+            CbSeries.SelectedIndex = -1;
+            CbModel.SelectedIndex = -1;
+            ApplyModelOverride(null);
+            return;
+        }
+        if (!_brandTree.TryGetValue(sel, out var seriesMap)) return;
+        _seriesList.Add("（全部子系列）");
+        foreach (var series in seriesMap.Keys.OrderBy(x => x)) _seriesList.Add(series);
+        CbSeries.SelectedIndex = 0;
+    }
+
+    private void CbSeries_Changed(object s, SelectionChangedEventArgs e)
+    {
+        if (CbSeries.SelectedItem is not string sel) return;
+        if (CbBrand.SelectedItem is not string brand || brand == "自动检测") return;
+        if (!_brandTree.TryGetValue(brand, out var seriesMap)) return;
+        _modelList.Clear();
+        if (sel == "（全部子系列）")
+        {
+            foreach (var m in seriesMap.Values.SelectMany(x => x).OrderBy(m => m)) _modelList.Add(m);
+        }
+        else if (seriesMap.TryGetValue(sel, out var models))
+        {
+            foreach (var m in models.OrderBy(m => m)) _modelList.Add(m);
+        }
+        CbModel.SelectedIndex = _modelList.Count > 0 ? 0 : -1;
+    }    private void CbModel_Changed(object s, SelectionChangedEventArgs e)
+    {
         if (CbModel.SelectedItem is not string sel) return;
-        _modelOverride = sel == "自动检测" ? null : sel;
+        ApplyModelOverride(sel);
+    }
+
+    private void ApplyModelOverride(string? modelName)
+    {
+        _modelOverride = modelName;
         WriteRegStr(AppConst.RegBase, "ModelOverride", _modelOverride);
 
-        // 刷新 EQ 列表和 UI
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _rfcomm.Caps;
@@ -522,26 +576,12 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         SpatialAudioPanel.Visibility = caps.HasSpatialAudio ? Visibility.Visible : Visibility.Collapsed;
         CbSpatial.Visibility = caps.HasSpatialSound ? Visibility.Visible : Visibility.Collapsed;
         CbDualDevice.Visibility = caps.HasDualDevice ? Visibility.Visible : Visibility.Collapsed;
-
-        // 多设备连接列表
-        MultiDevicePanel.Visibility = caps.HasDualDevice && _rfcomm.State.DualDevice ? Visibility.Visible : Visibility.Collapsed;
-        if (_rfcomm.State.ConnectedDevices.Count > 0)
-        {
-            MultiDeviceList.ItemsSource = _rfcomm.State.ConnectedDevices;
-            MultiDeviceEmpty.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            MultiDeviceList.ItemsSource = null;
-            MultiDeviceEmpty.Visibility = Visibility.Visible;
-        }
         BtnAdaptive.Visibility = caps.HasAdaptiveAnc ? Visibility.Visible : Visibility.Collapsed;
 
-        ModelNote.Text = sel == "自动检测"
+        ModelNote.Text = _modelOverride == null
             ? $"当前自动识别: {_rfcomm.Caps.ModelName}"
             : $"已手动指定: {caps.ModelName}";
 
-        // 同步更新状态栏和标题
         UpdateTitle();
         if (_rfcomm.State.Connected)
         {
@@ -648,11 +688,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         AncSub.Visibility = Visibility.Collapsed;
         CbSpatial.IsChecked = false;
         CbGame.IsChecked = false;
-        MultiDevicePanel.Visibility = Visibility.Collapsed;
-        MultiDeviceList.ItemsSource = null;
     }
-
-    private void BtnRefreshMulti_Click(object s, RoutedEventArgs e) => _rfcomm.SendMultiConnectInfo();
 
     private void OnWindowClosing(object? s, CancelEventArgs e)
     {
@@ -696,10 +732,10 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             Padding = new Thickness(4),
             Width = 200,
             Effect = new System.Windows.Media.Effects.DropShadowEffect
-        {
+            {
                 Color = System.Windows.Media.Color.FromArgb(0x80, 0, 0, 0),
                 BlurRadius = 8, ShadowDepth = 2, Direction = 270, Opacity = 0.35
-        }
+            }
         };
 
         var stack = new StackPanel();
@@ -729,18 +765,18 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             if (_ancMain == "Smart" && !string.IsNullOrEmpty(_ancLevel))
                 ancLabel = $"降噪 · {_ancLevel}";
             foreach (var (label, tag) in new[] { ("关闭", "Off"), ("自适应", "Adaptive"), ("通透", "Transparency"), (ancLabel, "Smart") })
-        {
+            {
                 var isMain = _ancMain == tag;
                 stack.Children.Add(CreateMenuRow(label, isMain, () =>
                 {
                     SwitchAncMain(tag);
                     closeMenu();
                 }));
-        }
+            }
 
             // ANC 深度子模式（缩进显示）
             foreach (var (label, tag) in new[] { ("智能", "Smart"), ("轻度", "Light"), ("中度", "Medium"), ("深度", "Deep") })
-        {
+            {
                 var row = CreateMenuRow(label, _ancLevel == tag, () =>
                 {
                     SwitchAncSub(tag);
@@ -749,7 +785,7 @@ public partial class MainWindow : Wpf.Ui.Controls.FluentWindow
                 row.Padding = new Thickness(24, 0, 10, 0);
                 row.Visibility = _ancMain == "Smart" ? Visibility.Visible : Visibility.Collapsed;
                 stack.Children.Add(row);
-        }
+            }
 
             stack.Children.Add(CreateMenuSeparator());
 
