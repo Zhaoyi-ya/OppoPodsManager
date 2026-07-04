@@ -1,6 +1,6 @@
 # OPPO Pods For Windows
 
-[中文](README.md) | [English](README_EN.md)
+[中文](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/README.md) | [English](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/README_EN.md)
 
 ---
 
@@ -40,13 +40,16 @@ Supports **137 devices** across all three brands, with capabilities auto-detecte
 ### Sound
 - **Master EQ**: available presets loaded per model, one-tap switching
 - **Spatial sound**: on/off spatial soundstage
-- **Spatial audio 3-mode**: Off / Fixed / Head Tracking (supported models)
+- **Spatial audio 3-mode**: Off / Fixed / Head Tracking (supported models); on connect the app reads back the mode currently selected on the earbuds and syncs the UI, restored correctly across restarts
+- **Game sound**: dedicated gaming sound effect toggle (supported models), with live state read-back
+- **Sound-effect mutex**: game sound and spatial sound are mutually exclusive — turning one on automatically turns the other off, matching the official app
 
 ### Other Controls
 - **Game mode**: low-latency toggle, standard and compatible implementations
 - **Dual-device connection**: toggle simultaneous two-device connection
 - **Multi-device management**: view connected devices, switch the active one with one click
 - **Device info**: firmware version and audio codec display
+- **Live state sync**: every toggle and mode continuously reads back the real state from the earbuds and restores it after an app restart, so the UI always matches your earbuds
 
 ### Desktop Experience
 - **System tray**: left-click toggles the window, right-click opens a menu, hover shows live battery
@@ -85,8 +88,8 @@ Main window, top to bottom:
 | **Device list** | Shown for dual-device models; expand to view connected devices and switch the active one |
 | **Battery** | Left / Case / Right readings with charging status; wear status below |
 | **Noise Cancelling** | Main-mode segmented selector + sub-levels (generated per model); shows real-time level in Smart mode |
-| **Spatial Audio** | 3-mode selection (only shown on supported models) |
-| **Features** | Spatial sound, game mode, dual-device toggles + Master EQ dropdown |
+| **Spatial Audio** | 3-mode selection (only shown on supported models), auto-synced to the mode currently set on the earbuds |
+| **Features** | Spatial sound, game mode, game sound, dual-device toggles + Master EQ dropdown (all shown per model, state read back live) |
 | **Status bar** | Connection indicator + reconnect button |
 
 **Settings page**: manual model override (searchable), custom device name, game-mode implementation, theme, minimize-to-tray, auto-start.
@@ -122,6 +125,12 @@ Use the search box under **Settings → Device Model** to find and set your exac
 
 **Q: ANC level names differ from the official app?**
 The ANC level names (Smart / Deep / Medium / Light) match the official app. Smart mode switches levels based on your environment, and the UI shows the currently computed level.
+
+**Q: Turning on game sound turned off spatial sound (or vice versa)?**
+That's by design. Game sound and spatial sound are mutually exclusive on the earbuds — only one can be active at a time. Enabling one automatically disables the other and sends that to the earbuds, matching the official app.
+
+**Q: A toggle doesn't match the earbuds / restores wrong after a restart?**
+The app continuously reads back the real state from the earbuds (spatial audio mode, game sound, game mode, dual-device, etc.) and restores it on restart. If you briefly see a toggle flicker, that's the read-back syncing with your action — it settles in a moment.
 
 **Q: The app keeps running after I close the window?**
 If "minimize to tray" is enabled, closing the window just hides it to the tray. Right-click the tray icon to quit.
