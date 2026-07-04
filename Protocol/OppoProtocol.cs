@@ -36,58 +36,99 @@ public static class OppoProtocol
     public const ushort CmdQueryProductId = 0x0103;    // 查询远程 Product ID（官方设备识别主键）
     public const ushort CmdProductIdResp = 0x8103;     // Product ID 响应
 
-    // ========== 官方完整命令目录（0x100-0x134 查询 / 0x400-0x43B 设置）==========
-    // 来源：APK PollCommandManager 发送方法 + D() 巨型 switch (0x8100-0x8134 响应)。
-    // 命令层用 melody 命令号，经 SPP 0xAA 帧承载。响应 = 命令 | 0x8000。
-    // 标注 [已验证] = 实机日志确认收发；其余为官方目录，供后续按能力启用。
+    // ========== 官方完整命令目录（0x100-0x133 查询 / 0x400-0x43B 设置）==========
+    // 来源：melody 16.8.1 逆向 —— 命令号权威取自 PollCommandManager/SetCommandManager 的
+    //   "<fnName> UNSUPPORTED cmd=0x<num>" 日志（LA7/b、LB7/h、LC7/a、Lm、Ln、Lu 等 R8 合成类）。
+    // 命令层用 melody 命令号，经 SPP 0xAA 帧承载；查询响应 = 命令 | 0x8000。
+    // 标注 [已验证] = 实机日志确认收发。全部命令名与官方 getXxx/setXxx 方法一一对应。
 
-    // ----- 设备信息查询（空载荷）-----
-    public const ushort CmdQueryCapability   = 0x0100;  // requestCapability 基础能力
-    public const ushort CmdQueryMtu          = 0x0101;  // 远程 MTU
-    public const ushort CmdQueryVendorId     = 0x0102;  // 远程 Vendor ID
-    public const ushort CmdQueryVersion      = 0x0105;  // 远程固件版本
-    public const ushort CmdQueryUpgradeCap   = 0x0107;  // 升级能力
-    public const ushort CmdQueryFunctionKey  = 0x0108;  // 按键功能
-    public const ushort CmdQueryEarStatus    = 0x0109;  // 耳机状态
-    public const ushort CmdQueryColorId      = 0x010B;  // 耳机颜色 ID
-    public const ushort CmdQueryFeatureState = 0x010D;  // 功能开关状态（= CmdBatchQuery）
-    public const ushort CmdQueryCodecType    = 0x0114;  // 编解码器类型
-    public const ushort CmdQueryHearing      = 0x0115;  // 听力增强数据
-    public const ushort CmdQueryCapBitmap    = 0x011C;  // 能力位图（TriangleInfo/GetCapability）
-    public const ushort CmdQueryMultiInfo    = 0x011D;  // 多连接信息（另一路）
-    public const ushort CmdQueryEarScan      = 0x011E;  // 耳道扫描数据
-    public const ushort CmdQueryEarTone      = 0x0121;  // 耳音调数据
-    public const ushort CmdQueryEqAll        = 0x0122;  // 全部 EQ 数据
-    public const ushort CmdQueryCodecList    = 0x0123;  // 编解码器列表
-    public const ushort CmdQueryBassEngine   = 0x0124;  // 低音引擎（降噪新格式）
-    public const ushort CmdQueryAccountKey   = 0x0125;  // AccountKey
-    public const ushort CmdQuerySpineCalib   = 0x0129;  // 脊柱校准状态
-    // 0x012A：官方 getHeadsetSpatialType（PollCommandManager 日志 "getHeadsetSpatialType UNSUPPORTED cmd=0x12a"）。
-    // 查询当前空间音频三模式（Off/Fixed/Track），响应 0x812A = [status(1)][spatialType(1)]。
-    // （旧注释误标为"耳机颜色 ID 备用"，实为空间音频状态回读命令。）
-    public const ushort CmdQueryHeadsetSpatial = 0x012A;  // 查询空间音频三模式当前值
+    // ----- 设备信息查询（0x1xx，getXxx；响应 0x81xx）-----
+    public const ushort CmdQueryCapability   = 0x0100;  // getRemoteCapability 基础能力
+    public const ushort CmdQueryMtu          = 0x0101;  // getRemoteMTU 远程 MTU
+    public const ushort CmdQueryVendorId     = 0x0102;  // getRemoteVID 远程 Vendor ID
+    // 0x0103 = getRemotePID（= CmdQueryProductId，上方已定义） [已验证]
+    public const ushort CmdQueryVersion      = 0x0105;  // getRemoteVersion 远程固件版本 [已验证]
+    // 0x0106 = getBatteryLevel（= CmdBattery，上方已定义） [已验证]
+    public const ushort CmdQueryUpgradeCap   = 0x0107;  // getUpgradeCapability 升级能力
+    public const ushort CmdQueryFunctionKey  = 0x0108;  // getKeyFunction 按键功能（设置为 setKeyFunction 0x0402）
+    public const ushort CmdQueryEarStatus    = 0x0109;  // getEarBudsStatus 耳机佩戴状态
+    public const ushort CmdQueryColorId      = 0x010B;  // getEarBudsColorID 耳机颜色 ID
+    // 0x010C = getCurrentNoiseReductionMode / getNoiseReductionSwitchMode / getIntelligentNoiseReductionMode
+    //          （= CmdQueryAnc，上方已定义）[已验证]
+    public const ushort CmdQueryFeatureState = 0x010D;  // getFeatureSwitchStatus 功能开关状态（= CmdBatchQuery）[已验证]
+    // 0x010F = getCurrentEqualizerMode（= CmdQueryEq，上方已定义）[已验证]
+    // 0x0112 = getMultiConnectInformation（= CmdMultiConnectInfo，上方已定义）[已验证]
+    public const ushort CmdQueryCodecType    = 0x0114;  // getCurrentCodecType 当前编解码器类型
+    public const ushort CmdQueryHearing      = 0x0115;  // getHearingEnhancementData 听力增强数据
+    public const ushort CmdQueryHearingFilter = 0x0116; // getHearingEnhancementFilterData 听力增强滤波数据
+    public const ushort CmdQueryEarRestore   = 0x0118;  // getEarRestoreData 入耳恢复数据
+    public const ushort CmdQueryZenMode      = 0x0119;  // getEarBudsZenModeInformation 禅模式信息
+    public const ushort CmdQueryCapBitmap    = 0x011C;  // getTriangleInfo/getRemoteCapability 能力位图（三角/GetCapability）
+    public const ushort CmdQueryFreeDialog   = 0x011D;  // getFreeDialogRecoveryTime 自由对话恢复时间
+    public const ushort CmdQueryEarScan      = 0x011E;  // getEarScanData 耳道扫描数据
+    public const ushort CmdQueryEarScanFilter = 0x011F; // getEarScanFilterData 耳道扫描滤波数据
+    public const ushort CmdQueryEarTone      = 0x0121;  // getEarToneData 耳音调数据
+    public const ushort CmdQueryEqAll        = 0x0122;  // getAllEqInfo 全部 EQ 数据
+    public const ushort CmdQueryCodecList    = 0x0123;  // getHighAudioCodecList 高清编解码器列表
+    public const ushort CmdQueryBassEngine   = 0x0124;  // getBassEngineVale 低音引擎值
+    public const ushort CmdQueryAccountKey   = 0x0125;  // getAccountKey AccountKey
+    public const ushort CmdQuerySpineHistory = 0x0126;  // getSpineHistoryData 脊柱历史数据
+    public const ushort CmdQueryScreenOffDelay = 0x0127; // getScreenOffBroadcastDelayTime 息屏广播延时
+    public const ushort CmdQuerySpineCalib   = 0x0129;  // getSpineCalibration 脊柱校准状态
+    // 0x012A：官方 getHeadsetSpatialType —— 查询空间音频三模式当前值（Off/Fixed/Track）。
+    // 响应 0x812A = [status(1)][spatialType(1)]，spatialType 0=Off 1=Fixed 2=Track。
+    public const ushort CmdQueryHeadsetSpatial = 0x012A;  // getHeadsetSpatialType 空间音频三模式当前值
     public const ushort CmdHeadsetSpatialResp  = 0x812A;  // 空间音频三模式查询响应
-    public const ushort CmdQueryGameSound    = 0x012B;  // 游戏音效信息
-    public const ushort CmdSetCurrentNoise   = 0x012E;  // 设置当前降噪（PCM 写路径）
-    public const ushort CmdSetBuildModel     = 0x041F;  // 设置机型 Build.MODEL
+    public const ushort CmdQueryGameSound    = 0x012B;  // getGameSoundInfo 游戏音效信息 [status][selectType][count][types..]
+    public const ushort CmdQueryAiSummary    = 0x012E;  // getAISummaryType AI 摘要类型
+    public const ushort CmdQueryVolumeValue  = 0x0130;  // getVolumeValueInfo 音量档位信息
+    public const ushort CmdQueryAiTranslate  = 0x0131;  // getAITranslationAppStatus AI 翻译 App 状态
+    public const ushort CmdQueryMultiPriority = 0x0132; // getMultiConnectPriorityDevice 多连接优先设备
+    public const ushort CmdQueryTapLevel     = 0x0133;  // getTapLevelSettingValue 敲击力度档位
 
-    // ----- 高级设置（0x400-0x43B，SetCommandManager 统一处理响应）-----
-    public const ushort CmdSetGlobalSwitch   = 0x0400;  // 全局开关
-    public const ushort CmdSetChargeStatus   = 0x0403;  // = CmdSetFeature（功能开关）
-    public const ushort CmdSetNoiseMode      = 0x0404;  // = CmdAnc（设置降噪）
-    public const ushort CmdSetEqPreset       = 0x0406;  // = CmdSetEq
-    public const ushort CmdSetCodec          = 0x040E;  // 设置编解码器
-    public const ushort CmdSetEqDetail       = 0x0418;  // 设置详细 EQ（自定义频段）
-    public const ushort CmdSetSpatialAudioV2 = 0x0417;  // 空间音频（旧路）
-    public const ushort CmdSetGameModeV2     = 0x0412;  // 游戏模式（新版）
-    public const ushort CmdSetFeatureSwitch  = 0x0423;  // 游戏音效开关 setGameSoundTypeEnable [type][enable]（官方 K0）
+    // ----- 高级设置（0x4xx，setXxx；响应 0x84xx，SetCommandManager 统一处理）-----
+    public const ushort CmdSetFindMode       = 0x0400;  // setFindMode 查找耳机模式（旧注释误标为"全局开关"）
+    public const ushort CmdSetKeyFunction    = 0x0402;  // setKeyFunction 设置按键功能
+    public const ushort CmdSetSwitchFeature  = 0x0403;  // setSwitchFeature 通用功能开关（= CmdSetFeature）[featureType][status] [已验证]
+    public const ushort CmdSetNoiseMode      = 0x0404;  // setCurrentNoiseReduction / setSupportNoiseReduction（= CmdAnc）[已验证]
+    public const ushort CmdSetCompactness    = 0x0405;  // switchCompactnessDetectionStatus 贴合度检测开关
+    public const ushort CmdSetEqPreset       = 0x0406;  // setEqMode 设置 EQ 预设（= CmdSetEq）[已验证]
+    public const ushort CmdSetRelatedDevice  = 0x0408;  // setRelatedDeviceInfo 关联设备信息
+    public const ushort CmdSetHearingDetect  = 0x040D;  // processHearingEnhancementDetection 听力增强检测
+    public const ushort CmdSetCodec          = 0x040E;  // 设置编解码器（setCodecType）
+    public const ushort CmdSetCameraStatus   = 0x040F;  // setSystemCameraStatus 系统相机状态
+    public const ushort CmdSetZenMode        = 0x0410;  // setZenModeCheckInformation 禅模式
+    public const ushort CmdSetEarRestore     = 0x0411;  // setEarRestoreData 入耳恢复数据
+    public const ushort CmdSetPersonalNoise  = 0x0412;  // setPersonalizedNoiseReduction 个性化降噪
+    public const ushort CmdSetHostTriangle   = 0x0413;  // setHostTriangleInfo 主机三角信息
+    public const ushort CmdSetFreeDialogTime = 0x0414;  // setFreeDialogRecoveryTime 自由对话恢复时间
+    public const ushort CmdSetEarScanData    = 0x0415;  // sendProcessEarScanData 耳道扫描数据
+    public const ushort CmdSetTone           = 0x0417;  // setTone 设置耳音调（旧注释误标为"空间音频旧路"）
+    public const ushort CmdSetEqDetail       = 0x0418;  // setEqInfo 设置详细 EQ（自定义频段）
+    public const ushort CmdSetHighAudioCodec = 0x041A;  // setHighAudioCodecType 高清编解码器类型
+    public const ushort CmdSetBassEngine     = 0x041B;  // setBassEngineValue 低音引擎值
+    public const ushort CmdSetPhoneSpatial   = 0x041E;  // setSpatialAudioType 手机侧空间音频（非耳机 0x422）
+    public const ushort CmdSetBuildModel     = 0x041F;  // setDeviceBuildModel 设置机型 Build.MODEL
+    public const ushort CmdSetGameStatus     = 0x0420;  // setGameStatus 游戏模式状态（独立命令，非 feature 开关）
+    public const ushort CmdSetSpineRange     = 0x0421;  // setSpineRangeDetection 脊柱范围检测
+    // 0x0422 = setHeadsetSpatialType（= CmdSpatialAudio，上方已定义，空间音频三模式）[已验证]
+    public const ushort CmdSetFeatureSwitch  = 0x0423;  // setGameSoundTypeEnable 游戏音效 [type][enable] [已验证]
+    public const ushort CmdSetLeAudioAction  = 0x0424;  // setLeAudioAction LE Audio 动作
+    public const ushort CmdSetAiSummary      = 0x0425;  // setAISummaryType AI 摘要类型
+    public const ushort CmdSetAiPromptSound  = 0x0426;  // syncAIPromptSound AI 提示音同步
+    public const ushort CmdSetVolumeValue    = 0x0427;  // setVolumeValueInfo 音量档位
+    public const ushort CmdSetTranslateApp   = 0x0428;  // setTranslationAppStatus 翻译 App 状态
+    // 0x0429 = operateMultiConnectHandheldDevice（= CmdOperateHandheld，上方已定义）[已验证]
+    public const ushort CmdSetTapLevel       = 0x042D;  // setTapLevelSettingValue 敲击力度档位
+    public const ushort CmdSetVoiceMultiConv = 0x042E;  // setVoiceMultiConversationStatus 多方通话状态
+    public const ushort CmdFindDevice        = 0x0435;  // 查找设备（旧系；查找模式实际走 setFindMode 0x0400）
 
-    // ----- 其它操作 -----
-    public const ushort CmdFindDevice        = 0x0435;  // 查找设备（旧 0x35 系）
-    public const ushort CmdSpatialAudioResp  = 0x8422;  // 空间音频响应
+    // ----- 响应 -----
+    public const ushort CmdSpatialAudioResp  = 0x8422;  // 空间音频 SET 响应（0x0422 ACK）
 
     // 已验证收发（实机日志确认）：0x0103/0x0106/0x010C/0x010F/0x010D/0x0112/0x0204/0x0205/
-    //   0x0404/0x0406/0x0403/0x0422/0x0429 及其 0x8xxx 响应、0x8200-0x8205、0x0500-0x05FF。
+    //   0x0404/0x0406/0x0403/0x0422/0x0423/0x0429/0x012A/0x012B 及其 0x8xxx 响应、
+    //   0x8200-0x8205、0x0500-0x05FF。
 
     // ========== 通知注册响应族（官方 NotificationCommandManager.c 分发，耳机→手机）==========
     public const ushort CmdNotifyCapabilityResp = 0x8200;  // 通知能力响应（保存耳机支持的事件集）
