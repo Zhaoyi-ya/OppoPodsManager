@@ -175,11 +175,44 @@ public static class OppoProtocol
         _                => "未知(0x" + subType.ToString("X2") + ")"
     };
 
-    // ========== 功能 feature ID ==========
-    public const byte FeatureSpatial = 0x1B;     // 空间音效开关
-    public const byte FeatureGameMain = 0x28;    // 游戏模式主开关
-    public const byte FeatureGameLL = 0x06;      // 游戏模式低延迟（部分设备需要）
-    public const byte FeatureDualDevice = 0x11;  // 双设备连接开关
+    // ========== 功能开关 featureType（命令 0x0403 + [featureType][status]）==========
+    // 权威来源：melody 逆向 LD8/w.accept 的 refreshSwitch 分发表（featureType → setXxxStatus）。
+    // 全部经 0x0403 通用功能开关命令承载，status 0=关 1=开。
+    public const byte FeatureWearDetection    = 0x04;  // setWearDetectionStatus 佩戴检测
+    public const byte FeatureGameLL           = 0x06;  // setGameModeStatus 游戏模式（旧/低延迟）
+    public const byte FeatureVocalEnhance     = 0x09;  // setVocalEnhanceStatus 人声增强
+    public const byte FeatureHearingEnhance   = 0x0B;  // setHearingEnhanceUsageStatus 听力增强使用
+    public const byte FeaturePersonalNoise    = 0x0C;  // setPersonalNoiseStatus 个性化降噪
+    public const byte FeatureClickTakePhoto   = 0x0D;  // setClickToTakePhotoStatus 一键拍照
+    public const byte FeatureZenMode          = 0x0F;  // setZenModeStatus 禅模式
+    public const byte FeatureDualDevice       = 0x11;  // setMultiConnectStatus 双设备/多连接开关
+    public const byte FeatureSoundRecord      = 0x13;  // setHeadsetSoundRecordStatus 耳机录音
+    public const byte FeatureVoiceAssist      = 0x14;  // setVoiceAssistStatus 语音助手
+    public const byte FeatureFreeDialog       = 0x15;  // setFreeDialogStatus 畅听对话
+    public const byte FeatureSafeRemind       = 0x16;  // setSafeRemindStatus 安全提醒
+    public const byte FeatureLongPowerMode    = 0x17;  // setLongPowerModeStatus 长续航模式
+    public const byte FeatureHiQualityAudio   = 0x18;  // setHiQualityAudioStatus 高品质音频
+    public const byte FeatureVoiceCommand     = 0x19;  // setVoiceCommandStatus 语音指令
+    public const byte FeatureSpatial          = 0x1B;  // setSpatialSoundStatus 空间音效开关
+    public const byte FeatureAutoVolume       = 0x1C;  // setAutoVolumeStatus 自适应音量
+    public const byte FeatureBassEngine       = 0x1D;  // setBassEngineStatus 低音引擎
+    public const byte FeatureSaveLog          = 0x1E;  // setSaveLogStatus 日志采集
+    public const byte FeatureGameEqualizer    = 0x21;  // setGameEqualizerStatus 游戏均衡器
+    public const byte FeatureSpineLiveMonitor = 0x22;  // setSpineLiveMonitorStatus 脊柱实时监测
+    public const byte FeatureSpineCervical    = 0x23;  // setSpineCervicalStatus 颈椎监测
+    public const byte FeatureSpineExercise    = 0x24;  // setSpineExerciseStatus 脊柱运动
+    public const byte FeatureGameSound        = 0x27;  // setGameSoundStatus 游戏音效开关状态（回读）
+    public const byte FeatureGameMain         = 0x28;  // setGameModeMainStatus 游戏模式主开关
+    public const byte FeatureAdaptiveVolume   = 0x30;  // setAdaptiveVolume 自适应音量(新)
+    public const byte FeatureAdaptiveEar      = 0x31;  // setAdaptiveEar 自适应入耳
+    public const byte FeatureSpeechPerception = 0x32;  // setSpeechPerception 人声感知
+    public const byte FeatureMicControl       = 0x34;  // setMicControl 麦克风控制
+    public const byte FeatureLongPressVolume  = 0x35;  // setLongPressVolume 长按调音量
+    public const byte FeatureSwiftPair        = 0x37;  // setSwiftPair 快速配对
+    public const byte FeatureHearingOptimize  = 0x38;  // setHearingOptimizeStatus 听力优化
+    public const byte FeatureIncomingCallCtrl = 0x39;  // setVoiceIncomingCallControlStatus 来电语音控制
+    public const byte FeatureSleepDetection   = 0x3A;  // setSleepDetection 睡眠检测
+    public const byte FeatureHeadMotion       = 0x3B;  // setHeadMotion 头部动作
 
     // ========== ANC 模式字节编码 ==========
     public static readonly byte[] AncOff         = { 0x01, 0x01, 0x01 };

@@ -9,7 +9,7 @@ namespace OppoPodsManager;
 /// <summary>
 /// 编排层：在 IPodTransport 之上组织命令收发与状态解析。
 /// 不关心底层是经典 SPP 还是 BLE GATT——只依赖 IPodTransport。
-/// 传输选择由 TransportFactory 决定（Windows 下 GATT 优先、SPP 回退）。
+/// 传输选择由 TransportFactory 决定
 /// </summary>
 public class PodManager : IPodManager
 {
@@ -760,14 +760,16 @@ public class PodManager : IPodManager
             int pos = start + 2;
             for (int i = 0; i < count && pos + 8 < start + len; i++)
             {
-                // Format: [addr(6)] [state(1)] [type(1)] [reserved(1)] [nameLen(1)] [name(nameLen)]
+                // 官方 CommandUtil.h 布局：[addr(6)][len@6(1)][connState@7(1)][flag@8(1)][nameLen@9(1)][name]。
+                //   connState：0=断开 2=已连接；flag 位：bit0=当前设备 bit1=音频激活 bit2=主音频，bit3-5=设备类型。
+                //   [+6] 字节官方仅用于计算下一元素偏移，不作展示字段。
                 var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + j].ToString("X2")));
                 pos += 6;
 
-                int stateFlags = pkt[pos++];   // bitmask: bit3=current, bit2=mainAudio, bit1=audioActive, bit0=connected?
-                int connState = pkt[pos++];    // 0=disconnected, 2=connected
-                int reserved = pkt[pos++];
-                int nameLen = pkt[pos++];
+                int elemByte6 = pkt[pos++]; // [+6] 官方偏移用字节，展示层不用
+                int connState = pkt[pos++]; // [+7] 0=断开 2=已连接
+                int flag = pkt[pos++];      // [+8] 真正的状态位
+                int nameLen = pkt[pos++];   // [+9]
 
                 if (nameLen < 0 || pos + nameLen > start + len)
                 {
@@ -780,9 +782,9 @@ public class PodManager : IPodManager
                     : "Device " + addr.Substring(Math.Max(0, addr.Length - 5));
                 pos += Math.Max(nameLen, 0);
 
-                bool isCurrent = (stateFlags & 0x08) != 0;
-                bool isAudioActive = (stateFlags & 0x02) != 0;
-                bool isMainAudio = (stateFlags & 0x04) != 0;
+                bool isCurrent = (flag & 0x01) != 0;      // 官方 bit0 = 当前设备
+                bool isAudioActive = (flag & 0x02) != 0;  // 官方 bit1 = 音频激活
+                bool isMainAudio = (flag & 0x04) != 0;    // 官方 bit2 = 主音频
 
                 devices.Add(new ConnectedDeviceInfo
                 {
@@ -794,7 +796,7 @@ public class PodManager : IPodManager
                     IsAudioActive = isAudioActive,
                     IsMainAudioDevice = isMainAudio,
                 });
-                Log.D("RFCOMM", "ParseMultiConnect: device[" + i + "] addr=" + addr + ", name=\"" + deviceName + "\", connState=" + connState + ", flags=0x" + stateFlags.ToString("X2") + ", cur=" + isCurrent);
+                Log.D("RFCOMM", "ParseMultiConnect: device[" + i + "] addr=" + addr + ", name=\"" + deviceName + "\", connState=" + connState + ", flag=0x" + flag.ToString("X2") + ", cur=" + isCurrent);
             }
 
             if (devices.Count > 0)

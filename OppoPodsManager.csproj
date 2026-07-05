@@ -61,15 +61,10 @@
 
 <Target Name="RemovePdbAfterPublish" AfterTargets="Publish">
   <PropertyGroup>
-    <!-- 如果 PublishDir 未定义，则根据常用路径构造 -->
     <_PublishDir Condition="'$(PublishDir)' == ''">$(OutputPath)$(Platform)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</_PublishDir>
     <_PublishDir Condition="'$(PublishDir)' != ''">$(PublishDir)</_PublishDir>
-    <!-- 确保以反斜杠结尾 -->
     <_PublishDir Condition="!HasTrailingSlash('$(_PublishDir)')">$(_PublishDir)\</_PublishDir>
   </PropertyGroup>
-  <!-- 删除所有 .pdb -->
   <Exec Command="del /f /q &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
-  <!-- 可选：显示删除结果 -->
-  <Message Text="Deleted .pdb files from $(_PublishDir)" Importance="High" />
 </Target>
 </Project>
