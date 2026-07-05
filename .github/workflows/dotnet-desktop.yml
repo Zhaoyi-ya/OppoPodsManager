@@ -2,12 +2,9 @@ name: Build (Windows x64)
 
 on:
   push:
-    branches: [ "main" ]
     tags: [ "v*" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
-
+  
 permissions:
   contents: write
 
