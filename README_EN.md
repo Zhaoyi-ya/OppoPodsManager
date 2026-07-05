@@ -1,6 +1,6 @@
 # OPPO Pods For Windows
 
-[中文](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/README.md) | [English](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/README_EN.md)
+[中文](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/blob/main/README_EN.md)
 
 ---
 
@@ -139,8 +139,8 @@ If "minimize to tray" is enabled, closing the window just hides it to the tray. 
 
 ## Maintainers
 
-- [@Zhaoyi-ya](https://github.com/Zhaoyi-ya) — Repository author
-- [@Dszsu](https://github.com/Dszsu) — Lead maintainer
+- [@Zhaoyi-ya](https://github.com/Zhaoyi-ya)
+- [@Dszsu](https://github.com/Dszsu)
 
 ---
 
