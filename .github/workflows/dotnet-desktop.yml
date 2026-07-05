@@ -16,6 +16,8 @@ env:
   DOTNET_VERSION: "10.0.x"
   DOTNET_NOLOGO: "true"
   DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  ASSET_NAME: ""
 
 jobs:
   build:
@@ -103,8 +105,8 @@ jobs:
 
             | 版本 | 说明 |
             |---|---|
-            | **普通版 exe** | 体积最小，需先安装 [.NET 10 运行时](https://dotnet.microsoft.com/download/dotnet/10.0) |
+            | **普通版 exe** | 需先安装 [.NET 10 运行时](https://dotnet.microsoft.com/download/dotnet/10.0) |
             | **自包含版 exe** | 免安装，双击即用，内置运行时，性能略低 |
-            | **AOT 版 zip** | 原生编译，启动最快、内存最省；解压后所有文件需放在同一目录 |
+            | **AOT 版 zip** | 原生编译，性能最佳；解压后所有文件需放在同一目录 |
 
             ---
