@@ -99,7 +99,7 @@ jobs:
           files: dist/**/*
           generate_release_notes: true
           draft: false
-          prerelease: ${{ contains(github.ref_name, '_beta') }}
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
           body: |
             ### 下载说明
 
