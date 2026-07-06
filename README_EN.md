@@ -1,6 +1,7 @@
 # OPPO Pods For Windows
 
-[中文](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/blob/main/README_EN.md)
+[中文](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README_EN.md)
+
 
 ---
 
