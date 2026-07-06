@@ -270,7 +270,7 @@
        VerticalScrollBarVisibility="Hidden" IsVisible="False">
     <StackPanel Spacing="14">
      <!-- 标题行 -->
-     <TextBlock Text="EQ 调节" FontSize="15" FontWeight="Medium"
+     <TextBlock Text="EQ 调节（未完善）" FontSize="15" FontWeight="Medium"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
 
      <!-- 左右双卡片 -->
@@ -288,6 +288,7 @@
             HorizontalAlignment="Center">
          <Grid.Styles>
           <Style Selector="Slider">
+           <Setter Property="IsEnabled" Value="False"/>
            <Setter Property="Width" Value="36"/>
            <Setter Property="Height" Value="180"/>
            <Setter Property="Orientation" Value="Vertical"/>
@@ -360,7 +361,7 @@
          </StackPanel>
         </Grid>
 
-        <Button x:Name="BtnEqSave" Content="保存" Height="28" FontSize="11"
+        <Button x:Name="BtnEqSave" Content="保存" Height="28" FontSize="11" IsEnabled="False"
            Click="BtnEqSave_Click" Padding="20,0" HorizontalAlignment="Center"/>
        </StackPanel>
       </Border>
