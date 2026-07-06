@@ -4,6 +4,7 @@
      xmlns:local="using:OppoPodsManager"
      x:Class="OppoPodsManager.MainWindow"
      Title="OPPO Pods For Windows" Height="640" Width="860"
+     MinWidth="890" MinHeight="640"
      WindowStartupLocation="CenterScreen"
      CanMinimize="True" CanMaximize="True" CanPin="False" CanFullScreen="False"
      BackgroundStyle="Bubble">
@@ -146,16 +147,38 @@
         CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard"
         >
        <StackPanel>
-        <TextBlock Text="功能" FontSize="14" FontWeight="Medium" Margin="0,0,0,8"
+        <TextBlock Text="功能" FontSize="14" FontWeight="Medium" Margin="0,0,0,6"
            HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-        <CheckBox x:Name="CbSpatial" Content="空间音效" Margin="0,3" IsVisible="False"/>
-        <CheckBox x:Name="CbGame" Content="游戏模式" Margin="0,3"/>
-        <CheckBox x:Name="CbGameSound" Content="游戏音效" Margin="0,3" IsVisible="False"/>
-        <CheckBox x:Name="CbDualDevice" Content="双设备连接" Margin="0,3" IsVisible="False"/>
-        <StackPanel HorizontalAlignment="Center" Margin="0,6,0,0">
-         <TextBlock Text="大师调音" FontSize="12" Margin="0,0,0,4"
-            Foreground="{DynamicResource SukiText}" Opacity="0.7"/>
-         <ComboBox x:Name="CbEq" Width="140" Height="28" Padding="6,0"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Spacing="16">
+         <!-- 左列 -->
+         <StackPanel Spacing="0">
+          <CheckBox x:Name="CbSpatial" Content="空间音效" Margin="0,3"/>
+          <CheckBox x:Name="CbGameSound" Content="游戏音效" Margin="0,3"/>
+          <CheckBox x:Name="CbBassEngine" Content="低音引擎" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbVocalEnhance" Content="人声增强" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbHearingEnhance" Content="听力增强" Margin="0,3" IsEnabled="False"/>
+         </StackPanel>
+         <!-- 右列 -->
+         <StackPanel Spacing="0">
+          <CheckBox x:Name="CbGame" Content="游戏模式" Margin="0,3"/>
+          <CheckBox x:Name="CbDualDevice" Content="双设备连接" Margin="0,3"/>
+          <CheckBox x:Name="CbLongPower" Content="长续航模式" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbWearDetection" Content="佩戴检测" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbSpineHealth" Content="脊柱监测" Margin="0,3" IsEnabled="False"/>
+         </StackPanel>
+        </StackPanel>
+        <!-- 底行 -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,10,0,0">
+         <StackPanel HorizontalAlignment="Center">
+          <TextBlock Text="大师调音" FontSize="12" Margin="0,0,0,4"
+             Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
+          <ComboBox x:Name="CbEq" Width="140" Height="28" Padding="6,0"/>
+         </StackPanel>
+         <StackPanel HorizontalAlignment="Center">
+          <TextBlock Text="查找设备" FontSize="12" Margin="0,0,0,4"
+             Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
+          <Button x:Name="BtnFindDevice" Content="播放声音" Width="140" Height="36" FontSize="11" IsEnabled="False"/>
+         </StackPanel>
         </StackPanel>
        </StackPanel>
       </Border>
@@ -208,8 +231,11 @@
          </ComboBox>
 
          <CheckBox x:Name="CbAutoUpdate" Content="自动检查更新" Margin="0,0,0,2"/>
-         <Button x:Name="BtnCheckUpdate" Content="检查更新" Height="30" FontSize="11"
+         <Button x:Name="BtnCheckUpdate" Content="检查更新" Height="32" FontSize="11"
              Click="BtnCheckUpdate_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
+
+         <Button x:Name="BtnFeedback" Content="提交反馈" Height="32" FontSize="11"
+             Click="BtnFeedback_Click" HorizontalAlignment="Stretch" Margin="0,0,0,10"/>
 
          <CheckBox x:Name="CbTray" Content="关闭到托盘"/>
          <CheckBox x:Name="CbAuto" Content="开机自启"/>

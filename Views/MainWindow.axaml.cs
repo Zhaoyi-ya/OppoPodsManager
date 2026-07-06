@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -56,6 +57,7 @@ public partial class MainWindow : SukiWindow
     private TrayIcon? _trayIcon;
     private SmallWindow? _smallWindow;
     private DispatcherTimer? _trayClickTimer;
+    private DispatcherTimer? _eqDebounceTimer;
     private bool _realClose;
     /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
     private readonly Dictionary<NativeMenuItem, (string key, string parentKey, bool isChild)> _trayAncMap = new();
@@ -410,6 +412,11 @@ public partial class MainWindow : SukiWindow
         WearStatus.Text = wearParts.Count > 0 ? string.Join("  ", wearParts) : "";
         WearStatus.IsVisible = wearParts.Count > 0;
 
+        // 查找设备：两只耳机均未佩戴时才可用
+        var anyWearing = s.WearingL == "已佩戴" || s.WearingR == "已佩戴"
+                      || s.WearingL == "佩戴"   || s.WearingR == "佩戴";
+        BtnFindDevice.IsEnabled = caps.HasFindDevice && s.Connected && !anyWearing;
+
         if (s.AncMode is not "?" && (DateTime.Now - _ancUserSetAt).TotalSeconds > 3)
             SyncAncFromState(s.AncMode);
         HighlightAnc();
@@ -443,10 +450,24 @@ public partial class MainWindow : SukiWindow
         BuildAncUi(caps);
         AncPanel.IsVisible = caps.AncOptions.Count > 0;
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
+        // CbSpatial.IsVisible = caps.HasSpatialSound;
+        // CbDualDevice.IsVisible = caps.HasDualDevice;
+        // CbGame.IsVisible = caps.HasGameMode;
+        // CbGameSound.IsVisible = caps.HasGameSound;
+
+        // 全部占位控件暂不按能力隐藏，全量显示便于验证布局
         CbSpatial.IsVisible = caps.HasSpatialSound;
         CbDualDevice.IsVisible = caps.HasDualDevice;
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
+
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = $"当前自动识别: {caps.ModelName}";
         UpdateTitle();
@@ -937,10 +958,24 @@ public partial class MainWindow : SukiWindow
         BuildAncUi(caps);
         AncPanel.IsVisible = caps.AncOptions.Count > 0;
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
+        // CbSpatial.IsVisible = caps.HasSpatialSound;
+        // CbDualDevice.IsVisible = caps.HasDualDevice;
+        // CbGame.IsVisible = caps.HasGameMode;
+        // CbGameSound.IsVisible = caps.HasGameSound;
+
+        // 全部占位控件暂不按能力隐藏，全量显示便于验证布局
         CbSpatial.IsVisible = caps.HasSpatialSound;
         CbDualDevice.IsVisible = caps.HasDualDevice;
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
+
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = _modelOverride == null
             ? $"当前自动识别: {_pods.Caps.ModelName}"
@@ -1106,6 +1141,65 @@ public partial class MainWindow : SukiWindow
     private void About_Click(object? s, RoutedEventArgs e) => ShowPage("about");
     private void AboutBack_Click(object? s, RoutedEventArgs e) => ShowPage("settings");
 
+    private async void BtnFeedback_Click(object? s, RoutedEventArgs e)
+    {
+        _confirmTcs = new TaskCompletionSource<bool>();
+        _promptTcs = null;
+
+        DialogTitle.Text = "提交反馈";
+        DialogMessage.FontSize = 14;
+        DialogMessage.Text = "点击「确认」后将会把日志导出到桌面，同时打开浏览器反馈页面，请按要求填写标题、内容并上传日志文件。\n\n如果无法连接至 GitHub，可点击「GitLab」按钮前往 GitLab 进行反馈。";
+        DialogInput.IsVisible = false;
+        DialogCancelBtn.Content = "取消";
+        DialogCancelBtn.IsVisible = true;
+        DialogSkipBtn.Content = "GitLab";
+        DialogSkipBtn.IsVisible = true;
+        DialogConfirmBtn.Content = "确认";
+        DialogOverlay.IsVisible = true;
+
+        var ok = await _confirmTcs.Task;
+        if (!ok) return;
+
+        ExportFeedback("https://github.com/Zhaoyi-ya/OPPO-Pods-For-Windows/issues/new");
+    }
+
+    private void ExportFeedback(string url)
+    {
+        try
+        {
+            var os = RuntimeInformation.OSDescription;
+            var ver = VersionText.Text ?? "unknown";
+            var model = string.IsNullOrEmpty(_pods.Caps.ModelName) ? "unknown" : _pods.Caps.ModelName;
+            var connected = _pods.State.Connected;
+            var stateText = connected ? "connected" : "disconnected";
+            var bat = connected ? string.Join(" ", _pods.State.Battery.Select(kv => $"{kv.Key}{kv.Value?.Level ?? -1}%")) : "N/A";
+            var date = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            var header = $"""
+--- 系统信息 ---
+版本: {ver}
+操作系统: {os}
+设备型号: {model}
+连接状态: {stateText}
+电量: {bat}
+
+""";
+
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var fileName = $"OPPO Pods Manager_反馈_{date}.log";
+            System.IO.File.WriteAllText(System.IO.Path.Combine(desktop, fileName), header);
+
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+            _ = Dispatcher.UIThread.InvokeAsync(async () =>
+                await ShowCheckResultDialog($"日志已导出到桌面：{fileName}\n\n浏览器已打开反馈页面，请填写描述并上传日志文件", "提交反馈"));
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "ExportFeedback", ex);
+        }
+    }
+
     private void OpenUrl_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (s is Button btn && btn.Tag is string url)
@@ -1118,7 +1212,7 @@ public partial class MainWindow : SukiWindow
     private bool _eqSuppressListEvent;
     private int _lastDeviceEqCount = -1; // 检测 DeviceEqEntries 增删
 
-    /// <summary>滑块值变更 → 更新对应 dB 标签。</summary>
+    /// <summary>滑块值变更 → 更新对应 dB 标签，触发防抖预览下发。</summary>
     private void EqSlider_Changed(object? s, Avalonia.AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != Slider.ValueProperty) return;
@@ -1134,6 +1228,16 @@ public partial class MainWindow : SukiWindow
         else if (slider == EqSlider4k) EqDb4k.Text = text;
         else if (slider == EqSlider8k) EqDb8k.Text = text;
         else if (slider == EqSlider16k) EqDb16k.Text = text;
+
+        // 防抖 150ms 后下发自定义 EQ（实时预览）
+        _eqDebounceTimer?.Stop();
+        _eqDebounceTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(150), DispatcherPriority.Background,
+            (_, _) =>
+            {
+                _eqDebounceTimer?.Stop();
+                SendCurrentCustomEq();
+            });
+        _eqDebounceTimer.Start();
     }
 
     // ---- 预设列表 ----
@@ -1405,6 +1509,13 @@ public partial class MainWindow : SukiWindow
 
     private void DialogSkip_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (DialogSkipBtn.Content is string label && label == "GitLab")
+        {
+            DialogOverlay_Close();
+            _confirmTcs?.TrySetResult(false);
+            ExportFeedback("https://jihulab.com/zhaoyi-ya-group/oppo-pods-manager/-/work_items/new");
+            return;
+        }
         SettingsManager.SetString("SkippedVersion", _updatePendingVersion);
         DialogOverlay_Close();
         _confirmTcs?.TrySetResult(false);
@@ -1999,12 +2110,12 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    private async Task ShowCheckResultDialog(string msg)
+    private async Task ShowCheckResultDialog(string msg, string title = "检查更新")
     {
         _confirmTcs = new TaskCompletionSource<bool>();
         _promptTcs = null;
 
-        DialogTitle.Text = "检查更新";
+        DialogTitle.Text = title;
         DialogMessage.Text = msg;
         DialogInput.IsVisible = false;
         DialogSkipBtn.IsVisible = false;
