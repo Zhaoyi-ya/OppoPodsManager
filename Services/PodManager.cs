@@ -40,6 +40,9 @@ public partial class PodManager : IPodManager
     public string? LastError => _transport.LastError;
     public bool IsConnected => State.Connected;
 
+    // 等待设备 ACK 的待删除 EQ ID（0x8418 响应后清除并更新 DeviceEqEntries）
+    private int _pendingDeleteEqId = -1;
+
     /// <summary>带超时/重试的设置命令：失败或超时时触发 CommandFailed（供 UI 提示）。</summary>
     private void SendSet(ushort cmd, byte[] payload, string label)
     {
@@ -251,7 +254,19 @@ public partial class PodManager : IPodManager
                 {
                     int status = len > 0 ? p[0] : -1;
                     if (status == 0)
+                    {
                         Log.D("RFCOMM", $"DispatchFrame: 设置成功 cmd=0x{frame.Cmd:X4}");
+                        // 0x8418 = CmdSetEqDetail 的响应：删除/保存 EQ 的 ACK
+                        if (frame.Cmd == OppoProtocol.CmdSetEqDetail + 0x8000 && _pendingDeleteEqId >= 0)
+                        {
+                            int deleted = _pendingDeleteEqId;
+                            _pendingDeleteEqId = -1;
+                            var old = State.DeviceEqEntries;
+                            State.DeviceEqEntries = old.Where(e => e.EqId != deleted).ToList();
+                            Log.D("RFCOMM", $"删除 EQ eqId={deleted}, 剩余 {State.DeviceEqEntries.Count} 个预设");
+                            StateChanged?.Invoke();
+                        }
+                    }
                     else
                         Log.D("RFCOMM", $"DispatchFrame: 设置失败 cmd=0x{frame.Cmd:X4} status={status}");
                     break;
@@ -529,7 +544,7 @@ public partial class PodManager : IPodManager
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "自定义 EQ");
     }
 
-    /// <summary>保存带名称的自定义 EQ 到设备（cmd 0x0418, actionType=1 + name）。</summary>
+    /// <summary>保存带名称的自定义 EQ 到设备（cmd 0x0418, actionType=1 + name）。保存后查询设备端列表以获取分配的新 eqId。</summary>
     public void SendCustomEq(int[] gains, string name)
     {
         if (!Supports(OppoProtocol.CmdSetEqDetail))
@@ -544,7 +559,7 @@ public partial class PodManager : IPodManager
         SendQueryEqAll();
     }
 
-    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。成功后自动刷新列表。</summary>
+    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。内部等待 0x8418 响应后从本地 State 中移除条目，无需重新查询。</summary>
     public void DeleteEq(int eqId)
     {
         if (!Supports(OppoProtocol.CmdSetEqDetail))
@@ -554,9 +569,8 @@ public partial class PodManager : IPodManager
         }
         var payload = OppoProtocol.EqDeletePayload(eqId);
         Log.D("RFCOMM", $"DeleteEq eqId={eqId} payload=[{string.Join(",", payload)}]");
+        _pendingDeleteEqId = eqId;
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "删除 EQ");
-        // 删除后刷新列表
-        SendQueryEqAll();
     }
 
     public async Task PollAsync(CancellationToken ct)

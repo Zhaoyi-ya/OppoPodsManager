@@ -352,7 +352,11 @@ public partial class MainWindow : SukiWindow
             if (!needRebuildEq)
                 foreach (var e in _pods.State.DeviceEqEntries)
                     if (!CbEq.Items.Contains(e.Name)) { needRebuildEq = true; break; }
+            // 检测设备端条目是否减少（删除）
+            if (!needRebuildEq && _pods.State.DeviceEqEntries.Count != _lastDeviceEqCount)
+                needRebuildEq = true;
         }
+        _lastDeviceEqCount = _pods.State.DeviceEqEntries.Count;
         if (needRebuildEq)
         {
             CbEq.SelectionChanged -= CbEq_SelectionChanged;
@@ -364,6 +368,8 @@ public partial class MainWindow : SukiWindow
                     CbEq.Items.Add(e.Name);
             }
             CbEq.SelectionChanged += CbEq_SelectionChanged;
+            // 同步刷新 EQ 面板左侧列表（仅设备端条目增删时触发）
+            RefreshEqPresetList();
         }
 
         var batL = MergeCharge(s.Battery.GetValueOrDefault("L"), s.WearingL);
@@ -1091,7 +1097,8 @@ public partial class MainWindow : SukiWindow
     // ========== EQ 调节 ==========
 
     private string _eqCurrentPreset = "";
-    private bool _eqSuppressListEvent; // 防止刷新列表时重复触发选中事件
+    private bool _eqSuppressListEvent;
+    private int _lastDeviceEqCount = -1; // 检测 DeviceEqEntries 增删
 
     /// <summary>滑块值变更 → 更新对应 dB 标签。</summary>
     private void EqSlider_Changed(object? s, Avalonia.AvaloniaPropertyChangedEventArgs e)
@@ -1216,7 +1223,7 @@ public partial class MainWindow : SukiWindow
         if (devEntry != null)
         {
             _pods.DeleteEq(devEntry.EqId);
-            // DeleteEq 内部会调 SendQueryEqAll，稍后自动刷新
+            // DeleteEq 内部会调 SendQueryEqAll，OnStateChanged 会自动刷新列表
         }
         else
         {
@@ -1230,32 +1237,17 @@ public partial class MainWindow : SukiWindow
             SetAllEqSliders(0);
         }
         EqHintText.Text = $"「{name}」已删除";
-        // 延迟等待设备响应后刷新
-        await Task.Delay(300);
-        RefreshEqPresetList();
-        RefreshMainEqCombo();
     }
 
     private void DoSaveEqPreset(string name)
     {
         _eqCurrentPreset = name;
 
-        // 发送到设备（带预设名称），后续从设备回读
+        // 发送到设备（带预设名称），后续 OnStateChanged 自动刷新列表
         if (_pods.IsConnected && _pods.Caps.CustomEqFrequencies.Length > 0)
         {
             _pods.SendCustomEq(SliderToGains(), name);
         }
-
-        // 设备响应后 SendQueryEqAll 会触发列表刷新，延迟等待回读
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(500);
-            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-            {
-                RefreshEqPresetList();
-                RefreshMainEqCombo();
-            });
-        });
 
         EqHintText.Text = $"已发送预设「{name}」到设备";
     }
