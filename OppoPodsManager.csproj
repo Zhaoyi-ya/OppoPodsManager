@@ -20,6 +20,12 @@
     <ApplicationIcon>Assets\tuopan.ico</ApplicationIcon>
     <SupportedOSPlatformVersion Condition="'$(EnableWindowsBackend)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <NoWarn>CA1416</NoWarn>
+    <!-- Debug 构建：保留调试符号，禁用 AOT/自包含 -->
+    <SelfContained Condition="'$(Configuration)' != 'Release'">false</SelfContained>
+  </PropertyGroup>
+
+  <!-- Release/AOT 发布专用属性 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishAot>true</PublishAot>
     <SelfContained>true</SelfContained>
     <StripSymbols>true</StripSymbols>

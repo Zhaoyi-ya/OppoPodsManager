@@ -7,17 +7,15 @@
         Background="Transparent"
         TransparencyLevelHint="Transparent"
         Opacity="0">
-    <!-- 初始 Opacity=0 从第 0 帧生效；淡入过渡声明在此，避免代码里被动画化的 1->0 闪现 -->
     <Window.Transitions>
         <Transitions>
             <DoubleTransition Property="Opacity" Duration="0:0:0.4" Easing="CubicEaseOut"/>
         </Transitions>
     </Window.Transitions>
 
-    <!-- 外层留少量阴影空间（贴角）；半透明背景；滑入/滑出用 RenderTransform 过渡(GPU 合成) -->
     <Border x:Name="Card" Margin="6" CornerRadius="14"
-            Background="#CC1C1C1E"
-            BorderBrush="#26FFFFFF" BorderThickness="1"
+            Background="#BB1C1C1E"
+            BorderBrush="#18FFFFFF" BorderThickness="1"
             BoxShadow="0 4 16 0 #55000000"
             RenderTransform="translateX(28px)">
         <Border.Transitions>
@@ -52,8 +50,8 @@
                             <TextBlock x:Name="LeftPct" Text="- %" FontSize="22" FontWeight="Bold"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
-                                <TextBlock x:Name="LeftBolt" Text="⚡" FontSize="11" IsVisible="False"
-                                           Foreground="#4CD964" VerticalAlignment="Center"/>
+                                <Path x:Name="LeftBolt" Width="10" Height="10" Stretch="Uniform"
+                                      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
                                 <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="11"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -64,8 +62,8 @@
                             <TextBlock x:Name="CasePct" Text="- %" FontSize="22" FontWeight="Bold"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
-                                <TextBlock x:Name="CaseBolt" Text="⚡" FontSize="11" IsVisible="False"
-                                           Foreground="#4CD964" VerticalAlignment="Center"/>
+                                <Path x:Name="CaseBolt" Width="10" Height="10" Stretch="Uniform"
+                                      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
                                 <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="11"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -76,8 +74,8 @@
                             <TextBlock x:Name="RightPct" Text="- %" FontSize="22" FontWeight="Bold"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
-                                <TextBlock x:Name="RightBolt" Text="⚡" FontSize="11" IsVisible="False"
-                                           Foreground="#4CD964" VerticalAlignment="Center"/>
+                                <Path x:Name="RightBolt" Width="10" Height="10" Stretch="Uniform"
+                                      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
                                 <TextBlock x:Name="RightLabel" Text="右耳" FontSize="11"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -87,22 +85,30 @@
             </StackPanel>
 
             <!-- ========== 低电量遮罩 ========== -->
-            <Border x:Name="LowBatteryOverlay" Background="#CC1C1C1E" CornerRadius="14"
+            <Border x:Name="LowBatteryOverlay" Background="#BB1C1C1E" CornerRadius="14"
                     IsVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6" Margin="18,20">
-                    <TextBlock Text="⚡ 低电量" FontSize="22" FontWeight="Bold"
-                               Foreground="#FFB020" HorizontalAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
+                        <Path x:Name="LowBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FFB020"
+                              VerticalAlignment="Center"/>
+                        <TextBlock Text="低电量" FontSize="22" FontWeight="Bold"
+                                   Foreground="#FFB020" VerticalAlignment="Center"/>
+                    </StackPanel>
                     <TextBlock Text="建议尽快充电" FontSize="12"
                                Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
             <!-- ========== 极低电量遮罩 ========== -->
-            <Border x:Name="CriticalBatteryOverlay" Background="#CC1C1C1E" CornerRadius="14"
+            <Border x:Name="CriticalBatteryOverlay" Background="#BB1C1C1E" CornerRadius="14"
                     IsVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6" Margin="18,20">
-                    <TextBlock Text="⚡ 电量极低" FontSize="22" FontWeight="Bold"
-                               Foreground="#FF453A" HorizontalAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
+                        <Path x:Name="CritBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FF453A"
+                              VerticalAlignment="Center"/>
+                        <TextBlock Text="电量极低" FontSize="22" FontWeight="Bold"
+                                   Foreground="#FF453A" VerticalAlignment="Center"/>
+                    </StackPanel>
                     <TextBlock Text="请立即充电" FontSize="12"
                                Foreground="#FF8078" HorizontalAlignment="Center"/>
                 </StackPanel>

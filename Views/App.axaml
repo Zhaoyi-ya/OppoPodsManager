@@ -5,5 +5,17 @@
     <Application.Styles>
         <FluentTheme />
         <suki:SukiTheme ThemeColor="Blue" />
+        <Style Selector="TextBlock">
+            <Setter Property="FontFamily" Value="MiSans"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="FontFamily" Value="MiSans"/>
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="FontFamily" Value="MiSans"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="FontFamily" Value="MiSans"/>
+        </Style>
     </Application.Styles>
 </Application>

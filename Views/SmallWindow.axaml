@@ -1,0 +1,88 @@
+<suki:SukiWindow xmlns="https://github.com/avaloniaui"
+   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+   xmlns:suki="https://github.com/kikipoulet/SukiUI"
+   xmlns:local="using:OppoPodsManager"
+   x:Class="OppoPodsManager.SmallWindow"
+   Title="OPPO Pods" Height="380" Width="300"
+   WindowStartupLocation="Manual"
+   CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
+   ShowInTaskbar="False"
+   BackgroundStyle="Bubble">
+
+ <suki:SukiWindow.Styles>
+ <Style Selector="suki|SukiWindow /template/ Button#PART_CloseButton:pointerover">
+  <Setter Property="Background" Value="#E81123"/>
+ </Style>
+ <Style Selector="Border.glassCard">
+  <Setter Property="Background" Value="#1AFFFFFF"/>
+  <Setter Property="CornerRadius" Value="14"/>
+  <Setter Property="BoxShadow" Value="0 1 4 0 #14000000"/>
+ </Style>
+ </suki:SukiWindow.Styles>
+
+ <Grid RowDefinitions="*">
+ <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Hidden">
+ <StackPanel Margin="14,10,14,14" Spacing="12">
+
+  <!-- 电量 -->
+  <Border Padding="16,14" 
+   Background="#1AFFFFFF" Classes="glassCard"
+   >
+  <Grid>
+   <Image x:Name="BatteryImage" Height="140"
+    HorizontalAlignment="Center" VerticalAlignment="Center"/>
+   <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4,2,0,0" Spacing="2">
+   <StackPanel Orientation="Horizontal" Spacing="4">
+    <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
+     Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="11"
+     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+   </StackPanel>
+   <StackPanel Orientation="Horizontal" Spacing="4">
+    <Grid Width="12" Height="12">
+    <Path x:Name="IconLeftCircle" Width="12" Height="12"
+     Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+    <Path x:Name="IconLeftLetter" Width="12" Height="12"
+     Fill="{DynamicResource SukiText}"/>
+    </Grid>
+    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="11"
+     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+   </StackPanel>
+   <StackPanel Orientation="Horizontal" Spacing="4">
+    <Grid Width="12" Height="12">
+    <Path x:Name="IconRightCircle" Width="12" Height="12"
+     Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+    <Path x:Name="IconRightLetter" Width="12" Height="12"
+     Fill="{DynamicResource SukiText}"/>
+    </Grid>
+    <TextBlock x:Name="RightLabel" Text="-%" FontSize="11"
+     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+   </StackPanel>
+   </StackPanel>
+   <StackPanel x:Name="ChargeIndicator" Orientation="Horizontal"
+    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,4,0" Spacing="2"
+    IsVisible="False">
+   <Path x:Name="IconCharge" Width="10" Height="10" Stretch="Uniform"
+    Fill="#FFD700" VerticalAlignment="Center"/>
+   </StackPanel>
+  </Grid>
+  </Border>
+
+  <!-- ANC -->
+  <Border x:Name="AncPanel" Padding="18,16" 
+   Background="#1AFFFFFF" Classes="glassCard"
+   IsVisible="False">
+  <StackPanel Spacing="10">
+   <TextBlock Text="降噪控制" FontSize="14" FontWeight="Medium"
+    HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+   <Grid x:Name="AncMainRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
+   <Grid x:Name="AncSubRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
+   <TextBlock x:Name="AncRealtimeHint" FontSize="11" Opacity="0.5" IsVisible="False"
+    HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+  </StackPanel>
+  </Border>
+
+ </StackPanel>
+ </ScrollViewer>
+ </Grid>
+</suki:SukiWindow>
