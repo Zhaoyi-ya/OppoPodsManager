@@ -202,6 +202,17 @@ public static class DeviceProfileLoader
         caps.HasHiResAudio         = FlagAnyPresent(func, "highAudio", "highToneQuality");
         caps.HasDolbyAtmos         = FlagOn(func, "dolbyAtmos");
         caps.HasCustomEq           = FlagOn(func, "customEqualizer");
+
+        if (func.TryGetProperty("customEqFrequency", out var cef) && cef.ValueKind == JsonValueKind.Array)
+        {
+            caps.CustomEqFrequencies = cef.EnumerateArray()
+                .Select(v => v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0).ToArray();
+        }
+        if (func.TryGetProperty("customEqMax", out var cem) && cem.ValueKind == JsonValueKind.Number)
+            caps.CustomEqMaxPresets = cem.GetInt32();
+        if (func.TryGetProperty("customEqUiVersion", out var cev) && cev.ValueKind == JsonValueKind.Number)
+            caps.CustomEqUiVersion = cev.GetInt32();
+
         caps.HasHearingEnhancement = FlagAnyPresent(func, "hearingEnhancement", "hearingEnhancementNew");
         caps.HasPersonalNoise      = FlagOn(func, "personalNoise") || func.TryGetProperty("personalNoiseCompat", out _);
         caps.HasWearDetection      = FlagOn(func, "wearDetection");
@@ -270,22 +281,27 @@ public static class DeviceProfileLoader
         }
 
         var eqMap = new Dictionary<byte, string>();
-        if (func.TryGetProperty("equalizerMode", out var eqModes))
-        {
-            foreach (var mode in eqModes.EnumerateArray())
-            {
-                if (!mode.TryGetProperty("protocolIndex", out var pi)) continue;
-                byte idx = pi.GetByte();
-                string displayName = idx < 10 ? $"模式{idx}" : $"M{idx}";
-                if (mode.TryGetProperty("modeType", out var mt))
-                    if (_eqModeNames.TryGetValue(mt.GetInt32().ToString(), out var n))
-                        displayName = n;
-                if (!eqMap.ContainsKey(idx)) eqMap[idx] = displayName;
-            }
-        }
+        LoadEqModes(func, "equalizerMode", eqMap);
+        LoadEqModes(func, "equalizerModeCompat", eqMap);
+        LoadEqModes(func, "equalizerModeByVersion", eqMap);
         if (eqMap.Count == 0) eqMap[0] = "默认";
         ApplyEqNames(caps, eqMap);
         return caps;
+    }
+
+    private static void LoadEqModes(JsonElement func, string key, Dictionary<byte, string> eqMap)
+    {
+        if (!func.TryGetProperty(key, out var modes)) return;
+        foreach (var mode in modes.EnumerateArray())
+        {
+            if (!mode.TryGetProperty("protocolIndex", out var pi)) continue;
+            byte idx = pi.GetByte();
+            string displayName = idx < 10 ? $"模式{idx}" : $"M{idx}";
+            if (mode.TryGetProperty("modeType", out var mt))
+                if (_eqModeNames.TryGetValue(mt.GetInt32().ToString(), out var n))
+                    displayName = n;
+            if (!eqMap.ContainsKey(idx)) eqMap[idx] = displayName;
+        }
     }
 
     private static bool FunctionGameModeSupported(JsonElement func)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace OppoPodsManager;
 
@@ -232,6 +233,8 @@ public static partial class OppoProtocol
 
     // ===== 载荷构造（供传输层 Send(cmd, payload)；帧封装交给 IFrameCodec）=====
     public static readonly byte[] PayEmpty = { };
+    /// <summary>查询设备端 EQ 预设列表：1 个 feature，类型 ID=5（equalizer）。</summary>
+    public static readonly byte[] PayQueryEqAll = { 0x01, 0x05 };
     public static readonly byte[] PayQueryAnc = { 0x01, 0x01 };
     /// <summary>查询智能切换实时档位（0x10C + [0x04,0x01]，响应 subType=4=IntelligentNoiseModeInfo）。</summary>
     public static readonly byte[] PayQueryAncIntelligent = { 0x04, 0x01 };
@@ -328,5 +331,115 @@ public static partial class OppoProtocol
         if (payload[0] != 0) return null;  // status 非 0 = 失败
         int id = payload[1] + payload[2] * 256 + payload[3] * 65536;
         return id.ToString("X6");
+    }
+
+    /// <summary>
+    /// 解析 0x0122 getAllEqInfo 响应载荷，返回设备端所有 EQ 预设条目（含内置 + 自定义）。
+    /// 格式：[count(1)][entry0][entry1]...
+    /// 每个 entry：[isSelect(1)][minSigned(1)][maxSigned(1)][eqId(1)][nameLen(1)][nameUTF8...][freqCount(1)][freqLE(2)][db(1)]...频率总 3×freqCount 字节。
+    /// isSelect、eqId、nameLen、freqCount 均视为 unsigned，频率为 int16 LE unsigned，dB 为 signed byte。
+    /// </summary>
+    public static List<EqInfoEntry> ParseEqAll(byte[] payload)
+    {
+        var entries = new List<EqInfoEntry>();
+        if (payload == null || payload.Length < 2) return entries;  // [status][count] 至少 2 字节
+
+        if (payload[0] != 0) return entries;  // 状态字节非零表示失败
+        int count = payload[1];
+        int pos = 2;
+
+        for (int i = 0; i < count && pos < payload.Length; i++)
+        {
+            if (pos + 5 > payload.Length) break;
+
+            bool isSelected  = payload[pos] != 0;
+            sbyte minValue  = (sbyte)payload[pos + 1];
+            sbyte maxValue  = (sbyte)payload[pos + 2];
+            byte  eqId      = payload[pos + 3];
+            int   nameLen   = payload[pos + 4];
+            pos += 5;
+
+            string name = "";
+            if (nameLen > 0 && pos + nameLen <= payload.Length)
+            {
+                name = System.Text.Encoding.UTF8.GetString(payload, pos, nameLen);
+                pos += nameLen;
+            }
+
+            if (pos + 1 > payload.Length) break;
+            int freqCount = payload[pos++];
+
+            var freqs = new int[freqCount];
+            var gains = new int[freqCount];
+
+            for (int j = 0; j < freqCount && pos + 3 <= payload.Length; j++)
+            {
+                freqs[j] = payload[pos] | (payload[pos + 1] << 8);   // int16 LE
+                gains[j] = (sbyte)payload[pos + 2];                  // signed dB
+                pos += 3;
+            }
+
+            entries.Add(new EqInfoEntry
+            {
+                EqId = eqId,
+                Name = name,
+                IsSelected = isSelected,
+                Frequencies = freqs,
+                Gains = gains,
+            });
+        }
+
+        return entries;
+    }
+
+    /// <summary>
+    /// 删除设备端 EQ 预设的载荷（cmd 0x0418, actionType=3）。
+    /// 只需 eqId，无需频率/增益数据。
+    /// </summary>
+    public static byte[] EqDeletePayload(int eqId)
+    {
+        return [3, 0xFA, 0x06, (byte)eqId, 0];
+    }
+
+    /// <summary>
+    /// 自定义 EQ 频段增益载荷（cmd 0x0418），按 OPPO 官方程载荷格式编码。
+    /// gains 长度应与 frequencies 一致，每元素为 int（-6 ~ +6 dB）。
+    /// 频率为 int16 小端写入，dB 为 signed byte。
+    /// </summary>
+    public static byte[] EqDetailPayload(int[] gains, int[] frequencies)
+    {
+        return EqDetailPayload(gains, frequencies, "");
+    }
+
+    /// <summary>
+    /// 自定义 EQ 频段增益载荷（cmd 0x0418），带预设名称。
+    /// name 为空时与无参构造函数一致（5 字节头 + freqCount + 频段数据）。
+    /// name 非空时写入 nameLen + UTF-8 名称字节。
+    /// </summary>
+    public static byte[] EqDetailPayload(int[] gains, int[] frequencies, string name)
+    {
+        int count = Math.Min(gains.Length, frequencies.Length);
+        count = Math.Clamp(count, 1, 32);
+        byte[] nameBytes = string.IsNullOrEmpty(name) ? [] : System.Text.Encoding.UTF8.GetBytes(name);
+        int nameLen = nameBytes.Length;
+        // 5 字节头 + nameLen + 1 字节 freqCount + 3 字节每频段
+        var payload = new byte[5 + nameLen + 1 + 3 * count];
+        payload[0] = 1;            // actionType: 1=新建/应用
+        payload[1] = 0xFA;         // min: -6 (signed byte)
+        payload[2] = 0x06;         // max: +6
+        payload[3] = 0;            // eqId: 0（新建预设）
+        payload[4] = (byte)nameLen;
+        if (nameLen > 0)
+            nameBytes.CopyTo(payload, 5);
+        payload[5 + nameLen] = (byte)count;  // freqCount
+        for (int i = 0; i < count; i++)
+        {
+            int freq = frequencies[i];
+            int offset = 6 + nameLen + 3 * i;
+            payload[offset]       = (byte)(freq & 0xFF);         // LE low
+            payload[offset + 1]   = (byte)((freq >> 8) & 0xFF); // LE high
+            payload[offset + 2]   = (byte)Math.Clamp(gains[i], -6, 6); // signed dB
+        }
+        return payload;
     }
 }

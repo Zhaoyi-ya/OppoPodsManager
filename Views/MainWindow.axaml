@@ -296,7 +296,7 @@
            <Setter Property="Maximum" Value="6"/>
            <Setter Property="Value" Value="0"/>
            <Setter Property="TickFrequency" Value="1"/>
-           <Setter Property="IsSnapToTickEnabled" Value="False"/>
+           <Setter Property="IsSnapToTickEnabled" Value="True"/>
           </Style>
          </Grid.Styles>
 
@@ -377,17 +377,17 @@
              MaxHeight="280" BorderThickness="0"
              Background="Transparent">
          <ListBox.ItemTemplate>
-          <DataTemplate x:DataType="local:EqPresetItem">
-           <Grid ColumnDefinitions="*,Auto" Margin="0,1">
-            <TextBlock Text="{Binding Name}" FontSize="12"
-               VerticalAlignment="Center"
-               Foreground="{DynamicResource SukiText}"/>
-            <Button Content="删除" Height="22" FontSize="10"
-                Padding="8,0" IsVisible="{Binding IsCustom}"
-                Click="EqListItemDelete_Click" Tag="{Binding Name}"
-                Grid.Column="1"/>
-           </Grid>
-          </DataTemplate>
+           <DataTemplate x:DataType="local:EqPresetItem">
+            <Grid ColumnDefinitions="*,Auto" Margin="0,1">
+             <TextBlock Text="{Binding Name}" FontSize="12"
+                VerticalAlignment="Center"
+                Foreground="{DynamicResource SukiText}"/>
+             <Button Content="删除" Height="22" FontSize="10"
+                 Padding="8,0" IsVisible="{Binding ShowDelete}"
+                 Click="EqListItemDelete_Click" Tag="{Binding Name}"
+                 Grid.Column="1"/>
+            </Grid>
+           </DataTemplate>
          </ListBox.ItemTemplate>
         </ListBox>
        </StackPanel>

@@ -205,8 +205,6 @@ public partial class MainWindow : SukiWindow
         IconCharge.Data = StreamGeometry.Parse(iconCharge);
         // 先填充默认 EQ 列表
         foreach (var kv in _pods.Caps.EqPresets) CbEq.Items.Add(kv.Key);
-        foreach (var name in EqPresetStore.GetAllNames())
-            CbEq.Items.Add(name);
         CbTray.IsChecked = SettingsManager.GetBool("TrayEnabled", false);
         CbAuto.IsChecked = SettingsManager.GetBool("AutoStart", false);
         // 用 SetString/GetString 避免 SetBool(false) 删除条目导致默认值恢复
@@ -317,6 +315,7 @@ public partial class MainWindow : SukiWindow
             {
                 _wasConnected = true;
                 _ = ToastWindow.ShowAsync(s, caps.ModelName);
+                _pods.SendQueryEqAll();  // 首次连接时查询设备端 EQ 列表
             }
         }
         else
@@ -350,15 +349,27 @@ public partial class MainWindow : SukiWindow
         {
             foreach (var kv in caps.EqPresets)
                 if (!CbEq.Items.Contains(kv.Key)) { needRebuildEq = true; break; }
+            if (!needRebuildEq)
+                foreach (var e in _pods.State.DeviceEqEntries)
+                    if (!CbEq.Items.Contains(e.Name)) { needRebuildEq = true; break; }
+            // 检测设备端条目是否减少（删除）
+            if (!needRebuildEq && _pods.State.DeviceEqEntries.Count != _lastDeviceEqCount)
+                needRebuildEq = true;
         }
+        _lastDeviceEqCount = _pods.State.DeviceEqEntries.Count;
         if (needRebuildEq)
         {
             CbEq.SelectionChanged -= CbEq_SelectionChanged;
             CbEq.Items.Clear();
             foreach (var kv in caps.EqPresets) CbEq.Items.Add(kv.Key);
-            foreach (var name in EqPresetStore.GetAllNames())
-                CbEq.Items.Add(name);
+            foreach (var e in _pods.State.DeviceEqEntries)
+            {
+                if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
+                    CbEq.Items.Add(e.Name);
+            }
             CbEq.SelectionChanged += CbEq_SelectionChanged;
+            // 同步刷新 EQ 面板左侧列表（仅设备端条目增删时触发）
+            RefreshEqPresetList();
         }
 
         var batL = MergeCharge(s.Battery.GetValueOrDefault("L"), s.WearingL);
@@ -847,10 +858,18 @@ public partial class MainWindow : SukiWindow
 
     private void CbEq_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
-        if (CbEq.SelectedItem is string name && _pods.IsConnected)
+        if (CbEq.SelectedItem is not string name || !_pods.IsConnected) return;
+        Log.D("UI", $"用户操作: EQ 预设 -> {name}");
+
+        if (_pods.Caps.EqPresets.ContainsKey(name)
+            || _pods.State.DeviceEqEntries.Any(ev => ev.Name == name))
         {
-            Log.D("UI", $"用户操作: EQ 预设 -> {name}");
             _pods.SendEq(name);
+        }
+        else if (_pods.Caps.CustomEqFrequencies.Length > 0)
+        {
+            Log.D("UI", $"EQ预设: 未知内置或设备端预设 \"{name}\"，发送当前滑块值");
+            SendCurrentCustomEq();
         }
     }
 
@@ -910,9 +929,6 @@ public partial class MainWindow : SukiWindow
         CbEq.SelectionChanged -= CbEq_SelectionChanged;
         CbEq.Items.Clear();
         foreach (var kv in caps.EqPresets) CbEq.Items.Add(kv.Key);
-        // 追加自定义预设
-        foreach (var name in EqPresetStore.GetAllNames())
-            CbEq.Items.Add(name);
         CbEq.SelectionChanged += CbEq_SelectionChanged;
 
         // 同步刷新 EQ 面板预设列表
@@ -1068,6 +1084,7 @@ public partial class MainWindow : SukiWindow
     {
         MainPanel.IsVisible = page == "home";
         EqPanel.IsVisible = page == "eq";
+        if (page == "eq" && _pods.IsConnected) _pods.SendQueryEqAll();
         DeviceInfoPanel.IsVisible = page == "deviceinfo";
         SettingsPanel.IsVisible = page == "settings";
         AboutPanel.IsVisible = page == "about";
@@ -1098,7 +1115,8 @@ public partial class MainWindow : SukiWindow
     // ========== EQ 调节 ==========
 
     private string _eqCurrentPreset = "";
-    private bool _eqSuppressListEvent; // 防止刷新列表时重复触发选中事件
+    private bool _eqSuppressListEvent;
+    private int _lastDeviceEqCount = -1; // 检测 DeviceEqEntries 增删
 
     /// <summary>滑块值变更 → 更新对应 dB 标签。</summary>
     private void EqSlider_Changed(object? s, Avalonia.AvaloniaPropertyChangedEventArgs e)
@@ -1131,15 +1149,18 @@ public partial class MainWindow : SukiWindow
         foreach (var kv in _pods.Caps.EqPresets)
             LbEqPresets.Items.Add(new EqPresetItem { Name = kv.Key, IsCustom = false });
 
-        // 自定义预设
-        foreach (var name in EqPresetStore.GetAllNames())
-            LbEqPresets.Items.Add(new EqPresetItem { Name = name, IsCustom = true });
+        // 设备端预设（0x8122 回读）
+        foreach (var e in _pods.State.DeviceEqEntries)
+        {
+            if (!string.IsNullOrEmpty(e.Name) && !_pods.Caps.EqPresets.ContainsKey(e.Name))
+                LbEqPresets.Items.Add(new EqPresetItem { Name = e.Name, IsCustom = false, EqId = e.EqId });
+        }
 
         LbEqPresets.SelectionChanged += LbEqPresets_SelectionChanged;
         _eqSuppressListEvent = false;
     }
 
-    /// <summary>预设选中 → 内置发送设备切换 / 自定义加载曲线。</summary>
+    /// <summary>预设选中 → 内置/设备端发送切换。</summary>
     private void LbEqPresets_SelectionChanged(object? s, SelectionChangedEventArgs e)
     {
         if (_eqSuppressListEvent) return;
@@ -1147,50 +1168,21 @@ public partial class MainWindow : SukiWindow
 
         _eqCurrentPreset = item.Name;
 
-        if (item.IsCustom)
+        SetAllEqSliders(0);
+        BtnEqSave.IsEnabled = true;
+
+        if (_pods.IsConnected)
         {
-            ApplyEqReadonly(false);
-            var preset = EqPresetStore.Find(item.Name);
-            if (preset != null)
-            {
-                EqSlider62.Value = preset.Band62;
-                EqSlider250.Value = preset.Band250;
-                EqSlider1k.Value = preset.Band1k;
-                EqSlider4k.Value = preset.Band4k;
-                EqSlider8k.Value = preset.Band8k;
-                EqSlider16k.Value = preset.Band16k;
-            }
-            EqHintText.Text = $"自定义预设「{item.Name}」— 拖拽滑块调节后保存";
+            Log.D("UI", $"EQ面板: 切换预设 -> {item.Name}");
+            _pods.SendEq(item.Name);
         }
-        else
-        {
-            ApplyEqReadonly(true);
-            SetAllEqSliders(0);
-            if (_pods.IsConnected)
-            {
-                Log.D("UI", $"EQ面板: 切换内置预设 -> {item.Name}");
-                _pods.SendEq(item.Name);
-            }
-            EqHintText.Text = $"设备预设「{item.Name}」— 通过固件切换生效";
-        }
+        EqHintText.Text = $"预设「{item.Name}」— 拖拽滑块可自定义";
     }
 
     // ---- 辅助 ----
 
     private bool IsBuiltinPreset(string name) =>
         _pods.Caps.EqPresets.ContainsKey(name);
-
-    private void ApplyEqReadonly(bool readOnly)
-    {
-        var opacity = readOnly ? 0.35 : 1.0;
-        EqSlider62.IsEnabled = !readOnly; EqSlider62.Opacity = opacity;
-        EqSlider250.IsEnabled = !readOnly; EqSlider250.Opacity = opacity;
-        EqSlider1k.IsEnabled = !readOnly; EqSlider1k.Opacity = opacity;
-        EqSlider4k.IsEnabled = !readOnly; EqSlider4k.Opacity = opacity;
-        EqSlider8k.IsEnabled = !readOnly; EqSlider8k.Opacity = opacity;
-        EqSlider16k.IsEnabled = !readOnly; EqSlider16k.Opacity = opacity;
-        BtnEqSave.IsEnabled = !readOnly;
-    }
 
     private void SetAllEqSliders(double value)
     {
@@ -1202,16 +1194,33 @@ public partial class MainWindow : SukiWindow
         EqSlider16k.Value = value;
     }
 
-    private CustomEqPreset GetEqSliders(string name) => new()
+    /// <summary>将 6 段 UI 滑块值映射到设备频率数组，未对应 UI 的频段填 0。</summary>
+    private int[] SliderToGains()
     {
-        Name = name,
-        Band62 = (int)Math.Round(EqSlider62.Value),
-        Band250 = (int)Math.Round(EqSlider250.Value),
-        Band1k = (int)Math.Round(EqSlider1k.Value),
-        Band4k = (int)Math.Round(EqSlider4k.Value),
-        Band8k = (int)Math.Round(EqSlider8k.Value),
-        Band16k = (int)Math.Round(EqSlider16k.Value),
-    };
+        var freqSliders = new Dictionary<int, double>
+        {
+            { 62, EqSlider62.Value },
+            { 250, EqSlider250.Value },
+            { 1000, EqSlider1k.Value },
+            { 4000, EqSlider4k.Value },
+            { 8000, EqSlider8k.Value },
+            { 16000, EqSlider16k.Value },
+        };
+        var freqs = _pods.Caps.CustomEqFrequencies;
+        if (freqs.Length == 0) return [];
+        var gains = new int[freqs.Length];
+        for (int i = 0; i < freqs.Length; i++)
+            gains[i] = freqSliders.TryGetValue(freqs[i], out var v) ? (int)Math.Round(v) : 0;
+        return gains;
+    }
+
+    /// <summary>向设备发送当前 UI 滑块值作为自定义 EQ。</summary>
+    private void SendCurrentCustomEq()
+    {
+        if (!_pods.IsConnected || _pods.Caps.CustomEqFrequencies.Length == 0) return;
+        var gains = SliderToGains();
+        _pods.SendCustomEq(gains);
+    }
 
     // ---- 按钮操作 ----
 
@@ -1227,37 +1236,38 @@ public partial class MainWindow : SukiWindow
         if (s is not Button btn || btn.Tag is not string name) return;
         if (!await ShowConfirmDialog("删除预设", $"确定要删除预设「{name}」吗？")) return;
 
-        EqPresetStore.DeletePreset(name);
+        // 仅设备端预设可删除，内置预设忽略
+        var devEntry = _pods.State.DeviceEqEntries.FirstOrDefault(ev => ev.Name == name);
+        if (devEntry != null)
+        {
+            _pods.DeleteEq(devEntry.EqId);
+            // DeleteEq 内部会调 SendQueryEqAll，OnStateChanged 会自动刷新列表
+        }
+        else
+        {
+            Log.D("UI", $"EQ面板: 内置预设「{name}」不可删除，已忽略");
+            return;
+        }
+
         if (_eqCurrentPreset == name)
         {
             _eqCurrentPreset = "";
             SetAllEqSliders(0);
         }
         EqHintText.Text = $"「{name}」已删除";
-        RefreshEqPresetList();
-        RefreshMainEqCombo();
     }
 
     private void DoSaveEqPreset(string name)
     {
-        var preset = GetEqSliders(name);
-        var isNew = EqPresetStore.SavePreset(preset);
         _eqCurrentPreset = name;
 
-        RefreshEqPresetList();
-        RefreshMainEqCombo();
-
-        // 选中刚保存的预设
-        for (int i = 0; i < LbEqPresets.ItemCount; i++)
+        // 发送到设备（带预设名称），后续 OnStateChanged 自动刷新列表
+        if (_pods.IsConnected && _pods.Caps.CustomEqFrequencies.Length > 0)
         {
-            if (LbEqPresets.Items[i] is EqPresetItem item && item.Name == name)
-            {
-                LbEqPresets.SelectedIndex = i;
-                break;
-            }
+            _pods.SendCustomEq(SliderToGains(), name);
         }
 
-        EqHintText.Text = isNew ? $"已创建预设「{name}」" : $"已保存预设「{name}」";
+        EqHintText.Text = $"已发送预设「{name}」到设备";
     }
 
     // ---- 设备详情 ----
@@ -1430,7 +1440,7 @@ public partial class MainWindow : SukiWindow
 
     // ---- 主页"大师调音"联动 ----
 
-    /// <summary>更新主页 CbEq 列表（内置 + 自定义预设）。</summary>
+    /// <summary>更新主页 CbEq 列表（内置 + 设备端 + 自定义预设）。</summary>
     private void RefreshMainEqCombo()
     {
         CbEq.SelectionChanged -= CbEq_SelectionChanged;
@@ -1440,9 +1450,12 @@ public partial class MainWindow : SukiWindow
         foreach (var kv in _pods.Caps.EqPresets)
             CbEq.Items.Add(kv.Key);
 
-        // 自定义预设
-        foreach (var name in EqPresetStore.GetAllNames())
-            CbEq.Items.Add(name);
+        // 设备端预设
+        foreach (var e in _pods.State.DeviceEqEntries)
+        {
+            if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
+                CbEq.Items.Add(e.Name);
+        }
 
         CbEq.SelectionChanged += CbEq_SelectionChanged;
     }
@@ -1956,7 +1969,8 @@ public partial class MainWindow : SukiWindow
         try
         {
             var resp = await _http.GetStringAsync(UPDATE_API);
-            var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(resp);
+            using var doc = System.Text.Json.JsonDocument.Parse(resp);
+            var json = doc.RootElement;
             var serverVersion = json.GetProperty("version").GetString();
 
             if (string.IsNullOrEmpty(serverVersion) || !IsNewerThan(serverVersion, VersionText.Text!))

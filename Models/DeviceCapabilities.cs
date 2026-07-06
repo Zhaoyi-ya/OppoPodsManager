@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace OppoPodsManager;
@@ -77,6 +78,18 @@ public class DeviceCapabilities
     // ========== EQ 预设 ==========
     public Dictionary<string, byte> EqPresets { get; set; } = new();
     public Dictionary<byte, string> EqNames { get; set; } = new();
+
+    /// <summary>自定义 EQ 频率数组（如 [31, 62, 125, …]），空数组表示无自定义 EQ。</summary>
+    public int[] CustomEqFrequencies { get; set; } = Array.Empty<int>();
+
+    /// <summary>设备侧可存储的自定义 EQ 预设数上限（customEqMax）。0 表示不支持。</summary>
+    public int CustomEqMaxPresets { get; set; }
+
+    /// <summary>自定义 EQ UI 版本（customEqUiVersion）。2 为当前主流。</summary>
+    public int CustomEqUiVersion { get; set; }
+
+    /// <summary>设备端 EQ 预设名称覆盖（eqId → 名称），按 0x8122 响应合并后更新。</summary>
+    internal Dictionary<byte, string> DeviceEqNames { get; set; } = new();
 
     /// <summary>protocolIndex → UI 模式名（按型号 noiseReductionMode 动态构建）</summary>
     public Dictionary<byte, string> AncIndexToName { get; set; } = new();

@@ -61,6 +61,18 @@ public interface IPodManager : IDisposable
     /// <summary>大师调音 EQ。name 取 Caps.EqPresets 的键。</summary>
     void SendEq(string name);
 
+    /// <summary>自定义 EQ 频段增益。gains 按 CustomEqFrequencies 顺序，每元素 -6 ~ +6 dB。</summary>
+    void SendCustomEq(int[] gains);
+
+    /// <summary>保存带名称的自定义 EQ 到设备。name 是预设名称，设备端保存后可通过 0x8122 回读。</summary>
+    void SendCustomEq(int[] gains, string name);
+
+    /// <summary>删除设备端 EQ 预设。eqId 取自 State.DeviceEqEntries 条目的 EqId。</summary>
+    void DeleteEq(int eqId);
+
+    /// <summary>查询设备端全部 EQ 信息（含自定义预设名），结果经 StateChanged → State.DeviceEqEntries。</summary>
+    void SendQueryEqAll();
+
     /// <summary>游戏音效开关（cmd 0x0423）。关闭发 type=0、开启发 Caps.GameSoundType。</summary>
     void SendGameSound(bool on);
 

@@ -41,6 +41,9 @@ public class PodState
     /// <summary>多设备列表最近更新时间。</summary>
     public DateTime MultiConnectListUpdatedAt { get; set; } = DateTime.MinValue;
 
+    /// <summary>设备端 EQ 预设列表（由 0x8122 getAllEqInfo 响应填充）。</summary>
+    public List<EqInfoEntry> DeviceEqEntries { get; set; } = new();
+
     // ===== 多设备优先/自动切换（0x8132 getMultiConnectPriorityDevice 回读）=====
 
     /// <summary>

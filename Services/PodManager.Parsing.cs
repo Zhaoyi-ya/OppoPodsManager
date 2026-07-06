@@ -230,8 +230,50 @@ public partial class PodManager
     private void ParseEq(byte[] pkt, int start, int len)
     {
         if (len >= 2)
-            State.EqPreset = Caps.EqNames.GetValueOrDefault(pkt[start + 1], "?");
+        {
+            byte eqId = pkt[start + 1];
+            // 优先用 JSON 内置名称，降级到设备端名称，再降级到 "?"
+            var name = Caps.EqNames.GetValueOrDefault(eqId);
+            if (name == null) name = Caps.DeviceEqNames.GetValueOrDefault(eqId);
+            State.EqPreset = name ?? "?";
+        }
         StateChanged?.Invoke();
+    }
+
+    private void ParseEqAll(byte[] pkt, int start, int len)
+    {
+        try
+        {
+            var payload = Slice(pkt, start, len);
+            var entries = OppoProtocol.ParseEqAll(payload);
+            if (entries.Count == 0) { Log.D("RFCOMM", "ParseEqAll: 解析到 0 个条目"); return; }
+
+            // 提取设备端名称（eqId → name），补充/覆盖 JSON 内置 EqNames
+            var deviceNames = new Dictionary<byte, string>();
+            foreach (var e in entries)
+                if (!string.IsNullOrEmpty(e.Name) && !deviceNames.ContainsKey(e.EqId))
+                    deviceNames[e.EqId] = e.Name;
+
+            Caps.DeviceEqNames = deviceNames;
+            State.DeviceEqEntries = entries;
+
+            // 若当前选中的预设 eqId 匹配设备端某条目且设备端有名称，更新显示
+            foreach (var e in entries)
+            {
+                if (e.IsSelected && !string.IsNullOrEmpty(e.Name))
+                {
+                    State.EqPreset = e.Name;
+                    break;
+                }
+            }
+
+            Log.D("RFCOMM", $"ParseEqAll: {entries.Count} 个预设, 设备名={(deviceNames.Count > 0 ? string.Join(",", deviceNames) : "无")}");
+            StateChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("RFCOMM", "ParseEqAll", ex);
+        }
     }
 
     private void ParseBatchStatus(byte[] pkt, int start, int len)
