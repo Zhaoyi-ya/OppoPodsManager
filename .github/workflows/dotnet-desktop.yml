@@ -116,3 +116,13 @@ jobs:
             | **普通版 exe（single-file）** | 需安装 .NET 运行时 |
             | **自包含版 exe（self-contained）** | 免安装 |
             | **AOT 版 zip（aot）** | 原生编译性能最佳 |
+
+      - name: 通知更新服务器
+        run: |
+          VERSION="${{ github.ref_name }}"
+          BODY="{\"version\":\"$VERSION\"}"
+          SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "${{ secrets.UPDATE_SECRET }}" | awk '{print $NF}')
+          curl -s -X POST https://oppopods.zhaoyi.fun/api/update \
+            -H "Content-Type: application/json" \
+            -H "X-Signature: $SIG" \
+            -d "$BODY"
