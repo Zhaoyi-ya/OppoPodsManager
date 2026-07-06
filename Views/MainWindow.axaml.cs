@@ -1959,7 +1959,8 @@ public partial class MainWindow : SukiWindow
         try
         {
             var resp = await _http.GetStringAsync(UPDATE_API);
-            var json = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(resp);
+            using var doc = System.Text.Json.JsonDocument.Parse(resp);
+            var json = doc.RootElement;
             var serverVersion = json.GetProperty("version").GetString();
 
             if (string.IsNullOrEmpty(serverVersion) || !IsNewerThan(serverVersion, VersionText.Text!))
