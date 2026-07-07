@@ -3,7 +3,7 @@
    xmlns:suki="https://github.com/kikipoulet/SukiUI"
    xmlns:local="using:OppoPodsManager"
    x:Class="OppoPodsManager.SmallWindow"
-   Title="OPPO Pods" Height="380" Width="300"
+   Title="OPPO Pods" Height="440" Width="300"
    WindowStartupLocation="Manual"
    CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
    ShowInTaskbar="False"
@@ -14,7 +14,6 @@
   <Setter Property="Background" Value="#E81123"/>
  </Style>
  <Style Selector="Border.glassCard">
-  <Setter Property="Background" Value="#1AFFFFFF"/>
   <Setter Property="CornerRadius" Value="14"/>
   <Setter Property="BoxShadow" Value="0 1 4 0 #14000000"/>
  </Style>
@@ -25,8 +24,8 @@
  <StackPanel Margin="14,10,14,14" Spacing="12">
 
   <!-- 电量 -->
-  <Border Padding="16,14" 
-   Background="#1AFFFFFF" Classes="glassCard"
+  <Border x:Name="BatteryCard" Padding="16,14"
+   Classes="glassCard"
    >
   <Grid>
    <Image x:Name="BatteryImage" Height="140"
@@ -69,8 +68,8 @@
   </Border>
 
   <!-- ANC -->
-  <Border x:Name="AncPanel" Padding="18,16" 
-   Background="#1AFFFFFF" Classes="glassCard"
+  <Border x:Name="AncCard" Padding="18,16"
+   Classes="glassCard"
    IsVisible="False">
   <StackPanel Spacing="10">
    <TextBlock Text="降噪控制" FontSize="14" FontWeight="Medium"

@@ -106,8 +106,8 @@ public partial class PodManager : IPodManager
             _deviceCaps.Add(OppoProtocol.CmdEqNotify);
             _deviceCaps.Add(OppoProtocol.CmdQueryEqAll);  // 0x0122 设备端 EQ 名称回读
         }
-        // 自定义 EQ：设备支持且有频率定义才开放 0x0418
-        if (Caps.HasCustomEq && Caps.CustomEqFrequencies.Length > 0)
+        // 自定义 EQ：设备支持即开放 0x0418（频率兜底在 SendCustomEq 内处理）
+        if (Caps.HasCustomEq)
             _deviceCaps.Add(OppoProtocol.CmdSetEqDetail);
         // 空间音频三模式：设置命令 0x0422 + 状态回读查询 0x012A（getHeadsetSpatialType）
         if (Caps.HasSpatialAudio)
@@ -539,6 +539,7 @@ public partial class PodManager : IPodManager
             return;
         }
         var freqs = Caps.CustomEqFrequencies;
+        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
         var payload = OppoProtocol.EqDetailPayload(gains, freqs);
         Log.D("RFCOMM", $"SendCustomEq gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "自定义 EQ");
@@ -553,6 +554,7 @@ public partial class PodManager : IPodManager
             return;
         }
         var freqs = Caps.CustomEqFrequencies;
+        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
         var payload = OppoProtocol.EqDetailPayload(gains, freqs, name);
         Log.D("RFCOMM", $"SendCustomEq name={name} gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
         SendSet(OppoProtocol.CmdSetEqDetail, payload, $"保存 EQ {name}");

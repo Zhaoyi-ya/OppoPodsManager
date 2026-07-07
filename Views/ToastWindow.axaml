@@ -3,6 +3,7 @@
         x:Class="OppoPodsManager.ToastWindow"
         WindowDecorations="None" ShowInTaskbar="False"
         Topmost="True" CanResize="False"
+        ShowActivated="False"
         SizeToContent="Height" Width="320"
         Background="Transparent"
         TransparencyLevelHint="Transparent"
@@ -14,7 +15,7 @@
     </Window.Transitions>
 
     <Border x:Name="Card" Margin="6" CornerRadius="14"
-            Background="#BB1C1C1E"
+            Background="#FF1C1C1E"
             BorderBrush="#18FFFFFF" BorderThickness="1"
             BoxShadow="0 4 16 0 #55000000"
             RenderTransform="translateX(28px)">
@@ -85,8 +86,14 @@
             </StackPanel>
 
             <!-- ========== 低电量遮罩 ========== -->
-            <Border x:Name="LowBatteryOverlay" Background="#BB1C1C1E" CornerRadius="14"
+            <Border x:Name="LowBatteryOverlay" Background="#FF1C1C1E" CornerRadius="14"
+                    Opacity="1"
                     IsVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.5" Easing="CubicEaseInOut"/>
+                    </Transitions>
+                </Border.Transitions>
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6" Margin="18,20">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="LowBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FFB020"
@@ -94,14 +101,20 @@
                         <TextBlock Text="低电量" FontSize="22" FontWeight="Bold"
                                    Foreground="#FFB020" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock Text="建议尽快充电" FontSize="12"
+                    <TextBlock x:Name="LowHintText" Text="建议尽快充电" FontSize="12"
                                Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
             <!-- ========== 极低电量遮罩 ========== -->
-            <Border x:Name="CriticalBatteryOverlay" Background="#BB1C1C1E" CornerRadius="14"
+            <Border x:Name="CriticalBatteryOverlay" Background="#FF1C1C1E" CornerRadius="14"
+                    Opacity="1"
                     IsVisible="False" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Border.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.5" Easing="CubicEaseInOut"/>
+                    </Transitions>
+                </Border.Transitions>
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="6" Margin="18,20">
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="CritBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FF453A"
@@ -109,7 +122,7 @@
                         <TextBlock Text="电量极低" FontSize="22" FontWeight="Bold"
                                    Foreground="#FF453A" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock Text="请立即充电" FontSize="12"
+                    <TextBlock x:Name="CritHintText" Text="请立即充电" FontSize="12"
                                Foreground="#FF8078" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>

@@ -24,7 +24,7 @@
    <Setter Property="Background" Value="#0AFFFFFF"/>
   </Style>
   <Style Selector="Button.SidebarNav.selected">
-   <Setter Property="Background" Value="#0AFFFFFF"/>
+   <Setter Property="Background" Value="{DynamicResource SidebarSelectedBg}"/>
    <Setter Property="CornerRadius" Value="8"/>
   </Style>
   <!-- 标题栏关闭按钮悬停红色 -->
@@ -32,9 +32,9 @@
    <Setter Property="Background" Value="#E81123"/>
   </Style>
   <!-- 卡片背景：深色=微白玻璃，浅色=微灰卡片 -->
-    <!-- 卡片背景统一 -->
+    <!-- 卡片背景自适应主题 -->
     <Style Selector="Border.glassCard">
-      <Setter Property="Background" Value="#1AFFFFFF"/>
+      <Setter Property="Background" Value="{DynamicResource GlassCardBg}"/>
       <Setter Property="CornerRadius" Value="14"/>
       <Setter Property="BoxShadow" Value="0 1 4 0 #14000000"/>
     </Style>
@@ -131,11 +131,12 @@
      <!-- ANC + 功能 并排 -->
      <Grid ColumnDefinitions="*,*">
       <Border x:Name="AncPanel" Padding="16,14" Grid.Column="0" Margin="0,0,7,0"
-        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard"
-         IsVisible="False">
+        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
        <StackPanel Spacing="8">
         <TextBlock Text="降噪控制" FontSize="14" FontWeight="Medium"
            HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+        <TextBlock x:Name="AncPlaceholderText" Text="连接耳机查看降噪选项" FontSize="12"
+           HorizontalAlignment="Center" Opacity="0.35" Foreground="{DynamicResource SukiText}"/>
         <Grid x:Name="AncMainRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
         <Grid x:Name="AncSubRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
         <TextBlock x:Name="AncRealtimeHint" FontSize="11" Opacity="0.5" IsVisible="False"
@@ -154,17 +155,17 @@
          <StackPanel Spacing="0">
           <CheckBox x:Name="CbSpatial" Content="空间音效" Margin="0,3"/>
           <CheckBox x:Name="CbGameSound" Content="游戏音效" Margin="0,3"/>
-          <CheckBox x:Name="CbBassEngine" Content="低音引擎" Margin="0,3" IsEnabled="False"/>
-          <CheckBox x:Name="CbVocalEnhance" Content="人声增强" Margin="0,3" IsEnabled="False"/>
-          <CheckBox x:Name="CbHearingEnhance" Content="听力增强" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbBassEngine" Content="低音引擎" Margin="0,3" IsEnabled="False" IsVisible="False"/>
+          <CheckBox x:Name="CbVocalEnhance" Content="人声增强" Margin="0,3" IsEnabled="False" IsVisible="False"/>
+          <CheckBox x:Name="CbHearingEnhance" Content="听力增强" Margin="0,3" IsEnabled="False" IsVisible="False"/>
          </StackPanel>
          <!-- 右列 -->
          <StackPanel Spacing="0">
           <CheckBox x:Name="CbGame" Content="游戏模式" Margin="0,3"/>
           <CheckBox x:Name="CbDualDevice" Content="双设备连接" Margin="0,3"/>
-          <CheckBox x:Name="CbLongPower" Content="长续航模式" Margin="0,3" IsEnabled="False"/>
-          <CheckBox x:Name="CbWearDetection" Content="佩戴检测" Margin="0,3" IsEnabled="False"/>
-          <CheckBox x:Name="CbSpineHealth" Content="脊柱监测" Margin="0,3" IsEnabled="False"/>
+          <CheckBox x:Name="CbLongPower" Content="长续航模式" Margin="0,3" IsEnabled="False" IsVisible="False"/>
+          <CheckBox x:Name="CbWearDetection" Content="佩戴检测" Margin="0,3" IsEnabled="False" IsVisible="False"/>
+          <CheckBox x:Name="CbSpineHealth" Content="脊柱监测" Margin="0,3" IsEnabled="False" IsVisible="False"/>
          </StackPanel>
         </StackPanel>
         <!-- 底行 -->
@@ -174,7 +175,7 @@
              Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
           <ComboBox x:Name="CbEq" Width="140" Height="28" Padding="6,0"/>
          </StackPanel>
-         <StackPanel HorizontalAlignment="Center">
+         <StackPanel HorizontalAlignment="Center" IsVisible="False">
           <TextBlock Text="查找设备" FontSize="12" Margin="0,0,0,4"
              Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
           <Button x:Name="BtnFindDevice" Content="播放声音" Width="140" Height="36" FontSize="11" IsEnabled="False"/>
@@ -235,22 +236,53 @@
              Click="BtnCheckUpdate_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
 
          <Button x:Name="BtnFeedback" Content="提交反馈" Height="32" FontSize="11"
-             Click="BtnFeedback_Click" HorizontalAlignment="Stretch" Margin="0,0,0,10"/>
+             Click="BtnFeedback_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
+         <Button x:Name="BtnViewLog" Content="查看日志" Height="32" FontSize="11"
+             Click="BtnViewLog_Click" HorizontalAlignment="Stretch" Margin="0,0,0,10"/>
 
          <CheckBox x:Name="CbTray" Content="关闭到托盘"/>
          <CheckBox x:Name="CbAuto" Content="开机自启"/>
 
+         <Button x:Name="BtnTestToast" Content="测试弹窗" Height="30" FontSize="11"
+             Click="BtnTestToast_Click" HorizontalAlignment="Stretch" Margin="0,6,0,6"/>
+
          <Button Content="关于 OPPO Pods For Windows" FontSize="11" Opacity="0.5"
            Background="Transparent" BorderThickness="0" HorizontalAlignment="Stretch"
            Click="About_Click" Margin="0,8,0,0"/>
-         <Button Content="测试电量弹窗" FontSize="11" Opacity="0.5"
-           HorizontalAlignment="Stretch" Click="TestToast_Click"/>
         </StackPanel>
        </Grid>
       </StackPanel>
      </Border>
     </StackPanel>
    </ScrollViewer>
+
+   <Panel x:Name="LogPanel" IsVisible="False">
+    <Grid RowDefinitions="Auto,*" Margin="16,12,16,16">
+     <!-- 顶栏（始终固定） -->
+     <StackPanel Grid.Row="0" Orientation="Horizontal"
+         HorizontalAlignment="Center" Spacing="12" Margin="0,0,0,10">
+      <Button x:Name="BtnLogBack" Content="← 返回设置" Height="28" FontSize="11"
+          Click="BtnLogBack_Click" Padding="12,0" Background="Transparent"/>
+      <TextBlock Text="日志" FontSize="15" FontWeight="Medium"
+         VerticalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+      <Button x:Name="BtnLogExport" Content="导出原文" Height="28" FontSize="11"
+          Click="BtnLogExport_Click" Padding="12,0"/>
+     </StackPanel>
+     <!-- 日志列表卡片（固定大小，内容滚动） -->
+     <Border Grid.Row="1" Padding="12,10"
+       CornerRadius="10" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
+      <ListBox x:Name="LbLog" BorderThickness="0" Background="Transparent"
+           FontSize="13">
+       <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="x:String">
+         <TextBlock Text="{Binding}" FontSize="13"
+              Foreground="{DynamicResource SukiText}" TextWrapping="NoWrap"/>
+        </DataTemplate>
+       </ListBox.ItemTemplate>
+      </ListBox>
+     </Border>
+    </Grid>
+   </Panel>
 
    <ScrollViewer x:Name="AboutPanel" Padding="16,12,16,16"
        VerticalScrollBarVisibility="Hidden" IsVisible="False">
@@ -299,125 +331,150 @@
      <TextBlock Text="EQ 调节" FontSize="15" FontWeight="Medium"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
 
-     <!-- 左右双卡片 -->
-     <Grid ColumnDefinitions="*,*">
-      <!-- ====== 左：均衡器 ====== -->
-      <Border Grid.Column="0" Padding="14,14" Margin="0,0,7,0"
-        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
-       <StackPanel Spacing="12">
-        <TextBlock Text="均衡器" FontSize="13" FontWeight="Medium"
-           HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"
-           Opacity="0.8"/>
+     <!-- 上下布局：预设列表全宽 + 滑块编辑区展开在下方 -->
+     <!-- ====== 预设列表（左：系统预设 | 右：自定义） ====== -->
+     <Border Padding="14,14"
+       CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
+      <StackPanel Spacing="8">
+       <TextBlock Text="预设列表" FontSize="13" FontWeight="Medium"
+          HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"
+          Opacity="0.8" Margin="0,0,0,2"/>
 
-        <!-- dB 刻度 + 6 段滑块 -->
-        <Grid ColumnDefinitions="Auto,*,*,*,*,*,*" Height="220"
-            HorizontalAlignment="Center">
-         <Grid.Styles>
-          <Style Selector="Slider">
-           <Setter Property="Width" Value="36"/>
-           <Setter Property="Height" Value="180"/>
-           <Setter Property="Orientation" Value="Vertical"/>
-           <Setter Property="Minimum" Value="-6"/>
-           <Setter Property="Maximum" Value="6"/>
-           <Setter Property="Value" Value="0"/>
-           <Setter Property="TickFrequency" Value="1"/>
-           <Setter Property="IsSnapToTickEnabled" Value="True"/>
-          </Style>
-         </Grid.Styles>
+       <Grid ColumnDefinitions="*,*">
+        <!-- 左：系统预设 -->
+        <StackPanel Grid.Column="0" Margin="0,0,7,0" Spacing="4">
+         <TextBlock Text="系统预设" FontSize="11" Opacity="0.5"
+            Foreground="{DynamicResource SukiText}" HorizontalAlignment="Center"/>
+         <ListBox x:Name="LbEqBuiltinPresets" SelectionMode="Single"
+              MaxHeight="260" BorderThickness="0" Background="Transparent">
+          <ListBox.ItemTemplate>
+           <DataTemplate x:DataType="local:EqPresetItem">
+            <TextBlock Text="{Binding Name}" FontSize="12" Margin="0,2"
+               Foreground="{DynamicResource SukiText}"/>
+           </DataTemplate>
+          </ListBox.ItemTemplate>
+         </ListBox>
+        </StackPanel>
 
-         <!-- dB 刻度 -->
-         <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Height="180"
-             RowDefinitions="Auto,*,Auto">
-          <TextBlock Grid.Row="0" Text="+6" FontSize="9" Foreground="{DynamicResource SukiText}"
-             Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Top"/>
-          <TextBlock Grid.Row="1" Text=" 0" FontSize="9" Foreground="{DynamicResource SukiText}"
-             Opacity="0.2" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-          <TextBlock Grid.Row="2" Text="-6" FontSize="9" Foreground="{DynamicResource SukiText}"
-             Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
-         </Grid>
-
-         <!-- 62 -->
-         <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb62" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider62"/>
-          <TextBlock Text="62" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-         <!-- 250 -->
-         <StackPanel Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb250" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider250"/>
-          <TextBlock Text="250" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-         <!-- 1k -->
-         <StackPanel Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb1k" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider1k"/>
-          <TextBlock Text="1k" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-         <!-- 4k -->
-         <StackPanel Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb4k" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider4k"/>
-          <TextBlock Text="4k" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-         <!-- 8k -->
-         <StackPanel Grid.Column="5" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb8k" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider8k"/>
-          <TextBlock Text="8k" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-         <!-- 16k -->
-         <StackPanel Grid.Column="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-          <TextBlock x:Name="EqDb16k" Text="0" FontSize="9" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
-          <Slider x:Name="EqSlider16k"/>
-          <TextBlock Text="16k" FontSize="10" HorizontalAlignment="Center"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
-         </StackPanel>
-        </Grid>
-
-        <Button x:Name="BtnEqSave" Content="保存" Height="28" FontSize="11"
-           Click="BtnEqSave_Click" Padding="20,0" HorizontalAlignment="Center"/>
-       </StackPanel>
-      </Border>
-
-      <!-- ====== 右：预设列表 ====== -->
-      <Border Grid.Column="1" Padding="14,14" Margin="7,0,0,0"
-        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
-       <StackPanel Spacing="8">
-        <TextBlock Text="预设列表" FontSize="13" FontWeight="Medium"
-           HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"
-           Opacity="0.8" Margin="0,0,0,2"/>
-        <ListBox x:Name="LbEqPresets" SelectionMode="Single"
-             MaxHeight="280" BorderThickness="0"
-             Background="Transparent">
-         <ListBox.ItemTemplate>
+        <!-- 右：自定义 -->
+        <StackPanel Grid.Column="1" Margin="7,0,0,0" Spacing="4">
+         <TextBlock Text="自定义" FontSize="11" Opacity="0.5"
+            Foreground="{DynamicResource SukiText}" HorizontalAlignment="Center"/>
+         <Button x:Name="BtnEqNew" Content="+ 新建自定义" Height="32" FontSize="11"
+             Click="BtnEqNew_Click" HorizontalAlignment="Stretch" Margin="0,0,0,2"/>
+         <ListBox x:Name="LbEqCustomPresets" SelectionMode="Single"
+              MaxHeight="240" BorderThickness="0" Background="Transparent">
+          <ListBox.ItemTemplate>
            <DataTemplate x:DataType="local:EqPresetItem">
             <Grid ColumnDefinitions="*,Auto" Margin="0,1">
-             <TextBlock Text="{Binding Name}" FontSize="12"
-                VerticalAlignment="Center"
+             <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
                 Foreground="{DynamicResource SukiText}"/>
              <Button Content="删除" Height="22" FontSize="10"
                  Padding="8,0" IsVisible="{Binding ShowDelete}"
-                 Click="EqListItemDelete_Click" Tag="{Binding Name}"
-                 Grid.Column="1"/>
+                 Click="EqListItemDelete_Click" Tag="{Binding Name}" Grid.Column="1"/>
             </Grid>
            </DataTemplate>
-         </ListBox.ItemTemplate>
-        </ListBox>
+          </ListBox.ItemTemplate>
+         </ListBox>
+        </StackPanel>
+       </Grid>
+      </StackPanel>
+     </Border>
+
+     <!-- ====== 均衡器滑块（编辑/新建时展开，全宽） ====== -->
+     <Border x:Name="EqSliderCard" Padding="14,14"
+       CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard"
+       IsVisible="False">
+      <StackPanel Spacing="12">
+       <TextBlock Text="均衡器" FontSize="13" FontWeight="Medium"
+          HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"
+          Opacity="0.8"/>
+
+       <!-- dB 刻度 + 6 段滑块 -->
+       <Grid ColumnDefinitions="Auto,*,*,*,*,*,*" Height="220"
+           HorizontalAlignment="Center">
+        <Grid.Styles>
+         <Style Selector="Slider">
+          <Setter Property="Width" Value="36"/>
+          <Setter Property="Height" Value="180"/>
+          <Setter Property="Orientation" Value="Vertical"/>
+          <Setter Property="Minimum" Value="-6"/>
+          <Setter Property="Maximum" Value="6"/>
+          <Setter Property="Value" Value="0"/>
+          <Setter Property="TickFrequency" Value="1"/>
+          <Setter Property="IsSnapToTickEnabled" Value="True"/>
+         </Style>
+        </Grid.Styles>
+
+        <!-- dB 刻度 -->
+        <Grid Grid.Column="0" VerticalAlignment="Center" Margin="0,0,6,0" Height="180"
+            RowDefinitions="Auto,*,Auto">
+         <TextBlock Grid.Row="0" Text="+6" FontSize="9" Foreground="{DynamicResource SukiText}"
+            Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Top"/>
+         <TextBlock Grid.Row="1" Text=" 0" FontSize="9" Foreground="{DynamicResource SukiText}"
+            Opacity="0.2" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+         <TextBlock Grid.Row="2" Text="-6" FontSize="9" Foreground="{DynamicResource SukiText}"
+            Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
+        </Grid>
+
+        <!-- 62 -->
+        <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb62" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider62"/>
+         <TextBlock Text="62" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+        <!-- 250 -->
+        <StackPanel Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb250" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider250"/>
+         <TextBlock Text="250" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+        <!-- 1k -->
+        <StackPanel Grid.Column="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb1k" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider1k"/>
+         <TextBlock Text="1k" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+        <!-- 4k -->
+        <StackPanel Grid.Column="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb4k" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider4k"/>
+         <TextBlock Text="4k" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+        <!-- 8k -->
+        <StackPanel Grid.Column="5" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb8k" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider8k"/>
+         <TextBlock Text="8k" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+        <!-- 16k -->
+        <StackPanel Grid.Column="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+         <TextBlock x:Name="EqDb16k" Text="0" FontSize="9" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.5" Margin="0,0,0,2"/>
+         <Slider x:Name="EqSlider16k"/>
+         <TextBlock Text="16k" FontSize="10" HorizontalAlignment="Center"
+            Foreground="{DynamicResource SukiText}" Opacity="0.7" Margin="0,2,0,0"/>
+        </StackPanel>
+       </Grid>
+
+       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8">
+        <Button x:Name="BtnEqCancel" Content="重置" Height="28" FontSize="11"
+           Click="BtnEqCancel_Click" Padding="20,0"/>
+        <Button x:Name="BtnEqSave" Content="保存" Height="28" FontSize="11"
+           Click="BtnEqSave_Click" Padding="20,0"/>
        </StackPanel>
-      </Border>
-     </Grid>
+      </StackPanel>
+     </Border>
 
      <TextBlock x:Name="EqHintText" Text="选择一个预设或拖拽滑块开始调节"
         FontSize="10" HorizontalAlignment="Center"
@@ -475,7 +532,7 @@
   <!-- ========== 浮层对话框 ========== -->
   <!-- 命名输入浮层 -->
   <Panel x:Name="DialogOverlay" Grid.ColumnSpan="2"
-      IsVisible="False" Background="#80000000" ZIndex="100"
+      IsVisible="False" Background="{DynamicResource DialogOverlayBg}" ZIndex="100"
       VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
    <Border x:Name="DialogBox" CornerRadius="10" Padding="20"
        BoxShadow="0 6 30 0 #20000000"

@@ -1,3 +1,4 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia.Media.Transformation;
 using Avalonia.Media;
@@ -6,6 +7,8 @@ using Avalonia.Threading;
 using SukiUI;
 
 namespace OppoPodsManager;
+
+public enum ToastType { Battery, LowBattery, CriticalBattery, Disconnected }
 
 public partial class ToastWindow : Window
 {
@@ -21,46 +24,56 @@ public partial class ToastWindow : Window
         CritBolt.Data = boltGeo;
     }
 
-    /// <summary>桌面右下角半透明 Toast 显示，指定毫秒后自动关闭</summary>
-    public static async Task ShowAsync(PodState state, string deviceName, int durationMs = 5000)
+    /// <summary>
+    /// 显示 Toast 弹窗。
+    /// - Battery: 电量面板（连接成功时）
+    /// - LowBattery: 电量面板 + 低电量遮罩（低于 20%）
+    /// - CriticalBattery: 电量面板 + 极低电量遮罩（低于 5%）
+    /// - Disconnected: 断开连接面板
+    /// </summary>
+    public static async Task ShowAsync(PodState? state, string deviceName,
+        ToastType type = ToastType.Battery, int durationMs = 5000)
     {
         var toast = new ToastWindow();
-        toast.TitleBlock.Text = deviceName;
-        SetBat(toast.LeftPct, toast.LeftBolt, TryGet(state.Battery, "L"));
-        SetBat(toast.RightPct, toast.RightBolt, TryGet(state.Battery, "R"));
-        SetBat(toast.CasePct, toast.CaseBolt, TryGet(state.Battery, "C"));
-        await ShowAndClose(toast, durationMs);
-    }
 
-    public static async Task ShowLowBatteryAsync(PodState state, string deviceName)
-    {
-        var toast = new ToastWindow();
-        toast.TitleBlock.Text = deviceName;
-        SetBat(toast.LeftPct, toast.LeftBolt, TryGet(state.Battery, "L"));
-        SetBat(toast.RightPct, toast.RightBolt, TryGet(state.Battery, "R"));
-        SetBat(toast.CasePct, toast.CaseBolt, TryGet(state.Battery, "C"));
-        toast.LowBatteryOverlay.IsVisible = true;
-        await ShowAndClose(toast, 5000);
-    }
+        if (type == ToastType.Disconnected)
+        {
+            toast.BatteryPanel.IsVisible = false;
+            toast.DisconnectPanel.IsVisible = true;
+            toast.DisconnectTitle.Text = deviceName;
+            durationMs = 3000;
+        }
+        else
+        {
+            toast.TitleBlock.Text = deviceName;
+            if (state != null)
+            {
+                SetBat(toast.LeftPct, toast.LeftBolt, TryGet(state.Battery, "L"));
+                SetBat(toast.RightPct, toast.RightBolt, TryGet(state.Battery, "R"));
+                SetBat(toast.CasePct, toast.CaseBolt, TryGet(state.Battery, "C"));
+            }
+            if (type == ToastType.LowBattery)
+                toast.LowBatteryOverlay.IsVisible = true;
+            else if (type == ToastType.CriticalBattery)
+                toast.CriticalBatteryOverlay.IsVisible = true;
+        }
 
-    public static async Task ShowCriticalBatteryAsync(PodState state, string deviceName)
-    {
-        var toast = new ToastWindow();
-        toast.TitleBlock.Text = deviceName;
-        SetBat(toast.LeftPct, toast.LeftBolt, TryGet(state.Battery, "L"));
-        SetBat(toast.RightPct, toast.RightBolt, TryGet(state.Battery, "R"));
-        SetBat(toast.CasePct, toast.CaseBolt, TryGet(state.Battery, "C"));
-        toast.CriticalBatteryOverlay.IsVisible = true;
-        await ShowAndClose(toast, 5000);
-    }
-
-    public static async Task ShowDisconnectedAsync(string deviceName)
-    {
-        var toast = new ToastWindow();
-        toast.BatteryPanel.IsVisible = false;
-        toast.DisconnectPanel.IsVisible = true;
-        toast.DisconnectTitle.Text = deviceName;
-        await ShowAndClose(toast, 3000);
+        if (type == ToastType.LowBattery || type == ToastType.CriticalBattery)
+        {
+            var overlay = type == ToastType.LowBattery ? toast.LowBatteryOverlay : toast.CriticalBatteryOverlay;
+            await ShowAndClose(toast, async () =>
+            {
+                // 遮罩不透明显示 2 秒
+                await Task.Delay(2000);
+                // 渐变过渡到电量显示（XAML 中 DoubleTransition Opacity 0.5s cubic-ease）
+                overlay.Opacity = 0;
+                await Task.Delay(1500);
+            });
+        }
+        else
+        {
+            await ShowAndClose(toast, durationMs);
+        }
     }
 
     private bool _registered;
@@ -81,7 +94,10 @@ public partial class ToastWindow : Window
         Close();
     }
 
-    private static async Task ShowAndClose(ToastWindow toast, int durationMs)
+    private static Task ShowAndClose(ToastWindow toast, int durationMs)
+        => ShowAndClose(toast, () => Task.Delay(durationMs));
+
+    private static async Task ShowAndClose(ToastWindow toast, Func<Task> onEntered)
     {
         ApplyTheme(toast);
         // 初始态(透明+右移)已由 XAML 声明，从第 0 帧生效
@@ -111,7 +127,7 @@ public partial class ToastWindow : Window
         await WaitFramesAsync(toast, 2);
         toast.PlayEnter();              // 触发滑入+淡入
 
-        await Task.Delay(durationMs);
+        await onEntered();
         await Dispatcher.UIThread.InvokeAsync(toast.PlayExitAndCloseAsync);
     }
 
@@ -157,6 +173,18 @@ public partial class ToastWindow : Window
             toast.LeftPct.Foreground = fg; toast.LeftLabel.Foreground = fgMuted;
             toast.RightPct.Foreground = fg; toast.RightLabel.Foreground = fgMuted;
             toast.CasePct.Foreground = fg; toast.CaseLabel.Foreground = fgMuted;
+
+            // 断开面板设备名
+            toast.DisconnectTitle.Foreground = fg;
+
+            // 遮罩背景：浅色模式用浅灰
+            var overlayBg = new SolidColorBrush(Color.FromRgb(0xF5, 0xF5, 0xF5));
+            toast.LowBatteryOverlay.Background = overlayBg;
+            toast.CriticalBatteryOverlay.Background = overlayBg;
+
+            // 遮罩提示文字：浅色模式用深色
+            toast.LowHintText.Foreground = fgMuted;
+            toast.CritHintText.Foreground = new SolidColorBrush(Color.FromRgb(0x99, 0x45, 0x3A));
         }
     }
 }

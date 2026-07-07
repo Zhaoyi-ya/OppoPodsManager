@@ -9,6 +9,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using SukiUI;
 using SukiUI.Controls;
 
 namespace OppoPodsManager;
@@ -69,7 +70,32 @@ public partial class SmallWindow : SukiWindow
         }
         catch { }
 
+        ApplyTheme();
         SafeRefresh();
+    }
+
+    private void ApplyTheme()
+    {
+        var theme = SukiTheme.GetInstance();
+        var isLight = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Light;
+
+        if (isLight)
+        {
+            var cardBg = new SolidColorBrush(Color.FromRgb(0xF5, 0xF5, 0xF5));
+            BatteryCard.Background = cardBg;
+            AncCard.Background = cardBg;
+            var cardBorder = new SolidColorBrush(Color.FromArgb(0x15, 0x00, 0x00, 0x00));
+            BatteryCard.BorderBrush = cardBorder;
+            AncCard.BorderBrush = cardBorder;
+        }
+        else
+        {
+            var cardBg = new SolidColorBrush(Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF));
+            BatteryCard.Background = cardBg;
+            AncCard.Background = cardBg;
+            BatteryCard.BorderBrush = null;
+            AncCard.BorderBrush = null;
+        }
     }
 
     public void SafeRefresh()
@@ -93,8 +119,8 @@ public partial class SmallWindow : SukiWindow
         // ANC（使用通用 Syncer 映射设备回读的 modeKey → UI 选中态）
         if (s.AncMode is not "?" && (DateTime.Now - _ancUserSetAt).TotalMilliseconds > 3)
             SyncAncFromState(s.AncMode);
-        AncPanel.IsVisible = caps.AncOptions.Count > 0 && s.Connected;
-        if (AncPanel.IsVisible)
+        AncCard.IsVisible = caps.AncOptions.Count > 0 && s.Connected;
+        if (AncCard.IsVisible)
         {
             BuildAncUi(caps);
             HighlightAnc();

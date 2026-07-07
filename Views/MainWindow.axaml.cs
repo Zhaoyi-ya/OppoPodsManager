@@ -12,6 +12,7 @@ using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
+using Avalonia.VisualTree;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -44,6 +45,8 @@ public partial class MainWindow : SukiWindow
     private readonly IPodManager _pods = new PodManager();
     private CancellationTokenSource? _pollCts;
     private string _ancMain = "", _ancLevel = "";
+    /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
+    private readonly Dictionary<string, string> _ancLastSub = new();
     private DateTime _ancUserSetAt = DateTime.MinValue;
 
     // ANC 动态 UI（按 JSON 生成）：键 → (圆形边框, 图标路径, 文字标签)
@@ -56,7 +59,13 @@ public partial class MainWindow : SukiWindow
     private WindowIcon? _iconConnected, _iconDisconnected;
     private TrayIcon? _trayIcon;
     private SmallWindow? _smallWindow;
+    private readonly object _logLock = new();
+    private readonly List<string> _logLines = new(512);
+    private int _logHead;
     private DispatcherTimer? _trayClickTimer;
+    private DispatcherTimer? _logRefreshTimer;
+    private bool _logAutoScroll = true;
+    private ScrollViewer? _logScrollViewer;
     private DispatcherTimer? _eqDebounceTimer;
     private bool _realClose;
     /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
@@ -127,6 +136,9 @@ public partial class MainWindow : SukiWindow
             Log.D("UI", "MainWindow 构造开始");
         InitializeComponent();
         NavHome.Classes.Add("selected");
+
+        // 挂载调试日志监听器，捕获 Log.D/Ex 输出到 UI 日志面板
+        Trace.Listeners.Add(new LogTraceListener(this));
             Log.D("UI", "InitializeComponent OK");
 
         // Wire events programmatically (Avalonia 12 compatibility)
@@ -152,8 +164,9 @@ public partial class MainWindow : SukiWindow
         EqSlider4k.PropertyChanged += EqSlider_Changed;
         EqSlider8k.PropertyChanged += EqSlider_Changed;
         EqSlider16k.PropertyChanged += EqSlider_Changed;
-        // EQ 预设列表
-        LbEqPresets.SelectionChanged += LbEqPresets_SelectionChanged;
+        // EQ 预设列表（左右分栏：系统预设 / 自定义）
+        LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
+        LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
 
         // 设备详情 — 音效增强互斥
         DiEnhanceNone.IsCheckedChanged += DiEnhance_Changed;
@@ -316,7 +329,7 @@ public partial class MainWindow : SukiWindow
             if (!_wasConnected && s.Battery.Count > 0)
             {
                 _wasConnected = true;
-                _ = ToastWindow.ShowAsync(s, caps.ModelName);
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.Battery);
                 _pods.SendQueryEqAll();  // 首次连接时查询设备端 EQ 列表
             }
         }
@@ -338,7 +351,7 @@ public partial class MainWindow : SukiWindow
             // TrayIcon.SetIcon(this, _iconDisconnected); // 托盘图标切换在 SetupTrayIcon 中处理
 
             if (wasConnected)
-                _ = ToastWindow.ShowDisconnectedAsync(caps.ModelName);
+                _ = ToastWindow.ShowAsync(null, GetDeviceDisplayName(), ToastType.Disconnected);
 
             ResetUi();
             RebuildTrayMenu();
@@ -346,33 +359,15 @@ public partial class MainWindow : SukiWindow
         }
 
         // 检测是否需要刷新 EQ 列表（连接后预设可能变化）
-        bool needRebuildEq = CbEq.ItemCount == 0;
-        if (!needRebuildEq)
+        // 检测 EQ 列表是否需要刷新（设备端条目增减时）
+        var prevCount = _pods.State.DeviceEqEntries.Count;
+        if (CbEq.ItemCount == 0 || prevCount != _lastDeviceEqCount
+            || caps.EqPresets.Keys.Any(k => !CbEq.Items.Contains(k))
+            || _pods.State.DeviceEqEntries.Any(e => !string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name)))
         {
-            foreach (var kv in caps.EqPresets)
-                if (!CbEq.Items.Contains(kv.Key)) { needRebuildEq = true; break; }
-            if (!needRebuildEq)
-                foreach (var e in _pods.State.DeviceEqEntries)
-                    if (!CbEq.Items.Contains(e.Name)) { needRebuildEq = true; break; }
-            // 检测设备端条目是否减少（删除）
-            if (!needRebuildEq && _pods.State.DeviceEqEntries.Count != _lastDeviceEqCount)
-                needRebuildEq = true;
+            RefreshAllEqViews();
         }
-        _lastDeviceEqCount = _pods.State.DeviceEqEntries.Count;
-        if (needRebuildEq)
-        {
-            CbEq.SelectionChanged -= CbEq_SelectionChanged;
-            CbEq.Items.Clear();
-            foreach (var kv in caps.EqPresets) CbEq.Items.Add(kv.Key);
-            foreach (var e in _pods.State.DeviceEqEntries)
-            {
-                if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
-                    CbEq.Items.Add(e.Name);
-            }
-            CbEq.SelectionChanged += CbEq_SelectionChanged;
-            // 同步刷新 EQ 面板左侧列表（仅设备端条目增删时触发）
-            RefreshEqPresetList();
-        }
+        _lastDeviceEqCount = prevCount;
 
         var batL = MergeCharge(s.Battery.GetValueOrDefault("L"), s.WearingL);
         var batR = MergeCharge(s.Battery.GetValueOrDefault("R"), s.WearingR);
@@ -386,7 +381,7 @@ public partial class MainWindow : SukiWindow
             if ((batL is { } l && l.Lvl <= 20) || (batR is { } r && r.Lvl <= 20))
             {
                 _lowBatteryAlerted = true;
-                _ = ToastWindow.ShowLowBatteryAsync(s, caps.ModelName);
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.LowBattery);
             }
         }
 
@@ -395,7 +390,7 @@ public partial class MainWindow : SukiWindow
             if ((batL is { } l && l.Lvl <= 10) || (batR is { } r && r.Lvl <= 10))
             {
                 _criticalBatteryAlerted = true;
-                _ = ToastWindow.ShowCriticalBatteryAsync(s, caps.ModelName);
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.CriticalBattery);
             }
         }
 
@@ -433,7 +428,13 @@ public partial class MainWindow : SukiWindow
             AncRealtimeHint.IsVisible = false;
         }
 
-        if (s.EqPreset != "?" && CbEq.SelectedItem == null) CbEq.SelectedItem = s.EqPreset;
+        if (s.EqPreset != "?" && CbEq.SelectedItem == null)
+        {
+            _eqCurrentPreset = s.EqPreset;
+            CbEq.SelectionChanged -= CbEq_SelectionChanged;
+            CbEq.SelectedItem = s.EqPreset;
+            CbEq.SelectionChanged += CbEq_SelectionChanged;
+        }
         if ((DateTime.Now - _featureUserSetAt).TotalSeconds > 3)
         {
             // 状态回读同步：均用静默设置，避免初始化/轮询勾选反向触发 _Changed 下发命令
@@ -445,10 +446,8 @@ public partial class MainWindow : SukiWindow
         }
 
         if (DeviceInfoPanel.IsVisible) RefreshDeviceInfo();
-        if (EqPanel.IsVisible && LbEqPresets.ItemCount == 0) RefreshEqPresetList();
 
         BuildAncUi(caps);
-        AncPanel.IsVisible = caps.AncOptions.Count > 0;
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
         // CbSpatial.IsVisible = caps.HasSpatialSound;
         // CbDualDevice.IsVisible = caps.HasDualDevice;
@@ -461,13 +460,14 @@ public partial class MainWindow : SukiWindow
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
 
-        CbBassEngine.IsVisible = caps.HasBassEngine;
-        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        CbLongPower.IsVisible = caps.HasLongPowerMode;
-        CbWearDetection.IsVisible = caps.HasWearDetection;
-        CbSpineHealth.IsVisible = caps.HasSpineHealth;
-        BtnFindDevice.IsVisible = caps.HasFindDevice;
+        // 以下功能后端未实现，暂时隐藏
+        // CbBassEngine.IsVisible = caps.HasBassEngine;
+        // CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        // CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        // CbLongPower.IsVisible = caps.HasLongPowerMode;
+        // CbWearDetection.IsVisible = caps.HasWearDetection;
+        // CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        // BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = $"当前自动识别: {caps.ModelName}";
         UpdateTitle();
@@ -522,7 +522,7 @@ public partial class MainWindow : SukiWindow
     private void BuildAncUi(DeviceCapabilities caps)
     {
         var modelKey = caps.ModelId + "|" + caps.ModelName;
-        if (_ancBuiltForModel == modelKey) return;
+        if (_ancBuiltForModel == modelKey && caps.AncOptions.Count > 0) return;
         _ancBuiltForModel = modelKey;
         _ancOptions = caps.AncOptions;
 
@@ -534,6 +534,16 @@ public partial class MainWindow : SukiWindow
         AncSubRow.ColumnDefinitions.Clear();
         _ancSubButtons.Clear();
         AncSubRow.IsVisible = false;
+
+        // 无 ANC 选项或未连接 → 显示占位文字，隐藏按钮行
+        if (_ancOptions.Count == 0)
+        {
+            AncPlaceholderText.IsVisible = true;
+            AncMainRow.IsVisible = false;
+            return;
+        }
+        AncPlaceholderText.IsVisible = false;
+        AncMainRow.IsVisible = true;
 
         int col = 0;
         for (int i = 0; i < _ancOptions.Count; i++)
@@ -708,10 +718,12 @@ public partial class MainWindow : SukiWindow
 
         if (opt.Children.Count > 0)
         {
-            // 容器型：展开子模式，默认选第一个（或保留上次子级别）
+            // 容器型：展开子模式，恢复上次选的子模式（每个父模式独立记忆）
             PopulateAncSub(opt);
             AncSubRow.IsVisible = true;
-            var target = opt.Children.Any(c => c.Key == _ancLevel) ? _ancLevel : opt.Children[0].Key;
+            var target = _ancLastSub.TryGetValue(opt.Key, out var last)
+                && opt.Children.Any(c => c.Key == last)
+                ? last : opt.Children[0].Key;
             _ancLevel = target;
             _pods.SendAnc(target);
         }
@@ -731,6 +743,7 @@ public partial class MainWindow : SukiWindow
         Log.D("UI", $"用户操作: ANC 子级别 -> {opt.Key}");
         _ancUserSetAt = DateTime.Now;
         _ancLevel = opt.Key;
+        _ancLastSub[_ancMain] = opt.Key;
         _pods.SendAnc(opt.Key);
         HighlightAnc();
     }
@@ -778,6 +791,7 @@ public partial class MainWindow : SukiWindow
             {
                 _ancMain = parentKey;
                 _ancLevel = modeKey;
+                _ancLastSub[parentKey] = modeKey;
                 PopulateAncSub(container);
                 AncSubRow.IsVisible = true;
             }
@@ -885,7 +899,10 @@ public partial class MainWindow : SukiWindow
         if (_pods.Caps.EqPresets.ContainsKey(name)
             || _pods.State.DeviceEqEntries.Any(ev => ev.Name == name))
         {
+            _eqCurrentPreset = name;
             _pods.SendEq(name);
+            // 同步到 EQ 面板的预设列表
+            SyncCbEqToPanel(name);
         }
         else if (_pods.Caps.CustomEqFrequencies.Length > 0)
         {
@@ -947,16 +964,10 @@ public partial class MainWindow : SukiWindow
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
 
-        CbEq.SelectionChanged -= CbEq_SelectionChanged;
-        CbEq.Items.Clear();
-        foreach (var kv in caps.EqPresets) CbEq.Items.Add(kv.Key);
-        CbEq.SelectionChanged += CbEq_SelectionChanged;
-
-        // 同步刷新 EQ 面板预设列表
-        RefreshEqPresetList();
+        // 统一刷新主页调音 + EQ 面板预设列表
+        RefreshAllEqViews();
 
         BuildAncUi(caps);
-        AncPanel.IsVisible = caps.AncOptions.Count > 0;
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
         // CbSpatial.IsVisible = caps.HasSpatialSound;
         // CbDualDevice.IsVisible = caps.HasDualDevice;
@@ -969,13 +980,14 @@ public partial class MainWindow : SukiWindow
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
 
-        CbBassEngine.IsVisible = caps.HasBassEngine;
-        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        CbLongPower.IsVisible = caps.HasLongPowerMode;
-        CbWearDetection.IsVisible = caps.HasWearDetection;
-        CbSpineHealth.IsVisible = caps.HasSpineHealth;
-        BtnFindDevice.IsVisible = caps.HasFindDevice;
+        // 以下功能后端未实现，暂时隐藏
+        // CbBassEngine.IsVisible = caps.HasBassEngine;
+        // CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        // CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        // CbLongPower.IsVisible = caps.HasLongPowerMode;
+        // CbWearDetection.IsVisible = caps.HasWearDetection;
+        // CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        // BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = _modelOverride == null
             ? $"当前自动识别: {_pods.Caps.ModelName}"
@@ -1038,12 +1050,11 @@ public partial class MainWindow : SukiWindow
 
     private void RefreshThemeColors()
     {
-        // 浅色模式 SukiUI 资源覆盖
-        if (_isLightTheme)
-        {
-            Resources["SukiBackground"] = new SolidColorBrush(Color.FromRgb(0xE5, 0xE5, 0xEA));
-            Resources["SukiCardBackground"] = new SolidColorBrush(Colors.White);
-        }
+        // 清除之前可能残留的 SukiUI 资源覆盖，让 SukiUI 原生主题系统接管
+        // （按钮、ComboBox 等控件的 Background 绑定到 SukiBackground，
+        //   如果在 Window 级覆盖会导致按钮背景与窗口背景混为一体）
+        Resources.Remove("SukiBackground");
+        Resources.Remove("SukiCardBackground");
 
         // 窗口背景：浅色微灰，深色透明
         Background = _isLightTheme
@@ -1054,20 +1065,30 @@ public partial class MainWindow : SukiWindow
         var glassBg = _isLightTheme
             ? (IBrush)new SolidColorBrush(Colors.White)
             : (IBrush)new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+        Resources["GlassCardBg"] = glassBg;
 
         // 侧边栏：浅色纯白 / 深色毛玻璃
         var sidebarBg = _isLightTheme
             ? (IBrush)new SolidColorBrush(Colors.White)
             : (IBrush)new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
 
-        UpdateGlassCards(MainPanel, glassBg);
-        UpdateGlassCards(EqPanel, glassBg);
-        UpdateGlassCards(DeviceInfoPanel, glassBg);
-        UpdateGlassCards(SettingsPanel, glassBg);
-        UpdateGlassCards(AboutPanel, glassBg);
-
         // 侧边栏底框
         SidebarBorder.Background = sidebarBg;
+
+        // 侧边栏选中高亮：浅色灰底，深色微白
+        var selectedBg = _isLightTheme
+            ? (IBrush)new SolidColorBrush(Color.FromArgb(0x0C, 0x00, 0x00, 0x00))
+            : (IBrush)new SolidColorBrush(Color.FromArgb(0x0A, 0xFF, 0xFF, 0xFF));
+        Resources["SidebarSelectedBg"] = selectedBg;
+
+        // 弹窗遮罩：深色半透明黑 / 浅色半透明白
+        Resources["DialogOverlayBg"] = _isLightTheme
+            ? (IBrush)new SolidColorBrush(Color.FromArgb(0x50, 0x00, 0x00, 0x00))
+            : (IBrush)new SolidColorBrush(Color.FromArgb(0x80, 0x00, 0x00, 0x00));
+
+        // 重置对话框确认按钮颜色，避免主题切换后残留
+        if (DialogConfirmBtn.IsVisible)
+            DialogConfirmBtn.Background = Brushes.Transparent;
 
         HighlightAnc();
         var s = _pods.State;
@@ -1091,13 +1112,23 @@ public partial class MainWindow : SukiWindow
         UpdateTitle();
     }
 
-    private void UpdateTitle()
+    /// <summary>
+    /// 获取设备显示名称：优先使用自定义名称，否则回退到设备型号名。
+    /// 与 UpdateTitle 保持一致的优先级逻辑。
+    /// </summary>
+    private string GetDeviceDisplayName()
     {
+        var custom = (TbCustomName.Text ?? "").Trim();
+        if (!string.IsNullOrEmpty(custom)) return custom;
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
-        var custom = (TbCustomName.Text ?? "").Trim();
-        var name = !string.IsNullOrEmpty(custom) ? custom : caps.ModelName;
+        return caps.ModelName;
+    }
+
+    private void UpdateTitle()
+    {
+        var name = GetDeviceDisplayName();
         Title = name;
 
         var s = _pods.State;
@@ -1113,6 +1144,7 @@ public partial class MainWindow : SukiWindow
     private void NavHome_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("home");
     private void NavEq_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("eq");
     private void NavDeviceInfo_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("deviceinfo");
+    private void NavLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("log");
     private void NavSettings_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("settings");
 
     private void ShowPage(string page)
@@ -1122,6 +1154,7 @@ public partial class MainWindow : SukiWindow
         if (page == "eq" && _pods.IsConnected) _pods.SendQueryEqAll();
         DeviceInfoPanel.IsVisible = page == "deviceinfo";
         SettingsPanel.IsVisible = page == "settings";
+        LogPanel.IsVisible = page == "log";
         AboutPanel.IsVisible = page == "about";
 
         NavHome.Classes.Remove("selected");
@@ -1136,6 +1169,7 @@ public partial class MainWindow : SukiWindow
 
         if (page == "deviceinfo") RefreshDeviceInfo();
         if (page == "eq") RefreshEqPresetList();
+        if (page == "log") RefreshLogView();
     }
 
     private void About_Click(object? s, RoutedEventArgs e) => ShowPage("about");
@@ -1209,8 +1243,11 @@ public partial class MainWindow : SukiWindow
     // ========== EQ 调节 ==========
 
     private string _eqCurrentPreset = "";
+    private int _eqCurrentId; // 当前编辑的设备端预设 eqId，0=新建
     private bool _eqSuppressListEvent;
-    private int _lastDeviceEqCount = -1; // 检测 DeviceEqEntries 增删
+    private int _lastDeviceEqCount = -1;
+    /// <summary>进入编辑时的滑块快照，用于重置。</summary>
+    private double[] _eqBackupSliders = Array.Empty<double>();
 
     /// <summary>滑块值变更 → 更新对应 dB 标签，触发防抖预览下发。</summary>
     private void EqSlider_Changed(object? s, Avalonia.AvaloniaPropertyChangedEventArgs e)
@@ -1242,48 +1279,253 @@ public partial class MainWindow : SukiWindow
 
     // ---- 预设列表 ----
 
-    /// <summary>重新加载预设列表（内置置顶 + 自定义）。</summary>
-    private void RefreshEqPresetList()
+    /// <summary>向内存日志缓冲追加一行。</summary>
+    public void AppendLog(string tag, string msg)
     {
-        _eqSuppressListEvent = true;
-        LbEqPresets.SelectionChanged -= LbEqPresets_SelectionChanged;
-        LbEqPresets.Items.Clear();
-
-        // 内置预设置顶
-        foreach (var kv in _pods.Caps.EqPresets)
-            LbEqPresets.Items.Add(new EqPresetItem { Name = kv.Key, IsCustom = false });
-
-        // 设备端预设（0x8122 回读）
-        foreach (var e in _pods.State.DeviceEqEntries)
+        lock (_logLock)
         {
-            if (!string.IsNullOrEmpty(e.Name) && !_pods.Caps.EqPresets.ContainsKey(e.Name))
-                LbEqPresets.Items.Add(new EqPresetItem { Name = e.Name, IsCustom = false, EqId = e.EqId });
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [{tag}] {msg}";
+            if (_logLines.Count < 500)
+                _logLines.Add(line);
+            else
+                _logLines[_logHead++ % 500] = line;
         }
-
-        LbEqPresets.SelectionChanged += LbEqPresets_SelectionChanged;
-        _eqSuppressListEvent = false;
     }
 
-    /// <summary>预设选中 → 内置/设备端发送切换。</summary>
-    private void LbEqPresets_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    /// <summary>可合并的轮询发送行（只合并发送，不合并收到）。</summary>
+    private static readonly HashSet<string> _mergePatterns = new()
+    {
+        "查询电量", "查询电池详情", "查询降噪", "查询降噪状态",
+        "查询功能开关", "查询预设数据", "查询所有预设", "查询多设备",
+        "查询固件", "查询空间音效", "注册通知", "查询多设备列表",
+    };
+
+    /// <summary>刷新日志列表视图（翻译 + 合并连续轮询行，避免刷屏）。</summary>
+    private void RefreshLogView()
+    {
+        var entries = new List<string>();
+        lock (_logLock)
+        {
+            foreach (var line in _logLines)
+            {
+                var t = TranslateLog(line);
+                if (t.Length == 0) continue;
+                entries.Add(t);
+            }
+        }
+
+        // 合并连续轮询行
+        var merged = new List<string>();
+        var pollBuf = new List<string>();
+        string? pollTs = null;
+        void FlushPoll()
+        {
+            if (pollBuf.Count > 0)
+            {
+                var summary = pollBuf.Count <= 2
+                    ? string.Join("，", pollBuf)
+                    : $"后台轮询发送（{string.Join("、", pollBuf.Distinct())}，共{pollBuf.Count}次）";
+                merged.Add($"{pollTs}  {summary}");
+                pollBuf.Clear();
+                pollTs = null;
+            }
+        }
+        foreach (var entry in entries)
+        {
+            var ts = entry.Length >= 12 ? entry[..12].TrimEnd() : "";
+            var msg = entry.Length > 13 ? entry[14..] : entry;
+            if (_mergePatterns.Contains(msg))
+            {
+                pollBuf.Add(msg);
+                pollTs ??= ts;
+            }
+            else
+            {
+                FlushPoll();
+                merged.Add(entry);
+            }
+        }
+        FlushPoll();
+
+        LbLog.Items.Clear();
+        foreach (var m in merged) LbLog.Items.Add(m);
+
+        // 自动跟随最新日志
+        if (_logAutoScroll && _logScrollViewer != null)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_logScrollViewer != null)
+                    _logScrollViewer.Offset = new Vector(_logScrollViewer.Offset.X,
+                        _logScrollViewer.Extent.Height);
+            }, DispatcherPriority.Loaded);
+        }
+    }
+    /// 统一刷新主页调音下拉框 + EQ 面板预设列表（共用一套数据源）。
+    /// 自动恢复当前选中项。
+    /// </summary>
+    private void RefreshAllEqViews()
+    {
+        var caps = _modelOverride != null
+            ? DeviceCapabilities.ForceModel(_modelOverride)
+            : _pods.Caps;
+
+        // ---- 主页调音下拉框 ----
+        CbEq.SelectionChanged -= CbEq_SelectionChanged;
+        CbEq.Items.Clear();
+        foreach (var kv in caps.EqPresets)
+            CbEq.Items.Add(kv.Key);
+        foreach (var e in _pods.State.DeviceEqEntries)
+            if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
+                CbEq.Items.Add(e.Name);
+        // 恢复选中
+        if (!string.IsNullOrEmpty(_eqCurrentPreset) && CbEq.Items.Contains(_eqCurrentPreset))
+            CbEq.SelectedItem = _eqCurrentPreset;
+        CbEq.SelectionChanged += CbEq_SelectionChanged;
+
+        // ---- EQ 面板预设列表 ----
+        _eqSuppressListEvent = true;
+        LbEqBuiltinPresets.SelectionChanged -= EqBuiltinPresets_Changed;
+        LbEqCustomPresets.SelectionChanged -= EqCustomPresets_Changed;
+        LbEqBuiltinPresets.Items.Clear();
+        LbEqCustomPresets.Items.Clear();
+
+        // 左：系统预设
+        foreach (var kv in caps.EqPresets)
+            LbEqBuiltinPresets.Items.Add(new EqPresetItem { Name = kv.Key, IsCustom = false });
+
+        // 右：自定义
+        foreach (var e in _pods.State.DeviceEqEntries)
+        {
+            if (!string.IsNullOrEmpty(e.Name) && !caps.EqPresets.ContainsKey(e.Name))
+                LbEqCustomPresets.Items.Add(new EqPresetItem { Name = e.Name, IsCustom = false, EqId = e.EqId });
+        }
+
+        // 恢复选中项
+        if (!string.IsNullOrEmpty(_eqCurrentPreset))
+            SyncCbEqToPanel(_eqCurrentPreset);
+            // 如果是自定义/设备端预设，显示均衡器滑块并加载已保存的增益值（不重复发送命令）
+            var selItem = LbEqBuiltinPresets.SelectedItem as EqPresetItem
+                       ?? LbEqCustomPresets.SelectedItem as EqPresetItem;
+            if (selItem is { IsDeviceEntry: true } or { IsCustom: true })
+                ApplyEqSelection(selItem, sendToDevice: false);
+
+        LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
+        LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
+        _eqSuppressListEvent = false;
+
+        // 保存后重新获取当前预设的 eqId
+        if (!string.IsNullOrEmpty(_eqCurrentPreset))
+        {
+            var entry = _pods.State.DeviceEqEntries.FirstOrDefault(e => e.Name == _eqCurrentPreset);
+            if (entry != null) _eqCurrentId = entry.EqId;
+        }
+
+        // 自定义预设未满才显示新建按钮
+        var maxCustom = caps.CustomEqMaxPresets > 0 ? caps.CustomEqMaxPresets : 3;
+        BtnEqNew.IsVisible = _pods.State.DeviceEqEntries.Count < maxCustom;
+    }
+
+    // 兼容旧方法（均转接到统一入口）
+    private void RefreshEqPresetList() => RefreshAllEqViews();
+    private void RefreshMainEqCombo() => RefreshAllEqViews();
+
+    /// <summary>系统预设选中 → 发送切换、隐藏滑块。</summary>
+    private void EqBuiltinPresets_Changed(object? s, SelectionChangedEventArgs e)
     {
         if (_eqSuppressListEvent) return;
-        if (LbEqPresets.SelectedItem is not EqPresetItem item) return;
+        if (LbEqBuiltinPresets.SelectedItem is not EqPresetItem item) return;
 
+        // 交叉取消自定义列表的选中
+        _eqSuppressListEvent = true;
+        LbEqCustomPresets.SelectedItem = null;
+        _eqSuppressListEvent = false;
+
+        ApplyEqSelection(item);
+    }
+
+    /// <summary>自定义预设选中 → 交叉取消系统列表的选中。</summary>
+    private void EqCustomPresets_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_eqSuppressListEvent) return;
+        if (LbEqCustomPresets.SelectedItem is not EqPresetItem item) return;
+
+        // 交叉取消系统列表的选中
+        _eqSuppressListEvent = true;
+        LbEqBuiltinPresets.SelectedItem = null;
+        _eqSuppressListEvent = false;
+
+        ApplyEqSelection(item);
+    }
+
+    /// <summary>预设选中 → 内置发送切换、隐藏滑块；自定义/设备端展开编辑。</summary>
+    private void ApplyEqSelection(EqPresetItem item, bool sendToDevice = true)
+    {
         _eqCurrentPreset = item.Name;
 
-        SetAllEqSliders(0);
-        BtnEqSave.IsEnabled = true;
-
-        if (_pods.IsConnected)
+        if (_pods.IsConnected && sendToDevice)
         {
             Log.D("UI", $"EQ面板: 切换预设 -> {item.Name}");
             _pods.SendEq(item.Name);
         }
-        EqHintText.Text = $"预设「{item.Name}」— 拖拽滑块可自定义";
+
+        // 内置预设：直接生效，不显示滑块
+        if (!item.IsCustom && !item.IsDeviceEntry)
+        {
+            EqSliderCard.IsVisible = false;
+            EqHintText.Text = $"已切换至预设「{item.Name}」";
+            // 同步主页调音下拉框（抑制事件避免循环）
+            CbEq.SelectionChanged -= CbEq_SelectionChanged;
+            CbEq.SelectedItem = item.Name;
+            CbEq.SelectionChanged += CbEq_SelectionChanged;
+            return;
+        }
+
+        // 自定义/设备端预设：显示滑块编辑
+        EqSliderCard.IsVisible = true;
+        // 尝试加载设备保存的增益值
+        var entry = _pods.State.DeviceEqEntries.FirstOrDefault(d => d.Name == item.Name);
+        if (entry is { Gains.Length: > 0, Frequencies.Length: > 0 })
+        {
+            var freqMap = new Dictionary<int, Slider>
+            {
+                { 62, EqSlider62 }, { 250, EqSlider250 }, { 1000, EqSlider1k },
+                { 4000, EqSlider4k }, { 8000, EqSlider8k }, { 16000, EqSlider16k },
+            };
+            for (int i = 0; i < entry.Frequencies.Length; i++)
+                if (freqMap.TryGetValue(entry.Frequencies[i], out var sld))
+                    sld.Value = entry.Gains[i];
+        }
+        else SetAllEqSliders(0);
+        SnapshotSliders();
+        _eqCurrentId = item.EqId;
+        Log.D("UI", $"EQ选中: name={item.Name} eqId={_eqCurrentId} isCustom={item.IsCustom} isDev={item.IsDeviceEntry}");
+        BtnEqSave.IsEnabled = true;
+        EqHintText.Text = $"编辑「{item.Name}」— 拖拽滑块调整";
+        // 同步主页调音下拉框（抑制事件避免循环）
+        CbEq.SelectionChanged -= CbEq_SelectionChanged;
+        CbEq.SelectedItem = item.Name;
+        CbEq.SelectionChanged += CbEq_SelectionChanged;
     }
 
     // ---- 辅助 ----
+
+    /// <summary>双向同步：将 EQ 面板的选中状态同步到主页调音下拉框。</summary>
+    private void SyncCbEqToPanel(string name)
+    {
+        _eqSuppressListEvent = true;
+        // 先在系统预设列表里找
+        foreach (var item in LbEqBuiltinPresets.Items.OfType<EqPresetItem>())
+        {
+            if (item.Name == name) { LbEqBuiltinPresets.SelectedItem = item; LbEqCustomPresets.SelectedItem = null; _eqSuppressListEvent = false; return; }
+        }
+        // 再在自定义列表里找
+        foreach (var item in LbEqCustomPresets.Items.OfType<EqPresetItem>())
+        {
+            if (item.Name == name) { LbEqCustomPresets.SelectedItem = item; LbEqBuiltinPresets.SelectedItem = null; _eqSuppressListEvent = false; return; }
+        }
+        _eqSuppressListEvent = false;
+    }
 
     private bool IsBuiltinPreset(string name) =>
         _pods.Caps.EqPresets.ContainsKey(name);
@@ -1311,7 +1553,8 @@ public partial class MainWindow : SukiWindow
             { 16000, EqSlider16k.Value },
         };
         var freqs = _pods.Caps.CustomEqFrequencies;
-        if (freqs.Length == 0) return [];
+        // 如果能力表无频率，直接用 UI 硬编码的 6 段兜底
+        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
         var gains = new int[freqs.Length];
         for (int i = 0; i < freqs.Length; i++)
             gains[i] = freqSliders.TryGetValue(freqs[i], out var v) ? (int)Math.Round(v) : 0;
@@ -1328,11 +1571,45 @@ public partial class MainWindow : SukiWindow
 
     // ---- 按钮操作 ----
 
-    private async void BtnEqSave_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    private void BtnEqCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var name = await ShowPromptDialog("保存 EQ 预设", "");
+        SetAllEqSliders(0);
+        SnapshotSliders();
+        if (_pods.IsConnected)
+            _pods.SendCustomEq(SliderToGains());
+        EqHintText.Text = "已重置为 0 并下发到设备";
+    }
+
+    private async void BtnEqNew_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var name = await ShowPromptDialog("新建自定义 EQ", "");
         if (string.IsNullOrEmpty(name)) return;
-        DoSaveEqPreset(name);
+        _eqCurrentPreset = name;
+        _eqCurrentId = 0;
+        SetAllEqSliders(0);
+        SnapshotSliders();
+        EqSliderCard.IsVisible = true;
+        BtnEqSave.IsEnabled = true;
+        EqHintText.Text = $"新建「{name}」— 拖拽滑块调节后保存";
+        LbEqBuiltinPresets.SelectedItem = null;
+        LbEqCustomPresets.SelectedItem = null;
+    }
+
+    private void BtnEqSave_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_eqCurrentPreset)) return;
+        Log.D("UI", $"EQ保存: name={_eqCurrentPreset} eqId={_eqCurrentId}");
+        // 编辑已有预设：先删旧再新建
+        if (_eqCurrentId != 0 && _pods.IsConnected)
+            _pods.DeleteEq(_eqCurrentId);
+        DoSaveEqPreset(_eqCurrentPreset, 0);
+        // 保存后保持编辑状态，不隐藏面板
+        SnapshotSliders();
+    }
+
+    private void SnapshotSliders()
+    {
+        _eqBackupSliders = new[] { EqSlider62.Value, EqSlider250.Value, EqSlider1k.Value, EqSlider4k.Value, EqSlider8k.Value, EqSlider16k.Value };
     }
 
     private async void EqListItemDelete_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
@@ -1361,17 +1638,12 @@ public partial class MainWindow : SukiWindow
         EqHintText.Text = $"「{name}」已删除";
     }
 
-    private void DoSaveEqPreset(string name)
+    private void DoSaveEqPreset(string name, int eqId = 0)
     {
         _eqCurrentPreset = name;
-
-        // 发送到设备（带预设名称），后续 OnStateChanged 自动刷新列表
-        if (_pods.IsConnected && _pods.Caps.CustomEqFrequencies.Length > 0)
-        {
+        if (_pods.IsConnected)
             _pods.SendCustomEq(SliderToGains(), name);
-        }
-
-        EqHintText.Text = $"已发送预设「{name}」到设备";
+        EqHintText.Text = $"已保存「{name}」到设备";
     }
 
     // ---- 设备详情 ----
@@ -1549,41 +1821,10 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    // ---- 主页"大师调音"联动 ----
-
-    /// <summary>更新主页 CbEq 列表（内置 + 设备端 + 自定义预设）。</summary>
-    private void RefreshMainEqCombo()
-    {
-        CbEq.SelectionChanged -= CbEq_SelectionChanged;
-        CbEq.Items.Clear();
-
-        // 内置预设
-        foreach (var kv in _pods.Caps.EqPresets)
-            CbEq.Items.Add(kv.Key);
-
-        // 设备端预设
-        foreach (var e in _pods.State.DeviceEqEntries)
-        {
-            if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
-                CbEq.Items.Add(e.Name);
-        }
-
-        CbEq.SelectionChanged += CbEq_SelectionChanged;
-    }
-
     private void Reconnect_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Log.D("UI", "用户操作: 点击重连");
         _pods.Disconnect();
-    }
-
-    private void TestToast_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        var state = new PodState();
-        state.Battery["L"] = (75, false);
-        state.Battery["R"] = (82, true);
-        state.Battery["C"] = (60, false);
-        _ = ToastWindow.ShowAsync(state, "OPPO Enco X2 (测试)");
     }
 
     private void ResetUi()
@@ -1856,14 +2097,14 @@ public partial class MainWindow : SukiWindow
             });
         }
 
-        // Position before Show
+        // 定位到屏幕右下角（紧贴任务栏上方）
         var screen = Screens.Primary ?? Screens.All.FirstOrDefault();
         if (screen != null)
         {
             var area = screen.WorkingArea;
             _smallWindow.Position = new PixelPoint(
-                area.X + area.Width  - 390,   // 300(内容) + 90(窗框/阴影)
-                area.Y + area.Height - 490);  // 380(内容) + 50(标题栏) + 12(底框) + 48(任务栏)
+                area.X + area.Width  - (int)_smallWindow.Width  - 8,
+                area.Y + area.Height - (int)_smallWindow.Height - 8);
         }
         _smallWindow.Show();
         _smallWindow.Activate();
@@ -2068,6 +2309,291 @@ public partial class MainWindow : SukiWindow
         }
     }
 
+    private async void BtnTestToast_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var name = GetDeviceDisplayName();
+        // 构造假电量数据供测试
+        var state = new PodState();
+        state.Battery["L"] = (85, false);
+        state.Battery["R"] = (72, true);
+        state.Battery["C"] = (90, false);
+
+        // 依次展示 4 种 Toast 类型，每次间隔 2 秒
+        await ToastWindow.ShowAsync(state, name, ToastType.Battery, 2000);
+        await Task.Delay(500);
+        await ToastWindow.ShowAsync(state, name, ToastType.LowBattery, 2000);
+        await Task.Delay(500);
+        await ToastWindow.ShowAsync(state, name, ToastType.CriticalBattery, 2000);
+        await Task.Delay(500);
+        await ToastWindow.ShowAsync(null, name, ToastType.Disconnected, 2000);
+    }
+
+    private void BtnViewLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        RefreshLogView();
+        SettingsPanel.IsVisible = false;
+        LogPanel.IsVisible = true;
+
+        // 首次打开时获取并监听 ListBox 内部 ScrollViewer 的滚动事件
+        if (_logScrollViewer == null)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                _logScrollViewer = FindScrollViewer(LbLog);
+                if (_logScrollViewer != null)
+                {
+                    _logScrollViewer.ScrollChanged += (_, _) =>
+                    {
+                        var sv = _logScrollViewer;
+                        var atBottom = sv.Offset.Y >= sv.Extent.Height - sv.Viewport.Height - 1;
+                        _logAutoScroll = atBottom;
+                    };
+                }
+            }, DispatcherPriority.Loaded);
+        }
+
+        // 启动日志实时刷新定时器
+        _logRefreshTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+            (_, _) => RefreshLogView());
+        _logRefreshTimer.Start();
+    }
+
+    /// <summary>递归遍历 Visual 树寻找第一个 ScrollViewer。</summary>
+    private static ScrollViewer? FindScrollViewer(Visual visual)
+    {
+        if (visual is ScrollViewer sv) return sv;
+        foreach (var child in visual.GetVisualChildren())
+        {
+            var found = FindScrollViewer(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private void BtnLogBack_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _logRefreshTimer?.Stop();
+        _logAutoScroll = true;
+        LogPanel.IsVisible = false;
+        SettingsPanel.IsVisible = true;
+    }
+
+    private async void BtnLogExport_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var top = Avalonia.Controls.TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var storage = top.StorageProvider;
+        if (storage == null || !storage.CanSave) return;
+
+        var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = "导出原始日志",
+            DefaultExtension = "txt",
+            ShowOverwritePrompt = true,
+            SuggestedFileName = $"OPPOPods_log_{DateTime.Now:yyyyMMdd_HHmmss}.txt"
+        });
+        if (file == null) return;
+
+        lock (_logLock)
+        {
+            using var stream = new System.IO.StreamWriter(file.Path.LocalPath, false);
+            foreach (var line in _logLines)
+                stream.WriteLine(line);
+        }
+    }
+
+    /// <summary>将技术日志翻译为白话中文，用于 UI 面板显示。</summary>
+    private static string TranslateLog(string raw)
+    {
+        var ts = raw.AsSpan(0, Math.Min(12, raw.Length)).Trim().ToString();
+        foreach (var (pattern, desc) in _logTranslations)
+        {
+            if (!raw.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var extra = ExtractValue(raw);
+            var text = extra.Length > 0 ? $"{desc}：{extra}" : desc;
+            return $"{ts}  {text}";
+        }
+        return "";
+    }
+
+    /// <summary>从原始日志行中提取关键数据。</summary>
+    private static string ExtractValue(string raw)
+    {
+        // ParseAnc / ParseNoiseChange: 模式名
+        var ancMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:ParseAnc|ParseNoiseChange).*?->\s*(\S+)");
+        if (ancMatch.Success)
+            return ancMatch.Groups[1].Value;
+
+        // ParseWearingData: L='xx' R='xx'
+        var wearMatch = System.Text.RegularExpressions.Regex.Match(raw, @"L='([^']+)'\s*R='([^']+)'");
+        if (wearMatch.Success)
+            return $"左{wearingMap.GetValueOrDefault(wearMatch.Groups[1].Value, wearMatch.Groups[1].Value)} 右{wearingMap.GetValueOrDefault(wearMatch.Groups[2].Value, wearMatch.Groups[2].Value)}";
+
+        // 固件版本/编解码器: =xxx
+        var fwMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:固件版本|编解码器)=(\S+)");
+        if (fwMatch.Success) return fwMatch.Groups[1].Value;
+
+        // 空间音频三模式=xx
+        var spaMatch = System.Text.RegularExpressions.Regex.Match(raw, @"空间音频三模式=(\S+)");
+        if (spaMatch.Success) return spaMatch.Groups[1].Value;
+
+        // 用户操作: XXX -> value
+        var uaMatch = System.Text.RegularExpressions.Regex.Match(raw, @"用户操作.*->\s*(.+)");
+        if (uaMatch.Success) return uaMatch.Groups[1].Value.Trim();
+
+        // EQ面板: 切换预设 -> name
+        var eqSwMatch = System.Text.RegularExpressions.Regex.Match(raw, @"切换预设\s*->\s*(.+)");
+        if (eqSwMatch.Success) return eqSwMatch.Groups[1].Value.Trim();
+
+        // SendEq name=xxx
+        var eqNameMatch = System.Text.RegularExpressions.Regex.Match(raw, @"SendEq name=(\S+)");
+        if (eqNameMatch.Success) return eqNameMatch.Groups[1].Value;
+
+        // DeleteEq eqId=N
+        var delEqMatch = System.Text.RegularExpressions.Regex.Match(raw, @"DeleteEq eqId=(\d+)");
+        if (delEqMatch.Success) return $"ID={delEqMatch.Groups[1].Value}";
+
+        // 多设备操作: 操作 addr=XX
+        var multiMatch = System.Text.RegularExpressions.Regex.Match(raw, @"多设备操作:\s*(\S+)\s+addr=(\S+)");
+        if (multiMatch.Success)
+            return $"{multiMatch.Groups[1].Value} {multiMatch.Groups[2].Value}";
+
+        // 连接/切换设备 -> xxx
+        var devMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:连接|切换)设备\s*->\s*(.+)");
+        if (devMatch.Success) return devMatch.Groups[1].Value.Trim();
+
+        // 命令超时 cmd=0xXXXX
+        var toMatch = System.Text.RegularExpressions.Regex.Match(raw, @"cmd=0x([0-9A-Fa-f]+)");
+        if (toMatch.Success && raw.Contains("超时"))
+            return $"0x{toMatch.Groups[1].Value}";
+
+        // Connect: OK — name="xxx" / Locate: 命中 name="xxx"
+        var nameMatch = System.Text.RegularExpressions.Regex.Match(raw, """name="([^"]+)""");
+        if (nameMatch.Success) return nameMatch.Groups[1].Value;
+
+        // 精确识别为 xxx
+        var idMatch = System.Text.RegularExpressions.Regex.Match(raw, "精确识别为 (.+)");
+        if (idMatch.Success) return idMatch.Groups[1].Value.Trim();
+
+        // ParseEqAll / ParseMultiConnect: N 个预设/设备
+        var cntMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(\d+)\s*个(?:预设|设备)");
+        if (cntMatch.Success) return $"{cntMatch.Groups[1].Value}个";
+
+        // 枚举到 N 个候选
+        var enumMatch = System.Text.RegularExpressions.Regex.Match(raw, @"枚举到\s*(\d+)\s*个");
+        if (enumMatch.Success) return $"{enumMatch.Groups[1].Value}个";
+
+        // 失败信息
+        var failMatch = System.Text.RegularExpressions.Regex.Match(raw, "失败 -> (.+)");
+        if (failMatch.Success) return failMatch.Groups[1].Value.Trim();
+
+        // 重试剩余次数
+        var retryMatch = System.Text.RegularExpressions.Regex.Match(raw, @"剩余重试\s*(\d+)");
+        if (retryMatch.Success) return $"剩余{retryMatch.Groups[1].Value}次";
+
+        // 拦截不支持的命令 → 型号名
+        var blockMatch = System.Text.RegularExpressions.Regex.Match(raw, @"当前型号\s+(\S+)\s+无此能力");
+        if (blockMatch.Success) return $"{blockMatch.Groups[1].Value}不支持";
+
+        return "";
+    }
+
+    private static readonly Dictionary<string, string> wearingMap = new()
+    {
+        ["佩戴"] = "佩戴", ["摘下"] = "摘下", ["入盒"] = "入盒", ["未知"] = "未知"
+    };
+
+    private static readonly (string pattern, string desc)[] _logTranslations =
+    {
+        // === 连接流程 ===
+        ("FACTORY", "选择蓝牙传输方式"),
+        ("ConnectAsync: 尝试连接", "开始连接耳机"),
+        ("Connect: 开始", "正在扫描蓝牙设备"),
+        ("RfcommFinder: 枚举到", "扫描到蓝牙服务"),
+        ("RfcommFinder: 命中", "找到匹配的耳机服务"),
+        ("Connect: 命中服务", "已匹配到蓝牙服务"),
+        ("StreamSocket 就绪", "蓝牙数据链路已建立"),
+        ("Connect: OK", "蓝牙连接成功"),
+        ("已连接,进入轮询", "连接完成，开始后台同步"),
+        ("初始化完成", "设备初始化已完成"),
+        ("握手命令已发完", "正在等待设备响应"),
+        ("开始握手序列", "开始与耳机交换信息"),
+        // === 设备识别 ===
+        ("精确识别为", "自动识别型号："),
+        ("productId=", "读取设备型号代码"),
+        ("名称预判 Caps=", "预判设备型号："),
+        // === 固件与电池 ===
+        ("固件版本=", "固件版本"),
+        ("编解码器=", "音频编解码器"),
+        ("Send cmd=0x0106", "查询电量"),
+        ("Send cmd=0x010D", "查询电池详情"),
+        ("ParseBattery", "电池数据"),
+        // === ANC 降噪 ===
+        ("Send cmd=0x010C", "查询降噪"),
+        ("ParseAnc:", "当前降噪模式"),
+        ("ParseNoiseChange", "降噪模式变更"),
+        // === EQ 调音 ===
+        ("ParseEqAll:", "预设列表同步"),
+        ("SendQueryEqAll", "查询所有预设"),
+        ("SendEq name=", "切换调音预设"),
+        ("SendCustomEq", "设置自定义均衡器"),
+        ("DeleteEq eqId", "删除自定义预设"),
+        ("Send cmd=0x0122", "查询预设数据"),
+        ("收到 0x8122", "预设数据"),
+        // === 空间音频 ===
+        ("空间音频三模式", "空间音频模式"),
+        // === 多设备 ===
+        ("ParseMultiConnect: 列表更新", "多设备列表"),
+        ("Send cmd=0x0112", "查询多设备"),
+        // === 用户操作 ===
+        ("用户操作: ANC", "降噪切换"),
+        ("用户操作: EQ", "调音切换"),
+        ("用户操作: 空间音频", "空间音频切换"),
+        ("用户操作: 空间声场", "空间声场开关"),
+        ("用户操作: 游戏模式开关", "游戏模式"),
+        ("用户操作: 游戏音效开关", "游戏音效"),
+        ("用户操作: 双设备开关", "双设备连接"),
+        ("用户操作: 切换主题 ->", "切换主题"),
+        ("EQ面板: 切换预设", "EQ面板：切换预设"),
+        ("EQ保存:", "EQ面板：保存预设"),
+        // === 通知与状态 ===
+        ("注册通知完成", "通知注册成功"),
+        ("ParseActiveReport: subType=0x02", "佩戴状态"),
+        ("ParseActiveReport: subType=0x06", "多设备状态"),
+        ("ParseActiveReport: 多连接状态变更", "多设备状态变化"),
+        ("Send cmd=0x0205", "注册通知"),
+        ("ParseWearingData", "佩戴状态"),
+        ("Send cmd=0x010F", "查询功能开关"),
+        ("Send cmd=0x0105", "查询固件"),
+        ("Send cmd=0x0114", "查询空间音效"),
+        // === 能力门控 ===
+        ("拦截不支持的命令", "功能不支持"),
+        // === 配置 ===
+        ("CFG] Load:", "读取配置"),
+        ("CFG] Save:", "保存配置"),
+        // === 命令分发 ===
+        ("命令超时", "命令超时"),
+        ("重发超时命令", "命令重试"),
+        ("设置失败", "命令失败"),
+        ("设置成功", "命令成功"),
+        ("重连", "重新连接"),
+        ("5s 后重试", "5秒后重试连接"),
+        // === UI 事件 ===
+        ("InitializeComponent OK", "界面加载完成"),
+        ("MainWindow 构造开始", "应用启动"),
+        // === 设备发现 ===
+        ("Locate: 命中", "发现设备"),
+        ("Locate: 按名称命中", "按名称找到设备"),
+        ("Locate: 按 SPP UUID 命中", "按蓝牙服务找到设备"),
+        // === 多设备操作 ===
+        ("多设备操作:", "多设备操作"),
+        ("连接/切换设备", "连接设备"),
+        ("连接设备 ->", "连接设备"),
+        // === 异常 ===
+        ("EXCEPTION", "发生异常"),
+    };
+
     private async Task CheckForUpdateAsync()
     {
         await Task.Delay(5000);
@@ -2166,5 +2692,18 @@ public partial class MainWindow : SukiWindow
         _updatePendingVersion = newVersion;
 
         return await _confirmTcs.Task;
+    }
+}
+
+/// <summary>捕获 Debug.WriteLine 输出，转发到 MainWindow 的 UI 日志面板。</summary>
+internal sealed class LogTraceListener : TraceListener
+{
+    private readonly WeakReference<MainWindow> _window;
+    public LogTraceListener(MainWindow w) => _window = new(w);
+    public override void Write(string? message) { }
+    public override void WriteLine(string? message)
+    {
+        if (message != null && _window.TryGetTarget(out var w))
+            w.AppendLog("TRACE", message);
     }
 }
