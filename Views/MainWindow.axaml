@@ -301,7 +301,7 @@
        </Grid>
        <TextBlock Text="OPPO Pods For Windows" FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4"
           Foreground="{DynamicResource SukiText}"/>
-       <TextBlock x:Name="VersionText" Text="v1.1.1" FontSize="11" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,14"/>
+       <TextBlock x:Name="VersionText" Text="v1.1.2" FontSize="11" HorizontalAlignment="Center" Opacity="0.4" Margin="0,0,0,14"/>
        <TextBlock Text="致谢" FontSize="12" FontWeight="Medium" HorizontalAlignment="Center" Margin="0,0,0,6"
           Foreground="{DynamicResource SukiText}"/>
        <Button FontSize="10" HorizontalAlignment="Center" Opacity="0.5" Margin="0,0,0,2"

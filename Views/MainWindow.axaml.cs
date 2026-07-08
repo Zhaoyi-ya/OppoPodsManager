@@ -1221,7 +1221,16 @@ public partial class MainWindow : SukiWindow
 
             var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             var fileName = $"OPPO Pods Manager_反馈_{date}.log";
-            System.IO.File.WriteAllText(System.IO.Path.Combine(desktop, fileName), header);
+            var filePath = System.IO.Path.Combine(desktop, fileName);
+
+            using var sw = new System.IO.StreamWriter(filePath, false);
+            sw.Write(header);
+            sw.WriteLine("--- 运行日志 ---");
+            lock (_logLock)
+            {
+                foreach (var line in _logLines)
+                    sw.WriteLine(line);
+            }
 
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
@@ -1403,12 +1412,14 @@ public partial class MainWindow : SukiWindow
 
         // 恢复选中项
         if (!string.IsNullOrEmpty(_eqCurrentPreset))
+        {
             SyncCbEqToPanel(_eqCurrentPreset);
             // 如果是自定义/设备端预设，显示均衡器滑块并加载已保存的增益值（不重复发送命令）
             var selItem = LbEqBuiltinPresets.SelectedItem as EqPresetItem
                        ?? LbEqCustomPresets.SelectedItem as EqPresetItem;
             if (selItem is { IsDeviceEntry: true } or { IsCustom: true })
                 ApplyEqSelection(selItem, sendToDevice: false);
+        }
 
         LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
         LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
@@ -1530,6 +1541,30 @@ public partial class MainWindow : SukiWindow
     private bool IsBuiltinPreset(string name) =>
         _pods.Caps.EqPresets.ContainsKey(name);
 
+    private static bool IsValidEqName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        return System.Text.RegularExpressions.Regex.IsMatch(name, @"^[\u4e00-\u9fa5a-zA-Z0-9]+$");
+    }
+
+    /// <summary>新建/保存后立即在自定义列表中追加并选中，不等设备响应。</summary>
+    private void AddCustomPresetToList(string name)
+    {
+        // 避免重复——已有同名项则只选中不追加
+        foreach (var item in LbEqCustomPresets.Items.OfType<EqPresetItem>())
+            if (item.Name == name) { LbEqCustomPresets.SelectedItem = item; return; }
+
+        var newItem = new EqPresetItem { Name = name, IsCustom = true, EqId = 0 };
+        _eqSuppressListEvent = true;
+        LbEqBuiltinPresets.SelectedItem = null;
+        LbEqCustomPresets.Items.Add(newItem);
+        LbEqCustomPresets.SelectedItem = newItem;
+        _eqSuppressListEvent = false;
+        // 显示均衡器
+        EqSliderCard.IsVisible = true;
+        BtnEqSave.IsEnabled = true;
+    }
+
     private void SetAllEqSliders(double value)
     {
         EqSlider62.Value = value;
@@ -1573,17 +1608,23 @@ public partial class MainWindow : SukiWindow
 
     private void BtnEqCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        // 仅当前编辑自定义/设备端预设时生效
+        if (string.IsNullOrEmpty(_eqCurrentPreset)) return;
         SetAllEqSliders(0);
         SnapshotSliders();
-        if (_pods.IsConnected)
-            _pods.SendCustomEq(SliderToGains());
-        EqHintText.Text = "已重置为 0 并下发到设备";
+        EqHintText.Text = "已重置，点击保存生效";
     }
 
     private async void BtnEqNew_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        var name = await ShowPromptDialog("新建自定义 EQ", "");
-        if (string.IsNullOrEmpty(name)) return;
+        string? name;
+        do
+        {
+            name = await ShowPromptDialog("新建自定义 EQ", "自定义", "名称仅支持中文/英文/数字，不含空格或特殊字符");
+            if (string.IsNullOrEmpty(name)) return;
+            if (IsValidEqName(name)) break;
+            await ShowCheckResultDialog("名称仅支持中文/英文/数字，不能含空格或特殊字符", "名称无效");
+        } while (true);
         _eqCurrentPreset = name;
         _eqCurrentId = 0;
         SetAllEqSliders(0);
@@ -1593,18 +1634,30 @@ public partial class MainWindow : SukiWindow
         EqHintText.Text = $"新建「{name}」— 拖拽滑块调节后保存";
         LbEqBuiltinPresets.SelectedItem = null;
         LbEqCustomPresets.SelectedItem = null;
+
+        // 立即加入自定义列表并选中
+        AddCustomPresetToList(name);
     }
 
     private void BtnEqSave_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (string.IsNullOrEmpty(_eqCurrentPreset)) return;
+        if (!IsValidEqName(_eqCurrentPreset))
+        {
+            EqHintText.Text = "名称仅支持中文/英文/数字，不含空格与特殊字符";
+            return;
+        }
         Log.D("UI", $"EQ保存: name={_eqCurrentPreset} eqId={_eqCurrentId}");
         // 编辑已有预设：先删旧再新建
         if (_eqCurrentId != 0 && _pods.IsConnected)
             _pods.DeleteEq(_eqCurrentId);
         DoSaveEqPreset(_eqCurrentPreset, 0);
-        // 保存后保持编辑状态，不隐藏面板
+        // 保存后重置 eqId，等设备响应后由 RefreshAllEqViews 重新赋值，避免同名取到旧 id
+        _eqCurrentId = 0;
         SnapshotSliders();
+
+        // 立即添加到自定义列表并选中，不等设备异步响应
+        AddCustomPresetToList(_eqCurrentPreset);
     }
 
     private void SnapshotSliders()
@@ -1740,22 +1793,24 @@ public partial class MainWindow : SukiWindow
     private string _updatePendingVersion = ""; // 当前提示的新版本号，供跳过使用
 
     /// <summary>浮层命名输入。</summary>
-    private async Task<string?> ShowPromptDialog(string title, string defaultText = "")
+    private async Task<string?> ShowPromptDialog(string title, string defaultText = "", string hint = "")
     {
         _promptTcs = new TaskCompletionSource<string?>();
         _confirmTcs = null;
 
         DialogTitle.Text = title;
-        DialogMessage.Text = "请输入预设名称：";
+        DialogMessage.Text = string.IsNullOrEmpty(hint) ? "请输入预设名称：" : hint;
         DialogInput.IsVisible = true;
         DialogInput.Text = defaultText;
         DialogCancelBtn.Content = "取消";
         DialogCancelBtn.Background = Brushes.Transparent;
+        DialogCancelBtn.IsVisible = true;
         DialogConfirmBtn.Content = "保存";
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
         DialogInput.Focus();
+        DialogInput.SelectAll();
 
         return await _promptTcs.Task;
     }
@@ -1771,6 +1826,7 @@ public partial class MainWindow : SukiWindow
         DialogInput.IsVisible = false;
         DialogCancelBtn.Content = "取消";
         DialogCancelBtn.Background = Brushes.Transparent;
+        DialogCancelBtn.IsVisible = true;
         DialogConfirmBtn.Content = "确认删除";
         DialogConfirmBtn.Background = new SolidColorBrush(Color.Parse("#CCE81123"));
         DialogConfirmBtn.IsVisible = true;
