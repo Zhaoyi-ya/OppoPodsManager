@@ -222,6 +222,12 @@ public partial class MainWindow : SukiWindow
         var autoUpdate = SettingsManager.GetString("AutoCheckUpdate");
         CbAutoUpdate.IsChecked = autoUpdate != "false"; // 首次 null → true
 
+        // 弹窗时长
+        var durIdx = SettingsManager.GetInt("ToastDuration", 2);
+        CbToastDuration.SelectedIndex = durIdx >= 0 && durIdx <= 5 ? durIdx : 2;
+        CbToastDuration.SelectionChanged += (_, _) =>
+            SettingsManager.SetInt("ToastDuration", CbToastDuration.SelectedIndex);
+
         // 设备型号选择
         _allModelNames = DeviceCapabilities.GetModelNames();
         _brandTree = BuildBrandTree(_allModelNames);
@@ -506,7 +512,15 @@ public partial class MainWindow : SukiWindow
             if (!_wasConnected && s.Battery.Count > 0)
             {
                 _wasConnected = true;
-                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.Battery);
+
+                // 检查是否低电/极低电，跳过普通弹窗直出对应类型
+                var anyCritical = s.Battery.Values.Any(v => v?.Level <= 10);
+                var anyLow = s.Battery.Values.Any(v => v?.Level <= 20 && v?.Level > 10);
+                if (!anyCritical && !anyLow)
+                {
+                    _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.Battery, GetToastDuration());
+                }
+
                 _pods.SendQueryEqAll();  // 首次连接时查询设备端 EQ 列表
 
                 // 首次连接成功后补一次"已连接耳机"发现（事件驱动，非轮询），填充选择器。
@@ -536,7 +550,7 @@ public partial class MainWindow : SukiWindow
             // TrayIcon.SetIcon(this, _iconDisconnected); // 托盘图标切换在 SetupTrayIcon 中处理
 
             if (wasConnected)
-                _ = ToastWindow.ShowAsync(null, GetDeviceDisplayName(), ToastType.Disconnected);
+                _ = ToastWindow.ShowAsync(null, GetDeviceDisplayName(), ToastType.Disconnected, GetToastDuration());
 
             ResetUi();
             RebuildTrayMenu();
@@ -561,21 +575,22 @@ public partial class MainWindow : SukiWindow
         SetBatLabel(CaseLabel, s.Battery.GetValueOrDefault("C"));
         ChargeIndicator.IsVisible = s.Battery.Values.Any(v => v?.Charging == true);
 
-        if (!_lowBatteryAlerted)
+        if (!_criticalBatteryAlerted)
         {
-            if ((batL is { } l && l.Lvl <= 20) || (batR is { } r && r.Lvl <= 20))
+            if ((batL is { } lc && lc.Lvl <= 10) || (batR is { } rc && rc.Lvl <= 10))
             {
-                _lowBatteryAlerted = true;
-                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.LowBattery);
+                _criticalBatteryAlerted = true;
+                _lowBatteryAlerted = true; // 极低电量跳过低电量弹窗
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.CriticalBattery, GetToastDuration());
             }
         }
 
-        if (!_criticalBatteryAlerted)
+        if (!_lowBatteryAlerted)
         {
-            if ((batL is { } l && l.Lvl <= 10) || (batR is { } r && r.Lvl <= 10))
+            if ((batL is { } l && l.Lvl <= 20 && l.Lvl > 10) || (batR is { } r && r.Lvl <= 20 && r.Lvl > 10))
             {
-                _criticalBatteryAlerted = true;
-                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.CriticalBattery);
+                _lowBatteryAlerted = true;
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.LowBattery, GetToastDuration());
             }
         }
 
@@ -1398,6 +1413,13 @@ public partial class MainWindow : SukiWindow
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
         return caps.ModelName;
+    }
+
+    /// <summary>根据用户设置获取弹窗时长（毫秒）。默认=5000ms。</summary>
+    private int GetToastDuration()
+    {
+        var idx = SettingsManager.GetInt("ToastDuration", 2);
+        return idx switch { 0 => 3000, 1 => 4000, 3 => 6000, 4 => 7000, 5 => 8000, _ => 5000 };
     }
 
     private void UpdateTitle()
@@ -2853,6 +2875,16 @@ public partial class MainWindow : SukiWindow
             BtnCheckUpdate.IsEnabled = true;
             BtnCheckUpdate.Content = "检查更新";
         }
+    }
+
+    private async void BtnTestBattery_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var state = new PodState();
+        state.Battery["L"] = (12, false);
+        state.Battery["R"] = (15, false);
+        state.Battery["C"] = (30, false);
+        // 模拟首次连接：单次弹出电量弹窗
+        await ToastWindow.ShowAsync(state, GetDeviceDisplayName(), ToastType.Battery, GetToastDuration());
     }
 
     private async void BtnTestToast_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
