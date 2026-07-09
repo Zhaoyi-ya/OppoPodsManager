@@ -33,6 +33,7 @@ public static class TransportFactory
         }
 #endif
 
+#if LINUX
 		if (OperatingSystem.IsLinux())
 		{
 			// Linux: RFCOMM (AF_BLUETOOTH socket) 优先，BLE GATT (BlueZ D-Bus) 回退
@@ -43,6 +44,7 @@ public static class TransportFactory
 		}
 
 		Log.D("FACTORY", "Create: 当前平台无传输实现,抛出 PlatformNotSupportedException");
+#endif
 		throw new PlatformNotSupportedException(
 			"当前平台暂无硬件传输实现。请为该平台实现 IPodTransport（如 macOS IOBluetooth），并在 TransportFactory 中按平台分支返回。");
     }

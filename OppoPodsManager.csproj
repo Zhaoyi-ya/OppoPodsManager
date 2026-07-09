@@ -53,6 +53,11 @@
     <Compile Remove="Transport\Windows\**\*.cs" />
   </ItemGroup>
 
+  <!-- Windows 目标：把 Linux 专属源码排除出编译 -->
+  <ItemGroup Condition="'$(EnableWindowsBackend)' == 'true'">
+    <Compile Remove="Transport\Linux\**\*.cs" />
+  </ItemGroup>
+
   <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
   <ItemGroup>
     <EmbeddedResource Include="Data\DeviceModels.json" LogicalName="OppoPodsManager.DeviceModels.json" />
