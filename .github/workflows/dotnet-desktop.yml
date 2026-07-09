@@ -61,6 +61,22 @@ jobs:
             publish-args: "-p:PublishAot=true"
             pack: zip
 
+          # ── Windows ARM64 ──
+          - os: windows-latest
+            rid: win-arm64
+            backend: true
+            target: net10.0-windows10.0.19041.0
+            variant: single-file
+            publish-args: "--self-contained false -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true"
+            pack: exe
+          - os: windows-latest
+            rid: win-arm64
+            backend: true
+            target: net10.0-windows10.0.19041.0
+            variant: self-contained
+            publish-args: "--self-contained true -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=true"
+            pack: exe
+
     runs-on: ${{ matrix.os }}
 
     steps:
