@@ -197,6 +197,7 @@ public partial class PodManager : IPodManager
             case (ushort)(OppoProtocol.CmdQueryCodecType | 0x8000):  // 0x8114
             {
                 var payload = Slice(p, 0, len);
+                Log.D("RFCOMM", $"编解码查询响应 raw={BitConverter.ToString(payload)}");
                 int codec = OppoProtocol.ParseCodecType(payload);
                 if (codec >= 0) { State.CodecType = codec; Log.D("RFCOMM", $"编解码器={codec}"); StateChanged?.Invoke(); }
                 break;
@@ -597,6 +598,7 @@ public partial class PodManager : IPodManager
                         Thread.Sleep(100);
                     }
                     _transport.Poll(500);
+            _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
                     tick++;
 
                     // 低频：EQ（能力门控）
@@ -627,7 +629,6 @@ public partial class PodManager : IPodManager
 
                         _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterNotify);
                         Thread.Sleep(100);
-                        _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
                         Thread.Sleep(100);
                         _transport.Poll(400);
 

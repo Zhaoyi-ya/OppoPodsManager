@@ -1,10 +1,10 @@
-# OPPO Pods For Windows
+# OPPO Pods Manager (Windows / Linux)
 
 [中文](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README_EN.md)
 
 ---
 
-在 Windows 桌面上管理你的 OPPO / OnePlus / realme 蓝牙耳机——查看电量、切换降噪、调音、管理多设备连接，无需打开手机 App。
+在桌面端管理你的 OPPO / OnePlus / realme 蓝牙耳机——查看电量、切换降噪、调音、管理多设备连接，无需打开手机 App。
 
 支持三大品牌共 **137 款设备**，能力按型号自动识别，界面只显示你的耳机真正支持的功能。
 

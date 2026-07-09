@@ -33,8 +33,19 @@ public static class TransportFactory
         }
 #endif
 
-        Log.D("FACTORY", "Create: 当前平台无传输实现,抛出 PlatformNotSupportedException");
-        throw new PlatformNotSupportedException(
-            "当前平台暂无硬件传输实现。请为该平台实现 IPodTransport（如 Linux BlueZ / macOS IOBluetooth），并在 TransportFactory 中按平台分支返回。");
+#if LINUX
+		if (OperatingSystem.IsLinux())
+		{
+			// Linux: RFCOMM (AF_BLUETOOTH socket) 优先，BLE GATT (BlueZ D-Bus) 回退
+			Log.D("FACTORY", "Create: Linux 平台 -> RFCOMM 优先, GATT 回退");
+			return new FallbackTransport(
+				() => new LinuxRfcommStreamTransport(),
+				() => new LinuxGattTransport());
+		}
+
+		Log.D("FACTORY", "Create: 当前平台无传输实现,抛出 PlatformNotSupportedException");
+#endif
+		throw new PlatformNotSupportedException(
+			"当前平台暂无硬件传输实现。请为该平台实现 IPodTransport（如 macOS IOBluetooth），并在 TransportFactory 中按平台分支返回。");
     }
 }

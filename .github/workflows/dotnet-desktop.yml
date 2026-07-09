@@ -1,4 +1,4 @@
-name: Build (Windows x64)
+name: Build (Windows + Linux)
 
 on:
   push:
@@ -18,27 +18,54 @@ env:
 
 jobs:
   build:
-    runs-on: windows-latest
-
     strategy:
       fail-fast: false
       matrix:
         include:
-          - variant: single-file
-            pack: exe
-            args: "--self-contained false -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true"
+          # ── Linux ──
+          - os: ubuntu-latest
+            rid: linux-x64
+            backend: false
+            target: net10.0
+            variant: single-file
+            publish-args: "--self-contained false -p:PublishSingleFile=true -p:PublishAot=false"
+            pack: tar.gz
+          - os: ubuntu-latest
+            rid: linux-x64
+            backend: false
+            target: net10.0
+            variant: self-contained
+            publish-args: "--self-contained true -p:PublishSingleFile=true -p:PublishAot=false -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=true"
+            pack: tar.gz
 
-          - variant: self-contained
+          # ── Windows ──
+          - os: windows-latest
+            rid: win-x64
+            backend: true
+            target: net10.0-windows10.0.19041.0
+            variant: single-file
+            publish-args: "--self-contained false -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true"
             pack: exe
-            args: "--self-contained true -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=true"
-
-          - variant: aot
+          - os: windows-latest
+            rid: win-x64
+            backend: true
+            target: net10.0-windows10.0.19041.0
+            variant: self-contained
+            publish-args: "--self-contained true -p:PublishSingleFile=true -p:PublishAot=false -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=false -p:PublishTrimmed=true"
+            pack: exe
+          - os: windows-latest
+            rid: win-x64
+            backend: true
+            target: net10.0-windows10.0.19041.0
+            variant: aot
+            publish-args: "-p:PublishAot=true"
             pack: zip
-            args: "-p:PublishAot=true"
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -55,37 +82,51 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Publish (${{ matrix.variant }})
+      - name: Publish (${{ matrix.os }} / ${{ matrix.variant }})
         shell: pwsh
         run: >
           dotnet publish $env:PROJECT
           -c Release
-          -r win-x64
+          -r ${{ matrix.rid }}
+          -f ${{ matrix.target }}
           -o "publish/${{ matrix.variant }}"
-          ${{ matrix.args }}
+          ${{ matrix.publish-args }}
+          -p:EnableWindowsBackend=${{ matrix.backend }}
 
-  
-      - name: Package (${{ matrix.variant }})
+      - name: Package (${{ matrix.os }} / ${{ matrix.variant }})
         id: package
         shell: pwsh
         run: |
           $dir = "publish/${{ matrix.variant }}"
+          $prefix = "OppoPodsManager-${{ matrix.variant }}-${{ matrix.rid }}"
 
           if ("${{ matrix.pack }}" -eq "zip") {
-            $out = "OppoPodsManager-${{ matrix.variant }}-win-x64.zip"
+            $out = "$prefix.zip"
             Compress-Archive -Path "$dir/*" -DestinationPath $out -Force
+          } elseif ("${{ matrix.pack }}" -eq "tar.gz") {
+            $tar = "$prefix.tar"
+            if ($IsWindows) {
+              7z a -ttar $tar "$dir/*"
+              7z a -tgzip "$prefix.tar.gz" $tar
+              Remove-Item $tar
+            } else {
+              tar -czf "$prefix.tar.gz" -C $dir .
+            }
+            $out = "$prefix.tar.gz"
           } else {
-            $out = "OppoPodsManager-${{ matrix.variant }}-win-x64.exe"
-            $exe = Get-ChildItem -Path $dir -Filter "OppoPodsManager.exe" -Recurse | Select-Object -First 1
+            $out = "$prefix.exe"
+            $exe = Get-ChildItem -Path $dir -Filter "OppoPodsManager*" -Recurse |
+                   Where-Object { $_.Extension -in '.exe', '' } |
+                   Select-Object -First 1
             Copy-Item $exe.FullName -Destination $out -Force
           }
 
-          echo "asset=$out" >> $env:GITHUB_OUTPUT
+          "asset=$out" >> $env:GITHUB_OUTPUT
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: OppoPodsManager-${{ matrix.variant }}-win-x64
+          name: OppoPodsManager-${{ matrix.variant }}-${{ matrix.rid }}
           path: ${{ steps.package.outputs.asset }}
           retention-days: 14
 
@@ -108,21 +149,3 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            ### 下载说明
-
-            | 版本 | 说明 |
-            |---|---|
-            | **普通版 exe（single-file）** | 需安装 .NET 运行时 |
-            | **自包含版 exe（self-contained）** | 免安装 |
-            | **AOT 版 zip（aot）** | 原生编译性能最佳 |
-
-      - name: 通知更新服务器
-        run: |
-          VERSION="${{ github.ref_name }}"
-          BODY="{\"version\":\"$VERSION\"}"
-          SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "${{ secrets.UPDATE_SECRET }}" | awk '{print $NF}')
-          curl -s -X POST https://oppopods.zhaoyi.fun/api/update \
-            -H "Content-Type: application/json" \
-            -H "X-Signature: $SIG" \
-            -d "$BODY"

@@ -50,7 +50,7 @@
      <ItemsControl x:Name="DeviceList" Margin="0,0,0,4"/>
      <Button x:Name="NavHome" Content="首页" Height="38" FontSize="14"
        Click="NavHome_Click" Classes="SidebarNav"/>
-     <Button x:Name="NavEq" Content="EQ调节" Height="38" FontSize="14"
+     <Button x:Name="NavEq" Content="音效调节" Height="38" FontSize="14"
        Click="NavEq_Click" Classes="SidebarNav"/>
      <Button x:Name="NavDeviceInfo" Content="设备详情" Height="38" FontSize="14"
        Click="NavDeviceInfo_Click" Classes="SidebarNav"/>
@@ -150,36 +150,8 @@
        <StackPanel>
         <TextBlock Text="功能" FontSize="14" FontWeight="Medium" Margin="0,0,0,6"
            HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Stretch" Spacing="16">
-         <!-- 左列 -->
-         <StackPanel Spacing="0">
-          <CheckBox x:Name="CbSpatial" Content="空间音效" Margin="0,3"/>
-          <CheckBox x:Name="CbGameSound" Content="游戏音效" Margin="0,3"/>
-          <CheckBox x:Name="CbBassEngine" Content="低音引擎" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-          <CheckBox x:Name="CbVocalEnhance" Content="人声增强" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-          <CheckBox x:Name="CbHearingEnhance" Content="听力增强" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-         </StackPanel>
-         <!-- 右列 -->
-         <StackPanel Spacing="0">
-          <CheckBox x:Name="CbGame" Content="游戏模式" Margin="0,3"/>
+        <StackPanel Spacing="0" HorizontalAlignment="Center">
           <CheckBox x:Name="CbDualDevice" Content="双设备连接" Margin="0,3"/>
-          <CheckBox x:Name="CbLongPower" Content="长续航模式" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-          <CheckBox x:Name="CbWearDetection" Content="佩戴检测" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-          <CheckBox x:Name="CbSpineHealth" Content="脊柱监测" Margin="0,3" IsEnabled="False" IsVisible="False"/>
-         </StackPanel>
-        </StackPanel>
-        <!-- 底行 -->
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="16" Margin="0,10,0,0">
-         <StackPanel HorizontalAlignment="Center">
-          <TextBlock Text="大师调音" FontSize="12" Margin="0,0,0,4"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
-          <ComboBox x:Name="CbEq" Width="140" Height="28" Padding="6,0"/>
-         </StackPanel>
-         <StackPanel HorizontalAlignment="Center" IsVisible="False">
-          <TextBlock Text="查找设备" FontSize="12" Margin="0,0,0,4"
-             Foreground="{DynamicResource SukiText}" Opacity="0.7" HorizontalAlignment="Center"/>
-          <Button x:Name="BtnFindDevice" Content="播放声音" Width="140" Height="36" FontSize="11" IsEnabled="False"/>
-         </StackPanel>
         </StackPanel>
        </StackPanel>
       </Border>
@@ -328,11 +300,27 @@
        VerticalScrollBarVisibility="Hidden" IsVisible="False">
     <StackPanel Spacing="14">
      <!-- 标题行 -->
-     <TextBlock Text="EQ 调节" FontSize="15" FontWeight="Medium"
+     <TextBlock Text="音效调节" FontSize="15" FontWeight="Medium"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
 
-     <!-- 上下布局：预设列表全宽 + 滑块编辑区展开在下方 -->
-     <!-- ====== 预设列表（左：系统预设 | 右：自定义） ====== -->
+     <!-- ====== 音效卡片 ====== -->
+     <Border Padding="14,12"
+       CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
+      <StackPanel Spacing="8">
+       <TextBlock Text="音效" FontSize="13" FontWeight="Medium"
+          HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+       <UniformGrid Columns="2" HorizontalAlignment="Stretch">
+        <CheckBox x:Name="CbSpatial" Content="空间音效" Margin="0,2"
+           HorizontalAlignment="Center"/>
+        <CheckBox x:Name="CbGameSound" Content="游戏音效" Margin="0,2"
+           HorizontalAlignment="Center"/>
+        <CheckBox x:Name="CbGame" Content="游戏模式" Margin="0,2"
+           HorizontalAlignment="Center"/>
+       </UniformGrid>
+      </StackPanel>
+     </Border>
+
+     <!-- ====== 预设列表 ====== -->
      <Border Padding="14,14"
        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
       <StackPanel Spacing="8">
@@ -381,7 +369,7 @@
       </StackPanel>
      </Border>
 
-     <!-- ====== 均衡器滑块（编辑/新建时展开，全宽） ====== -->
+     <!-- ====== 下：均衡器滑块（编辑/新建时展开，全宽） ====== -->
      <Border x:Name="EqSliderCard" Padding="14,14"
        CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard"
        IsVisible="False">
@@ -528,6 +516,16 @@
     </StackPanel>
    </ScrollViewer>
   </Grid>
+
+  <!-- 隐藏控件占位（代码引用但不显示，放最外层避免影响布局） -->
+  <ComboBox x:Name="CbEq" IsVisible="False" Grid.Column="1"/>
+  <Button x:Name="BtnFindDevice" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbBassEngine" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbVocalEnhance" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbHearingEnhance" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbLongPower" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbWearDetection" IsVisible="False" Grid.Column="1"/>
+  <CheckBox x:Name="CbSpineHealth" IsVisible="False" Grid.Column="1"/>
 
   <!-- ========== 浮层对话框 ========== -->
   <!-- 命名输入浮层 -->

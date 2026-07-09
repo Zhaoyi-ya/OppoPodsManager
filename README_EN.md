@@ -1,11 +1,11 @@
-# OPPO Pods For Windows
+# OPPO Pods Manager (Windows / Linux)
 
 [中文](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README_EN.md)
 
 
 ---
 
-Manage your OPPO / OnePlus / realme Bluetooth earbuds right from your Windows desktop — check battery, switch noise cancelling, tune EQ, and manage multi-device connections without opening the phone app.
+Manage your OPPO / OnePlus / realme Bluetooth earbuds right from your desktop — check battery, switch noise cancelling, tune EQ, and manage multi-device connections without opening the phone app.
 
 Supports **137 devices** across all three brands, with capabilities auto-detected per model — the UI only shows what your earbuds actually support.
 
@@ -63,9 +63,9 @@ Supports **137 devices** across all three brands, with capabilities auto-detecte
 
 ## Requirements
 
-- **OS**: Windows 10 / 11 (64-bit)
-- **Hardware**: a Bluetooth adapter + paired OPPO / OnePlus / realme earbuds
-- **Dependencies**: the self-contained release needs nothing installed — just run it
+- **OS**: Windows 10/11 (64-bit) or Linux (64-bit, X11/XWayland)
+- **Hardware**: Bluetooth adapter + paired OPPO/OnePlus/realme earbuds. Linux needs BlueZ + bluetoothctl.
+- **Dependencies**: Windows self-contained (no install needed). Linux needs .NET Runtime 10.0 + bluetoothctl + libbluetooth.
 
 ---
 

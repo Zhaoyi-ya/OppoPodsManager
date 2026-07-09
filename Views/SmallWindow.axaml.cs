@@ -48,6 +48,8 @@ public partial class SmallWindow : SukiWindow
         InitializeComponent();
 
         _pods.StateChanged += OnStateChanged;
+        // 窗口关闭时取消订阅，避免对已关闭窗口的控件操作 + 释放引用
+        Closed += (_, _) => _pods.StateChanged -= OnStateChanged;
         Deactivated += (_, _) =>
         {
             try { _onDeactivated?.Invoke(); }

@@ -1,42 +1,50 @@
 using System;
-using System.Diagnostics;
+using System.IO;
 
 namespace OppoPodsManager;
 
 /// <summary>
-/// 日志封装。通过 <see cref="Trace.WriteLine(string)"/> 输出到所有已注册的 TraceListener
-/// （含 UI 日志面板的 LogTraceListener），同时转发 Debug.WriteLine 供 DebugView 等工具捕获。
-/// 用法：
-///   Log.D("BT", "connect ok");
-///   Log.D("BT", $"recv {n} bytes");
-///   Log.Ex("BT", "Connect failed", ex);
-/// 输出格式：HH:mm:ss.fff [tag] message
+/// 调试日志：同时输出到 stderr（终端可见）和文件 ~/.config/OppoPodsManager/app.log。
 /// </summary>
 public static class Log
 {
-    /// <summary>写一条带时间戳和分类标签的日志。</summary>
+    private static readonly string? LogDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OppoPodsManager");
+    private static readonly string? LogPath = LogDir != null ? Path.Combine(LogDir, "app.log") : null;
+    private static readonly object _lock = new();
+
     public static void D(string tag, string message)
     {
         var line = $"{DateTime.Now:HH:mm:ss.fff} [{tag}] {message}";
-        Trace.WriteLine(line);
-        Debug.WriteLine(line);
+        Write(line);
     }
 
-    /// <summary>记录操作结果（OK/FAIL）。</summary>
     public static void Result(string tag, string operation, bool ok, string? detail = null)
     {
         var status = ok ? "OK" : "FAIL";
         var tail = string.IsNullOrEmpty(detail) ? "" : " — " + detail;
-        var line = $"{DateTime.Now:HH:mm:ss.fff} [{tag}] {operation}: {status}{tail}";
-        Trace.WriteLine(line);
-        Debug.WriteLine(line);
+        D(tag, $"{operation}: {status}{tail}");
     }
 
-    /// <summary>记录异常（含上下文说明）。</summary>
     public static void Ex(string tag, string context, Exception ex)
     {
-        var line = $"{DateTime.Now:HH:mm:ss.fff} [{tag}] {context} EXCEPTION: {ex.GetType().Name}: {ex.Message}";
-        Trace.WriteLine(line);
-        Debug.WriteLine(line);
+        D(tag, $"{context} EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+    }
+
+    private static void Write(string line)
+    {
+        System.Diagnostics.Trace.WriteLine(line);
+        Console.Error.WriteLine(line);
+        try
+        {
+            if (LogDir == null) return;
+            if (LogPath == null) return;
+            lock (_lock)
+            {
+                if (!Directory.Exists(LogDir!)) Directory.CreateDirectory(LogDir!);
+                File.AppendAllText(LogPath, line + "\n");
+            }
+        }
+        catch { }
     }
 }
