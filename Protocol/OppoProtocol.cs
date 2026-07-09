@@ -295,15 +295,13 @@ public static partial class OppoProtocol
     public static int ParseCodecType(byte[] payload)
     {
         int raw;
-        bool isSpp = false;
 
-        // SPP 短格式: [status(1), codecType(1)] — A2DP 标准编号
+        // SPP 短格式: [status(1), codecType(1)]
         if (payload != null && payload.Length == 2 && payload[0] == 0)
         {
             raw = payload[1];
-            isSpp = true;
         }
-        // GATT 长格式: [status(1), count(1), id(1), val(1), ...] — OPPO 私有编号
+        // GATT 长格式: [status(1), count(1), id(1), val(1), ...]
         else if (payload != null && payload.Length >= 4 && payload[0] == 0)
         {
             int n = payload[1];
@@ -317,11 +315,8 @@ public static partial class OppoProtocol
         }
         else return -1;
 
-        // 归一化: GATT(OPPO 私有) → SPP(A2DP 标准)
-        if (!isSpp)
-        {
-            raw = raw switch { 1 => 2, 2 => 1, _ => raw }; // AAC: 1↔2, 其他不变（待验证）
-        }
+        // 归一化: OPPO 私有编号 → A2DP 标准（SPP 和 GATT 都使用 OPPO 编号，1↔2 互换）
+        raw = raw switch { 1 => 2, 2 => 1, _ => raw };
         return raw;
     }
 
