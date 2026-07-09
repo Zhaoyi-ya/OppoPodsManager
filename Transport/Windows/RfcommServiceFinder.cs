@@ -54,7 +54,7 @@ internal static class RfcommServiceFinder
                     if (svc?.Device != null && svc.Device.BluetoothAddress == targetAddr)
                     {
                         Log.D("BT", $"RfcommFinder: 打开成功(目标地址匹配) name=\"{di.Name}\"");
-                        return svc;
+                        return await ResolveFreshAsync(svc);
                     }
                     svc?.Dispose();  // 非目标设备，释放
                 }
@@ -66,12 +66,12 @@ internal static class RfcommServiceFinder
                 if (IsSupportedBrand(di.Name))
                 {
                     var svc = await TryOpenAsync(di.Id);
-                    if (svc != null) { Log.D("BT", $"RfcommFinder: 打开成功(品牌匹配) name=\"{di.Name}\""); return svc; }
+                    if (svc != null) { Log.D("BT", $"RfcommFinder: 打开成功(品牌匹配) name=\"{di.Name}\""); return await ResolveFreshAsync(svc); }
                 }
             foreach (var di in devices)
             {
                 var svc = await TryOpenAsync(di.Id);
-                if (svc != null) { Log.D("BT", $"RfcommFinder: 打开成功(回退首个) name=\"{di.Name}\""); return svc; }
+                if (svc != null) { Log.D("BT", $"RfcommFinder: 打开成功(回退首个) name=\"{di.Name}\""); return await ResolveFreshAsync(svc); }
             }
         }
         catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByServiceUuidAsync", ex); }
@@ -107,6 +107,36 @@ internal static class RfcommServiceFinder
         }
         catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByPairedNameAsync", ex); }
         return null;
+    }
+
+    /// <summary>
+    /// 把（可能来自缓存的）RfcommDeviceService 重新做一次 Uncached SDP 解析，拿到带有效 RFCOMM
+    /// 服务端通道号的新鲜记录。
+    /// 现象：设备刚重连时 RfcommDeviceService.FromIdAsync 返回的缓存记录里通道号为
+    /// 0（日志里 svc=...#RFCOMM:00000000:...），此时 StreamSocket.ConnectAsync / Winsock 都会
+    /// 连到无效通道而超时。经设备侧 GetRfcommServicesForIdAsync(Uncached) 强制重查 SDP 即可拿到真实通道。
+    /// 重查失败/无结果时回退用原缓存服务（好过没有）。
+    /// </summary>
+    private static async Task<RfcommDeviceService?> ResolveFreshAsync(RfcommDeviceService cached)
+    {
+        try
+        {
+            var dev = cached.Device;
+            if (dev == null) return cached;
+
+            var serviceId = RfcommServiceId.FromUuid(OppoProtocol.OppoSppUuid);
+            var fresh = await dev.GetRfcommServicesForIdAsync(serviceId, BluetoothCacheMode.Uncached);
+            if (fresh?.Services != null && fresh.Services.Count > 0)
+            {
+                var svc = fresh.Services[0];
+                Log.D("BT", $"RfcommFinder: Uncached 重解析成功 svc={svc.ConnectionServiceName}");
+                cached.Dispose();   // 释放缓存句柄，改用新鲜服务
+                return svc;
+            }
+            Log.D("BT", "RfcommFinder: Uncached 重解析无结果，回退缓存服务");
+        }
+        catch (Exception ex) { Log.Ex("BT", "RfcommFinder.ResolveFreshAsync", ex); }
+        return cached;
     }
 
     private static async Task<RfcommDeviceService?> TryOpenAsync(string deviceId)
