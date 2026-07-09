@@ -598,6 +598,7 @@ public partial class PodManager : IPodManager
                         Thread.Sleep(100);
                     }
                     _transport.Poll(500);
+            _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
                     tick++;
 
                     // 低频：EQ（能力门控）
@@ -628,7 +629,6 @@ public partial class PodManager : IPodManager
 
                         _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterNotify);
                         Thread.Sleep(100);
-                        _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
                         Thread.Sleep(100);
                         _transport.Poll(400);
 

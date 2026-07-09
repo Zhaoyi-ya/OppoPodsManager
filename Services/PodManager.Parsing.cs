@@ -237,19 +237,22 @@ public partial class PodManager
         if (len < 3) return;
         int count = pkt[start + 1];
         bool leftDone = false, rightDone = false;
+            _ = leftDone; _ = rightDone;
         for (int j = 0; j < count && start + 2 + j * 2 + 1 < start + len; j++)
         {
             int comp = pkt[start + 2 + j * 2];
             int st = pkt[start + 2 + j * 2 + 1];
             string status = st switch
             {
-                0 => "已断连", 4 => "入盒", 5 => "摘下", 7 => "佩戴", _ => "?" + st
+                0 => "已断连", 1 => "摘下", 3 => "佩戴", 4 => "入盒", 5 => "摘下", 7 => "佩戴", _ => "?" + st
             };
             if (comp == 1) { State.WearingL = status; if (st == 0) leftDone = true; }
             else if (comp == 2) { State.WearingR = status; if (st == 0) rightDone = true; }
         }
         Log.D("RFCOMM", $"ParseWearingData: L='{State.WearingL}' R='{State.WearingR}'");
-        if (leftDone && rightDone) { Log.D("RFCOMM", "ParseWearingData: 两侧均已断连(st=0)"); State.Connected = false; StateChanged?.Invoke(); }
+        // 佩戴状态仅用于 UI 显示，不再触发断连
+        // 不同型号的 st=0 语义不同：OnePlus 为"已断连"，Enco 为"未佩戴"
+        // 统一用 idle timeout 检测真实断连
     }
 
     private void ParseEq(byte[] pkt, int start, int len)

@@ -13,14 +13,17 @@ public sealed class LinuxGattTransport : IPodTransport
     private static readonly Guid[] ServiceUuids = {
         new("0000079A-D102-11E1-9B23-00025B00A5A5"),
         new("0000079C-D102-11E1-9B23-00025B00A5A5"),
+        new("DF21FE2C-2515-4FDB-8886-F12C4D67927C"),  // Enco Air4 Pro 等
     };
     private static readonly Guid[] TxCharUuids = {
         new("0000079B-D102-11E1-9B23-00025B00A5A5"),
         new("0200079C-D102-11E1-9B23-00025B00A5A5"),
+        new("DF21FE2D-2515-4FDB-8886-F12C4D67927C"),
     };
     private static readonly Guid[] RxCharUuids = {
         new("0000079C-D102-11E1-9B23-00025B00A5A5"),
         new("0100079C-D102-11E1-9B23-00025B00A5A5"),
+        new("DF21FE2E-2515-4FDB-8886-F12C4D67927C"),
     };
     private const int ConnectTimeoutMs = 8000;
     private readonly IDeviceLocator _locator;
@@ -62,7 +65,7 @@ public sealed class LinuxGattTransport : IPodTransport
         if (addr == 0) { LastError = "未发现已配对的 OPPO 蓝牙设备"; return false; }
         DeviceName = name;
         var addrHex = addr.ToString("X12");
-        _devPath = $"/org/bluez/hci0/dev_{addrHex.Substring(10,2)}_{addrHex.Substring(8,2)}_{addrHex.Substring(6,2)}_{addrHex.Substring(4,2)}_{addrHex.Substring(2,2)}_{addrHex.Substring(0,2)}".ToUpperInvariant();
+        _devPath = $"/org/bluez/hci0/dev_{addrHex.Substring(10,2)}_{addrHex.Substring(8,2)}_{addrHex.Substring(6,2)}_{addrHex.Substring(4,2)}_{addrHex.Substring(2,2)}_{addrHex.Substring(0,2)}";
         Log.D("LXGATT", $"Connect: device path={_devPath}");
 
         _dbus = new Connection(Address.System);

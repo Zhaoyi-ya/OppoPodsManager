@@ -37,10 +37,11 @@ public static class Log
         Console.Error.WriteLine(line);
         try
         {
+            if (LogDir == null) return;
             if (LogPath == null) return;
             lock (_lock)
             {
-                if (!Directory.Exists(LogDir)) Directory.CreateDirectory(LogDir);
+                if (!Directory.Exists(LogDir!)) Directory.CreateDirectory(LogDir!);
                 File.AppendAllText(LogPath, line + "\n");
             }
         }

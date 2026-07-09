@@ -8,139 +8,276 @@ namespace OppoPodsManager;
 
 public sealed class LinuxRfcommStreamTransport : IPodTransport
 {
+    private const string Libc = "libc";
     private const int AF_BLUETOOTH = 31;
     private const int SOCK_STREAM = 1;
     private const int BTPROTO_RFCOMM = 3;
     private const int SOL_SOCKET = 1;
-    private const int SO_RCVTIMEO = 20;
     private const int SO_SNDTIMEO = 21;
+    private const int SO_RCVTIMEO = 20;
     private const int F_GETFL = 3;
     private const int F_SETFL = 4;
-    private const int O_NONBLOCK = 0x800;
-    private const short POLLOUT = 4;
-    private const int RecvTimeoutMs = 400;
-    private const int ConnectTimeoutMs = 4000;
-    private const byte OppoChannel = 15;
-    private const byte MaxRfcommChannel = 18;
-    private const int MaxIdleTimeouts = 15;
+    private const int O_NONBLOCK = 2048;
+    private const int EAGAIN = 11;
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int socket(int domain, int type, int protocol);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int connect(int sockfd, ref SockAddrRc addr, uint addrlen);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern IntPtr read(int fd, byte[] buf, IntPtr count);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern IntPtr write(int fd, byte[] buf, IntPtr count);
+
+    [DllImport(Libc)]
+    private static extern int close(int fd);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int setsockopt(int sockfd, int level, int optname, ref TimeVal optval, uint optlen);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int fcntl(int fd, int cmd, int arg);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int fcntl(int fd, int cmd);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SockAddrRc
+    {
+        public ushort rc_family;
+        public byte b0, b1, b2, b3, b4, b5;
+        public byte rc_channel;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TimeVal
+    {
+        public long tv_sec;
+        public long tv_usec;
+    }
+
+    private const int MaxRfcommChannel = 30;
+    private const int MaxIdleTimeouts = 200;
+    private const int ReadBufferSize = 512;
+
+    // Probe is now the real battery query (0x0106), encoded per-scan for reliability
 
     private readonly IFrameCodec _codec = new SppFrameCodec();
-    private readonly IDeviceLocator _locator;
     private readonly List<byte> _framer = new();
     private readonly ConcurrentQueue<PodFrame> _rxQueue = new();
-    private readonly object _lock = new();
-    private int _socket = -1;
-    private int _pollSeq;
-    private int _recvTimeouts;
-    private bool _disposed;
+    private readonly IDeviceLocator _locator;
+    private readonly object _sendLock = new();
+
+    private int _socketFd = -1;
+    private Thread? _readThread;
+    private volatile bool _disposed;
+    private volatile bool _readLoopActive;
+    private int _idleCounter;
 
     public LinuxRfcommStreamTransport() : this(new LinuxBluetoothLocator()) { }
     public LinuxRfcommStreamTransport(IDeviceLocator locator) { _locator = locator; }
+
     public string? DeviceName { get; private set; }
     public string? LastError { get; private set; }
     public bool IsConnected { get; private set; }
     public event Action<PodFrame>? FrameReceived;
-#pragma warning disable CS0067
     public event Action? Disconnected;
-#pragma warning restore CS0067
-
-    [DllImport("libc", SetLastError = true)] private static extern int socket(int domain, int type, int protocol);
-    [DllImport("libc", SetLastError = true)] private static extern int connect(int sockfd, IntPtr addr, int addrlen);
-    [DllImport("libc", SetLastError = true)] private static extern IntPtr send(int sockfd, byte[] buf, IntPtr len, int flags);
-    [DllImport("libc", SetLastError = true)] private static extern IntPtr recv(int sockfd, byte[] buf, IntPtr len, int flags);
-    [DllImport("libc", SetLastError = true)] private static extern int close(int fd);
-    [DllImport("libc", SetLastError = true)] private static extern int setsockopt(int sockfd, int level, int optname, ref TimeValLinux optval, int optlen);
-    [DllImport("libc", SetLastError = true)] private static extern int fcntl(int fd, int cmd, int arg);
-    [DllImport("libc", SetLastError = true)] private static extern int poll(ref PollFd fds, int nfds, int timeout);
-
-    [StructLayout(LayoutKind.Sequential)] private struct TimeValLinux { public long tv_sec; public long tv_usec; }
-    [StructLayout(LayoutKind.Sequential)] private struct PollFd { public int fd; public short events; public short revents; }
-    [StructLayout(LayoutKind.Sequential)] private struct SockAddrRc { public ushort rc_family; [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public byte[] rc_bdaddr; public byte rc_channel; }
 
     public bool Connect()
     {
         try
         {
-            Log.D("LXRFC", "Connect: 开始");
+            Log.D("LXRFC", "Connect: start");
+            IsConnected = false; LastError = null; _disposed = false;
+
             var (addr, name) = _locator.Locate();
-            if (addr == 0) { LastError = "未发现已配对的 OPPO 蓝牙设备"; return false; }
+            if (addr == 0) { LastError = "No paired OPPO device found"; return false; }
             DeviceName = name;
-            if (!TryConnect(addr, OppoChannel))
-            {
-                Log.D("LXRFC", $"Connect: ch={OppoChannel} 失败，扫描 1-18");
-                bool ok = false;
-                for (byte ch = 1; ch <= MaxRfcommChannel; ch++)
-                { if (ch == OppoChannel) continue; if (TryConnect(addr, ch)) { ok = true; break; } }
-                if (!ok) { LastError = "所有 RFCOMM 通道均不可用"; return false; }
-            }
-            SetNonBlocking(_socket, false);
-            var tv = new TimeValLinux { tv_sec = RecvTimeoutMs / 1000, tv_usec = (RecvTimeoutMs % 1000) * 1000 };
-            setsockopt(_socket, SOL_SOCKET, SO_RCVTIMEO, ref tv, Marshal.SizeOf<TimeValLinux>());
-            IsConnected = true; LastError = null; _framer.Clear(); _pollSeq = 0; _recvTimeouts = 0;
-            Log.Result("LXRFC", "Connect", true, $"name=\"{DeviceName}\"");
+            Log.D("LXRFC", $"Connect: found \"{name}\" addr=0x{addr:X12}");
+
+            int fd = ScanAndConnect(addr);
+            if (fd < 0) { LastError = $"No OPPO RFCOMM channel (1-{MaxRfcommChannel})"; return false; }
+
+            _socketFd = fd;
+            _framer.Clear();
+            while (_rxQueue.TryDequeue(out _)) { }
+
+            if (fcntl(_socketFd, F_SETFL, fcntl(_socketFd, F_GETFL) | O_NONBLOCK) < 0)
+                Log.D("LXRFC", "Connect: fcntl O_NONBLOCK failed");
+
+            IsConnected = true; LastError = null; _idleCounter = 0;
+            StartReadLoop();
+            Log.Result("LXRFC", "Connect", true, $"\"{name}\" fd={fd}");
             return true;
         }
-        catch (Exception e) { LastError = e.Message; Log.Ex("LXRFC", "Connect", e); Cleanup(); return false; }
+        catch (Exception e) { LastError = e.Message; Log.Ex("LXRFC", "Connect", e); CleanupSocket(); return false; }
     }
 
-    private bool TryConnect(ulong addr, byte ch)
+    private int ScanAndConnect(ulong addr)
     {
-        Cleanup();
-        _socket = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
-        if (_socket < 0) return false;
-        SetNonBlocking(_socket, true);
-        var sa = new SockAddrRc { rc_family = AF_BLUETOOTH, rc_bdaddr = BtAddrToBytes(addr), rc_channel = ch };
-        var ptr = Marshal.AllocHGlobal(Marshal.SizeOf<SockAddrRc>());
-        Marshal.StructureToPtr(sa, ptr, false);
-        var r = connect(_socket, ptr, Marshal.SizeOf<SockAddrRc>());
-        Marshal.FreeHGlobal(ptr);
-        if (r != 0 && Marshal.GetLastWin32Error() != 115) { Cleanup(); return false; }
-        if (r != 0)
-        { var pfd = new PollFd { fd = _socket, events = POLLOUT }; if (poll(ref pfd, 1, ConnectTimeoutMs) <= 0) { Cleanup(); return false; } }
-        Log.D("LXRFC", $"TryConnect: ch={ch} OK");
-        return true;
+        Log.D("LXRFC", $"Scan: starting ch 1-{MaxRfcommChannel}");
+        var probeBytes = _codec.Encode(OppoProtocol.CmdBattery, Array.Empty<byte>());
+        var recvBuf = new byte[64];
+        int errRefused = 0, errTimeout = 0, errOther = 0;
+        var openChannels = new List<string>();
+
+        for (int ch = 1; ch <= MaxRfcommChannel; ch++)
+        {
+            int fd = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
+            if (fd < 0) { errOther++; continue; }
+
+            var sockAddr = BuildSockAddr(addr, ch);
+            var tvConn = new TimeVal { tv_sec = 0, tv_usec = 200000 };
+            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ref tvConn, 16);
+
+            int cr = connect(fd, ref sockAddr, 10);
+            if (cr < 0)
+            {
+                int err = Marshal.GetLastWin32Error();
+                if (err == 111) errRefused++;
+                else if (err == 110) errTimeout++;
+                else { errOther++; Log.D("LXRFC", $"Scan: ch={ch} connect errno={err}"); }
+                close(fd); continue;
+            }
+
+            IntPtr wrote = write(fd, probeBytes, (IntPtr)probeBytes.Length);
+            if (wrote == (IntPtr)(-1) || wrote == IntPtr.Zero) { close(fd); continue; }
+
+            var tvRead = new TimeVal { tv_sec = 0, tv_usec = 200000 };
+            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ref tvRead, 16);
+
+            IntPtr got = read(fd, recvBuf, (IntPtr)recvBuf.Length);
+            int n = (int)(long)got;
+
+            if (n > 0)
+            {
+                if (recvBuf[0] == SppFrameCodec.Header)
+                {
+                    Log.D("LXRFC", $"Scan: ch={ch} PROBE OK! reusing socket fd={fd}");
+                    while (true)
+                    {
+                        Thread.Sleep(30);
+                        got = read(fd, recvBuf, (IntPtr)recvBuf.Length);
+                        if ((long)got <= 0) break;
+                    }
+                    return fd;
+                }
+                string hex = BitConverter.ToString(recvBuf, 0, Math.Min(n, 10));
+                openChannels.Add($"ch={ch}:0x{recvBuf[0]:X2}({hex})");
+            }
+            close(fd);
+        }
+
+        Log.D("LXRFC", $"Scan: {MaxRfcommChannel} ch done. refused={errRefused} timeout={errTimeout} other={errOther}");
+        if (openChannels.Count > 0) Log.D("LXRFC", $"Scan: open (wrong proto): {string.Join(", ", openChannels)}");
+        return -1;
+    }
+
+    private static SockAddrRc BuildSockAddr(ulong addr, int channel) => new()
+    {
+        rc_family = AF_BLUETOOTH,
+        b0 = (byte)(addr & 0xFF),
+        b1 = (byte)((addr >> 8) & 0xFF),
+        b2 = (byte)((addr >> 16) & 0xFF),
+        b3 = (byte)((addr >> 24) & 0xFF),
+        b4 = (byte)((addr >> 32) & 0xFF),
+        b5 = (byte)((addr >> 40) & 0xFF),
+        rc_channel = (byte)channel,
+    };
+
+    private void StartReadLoop()
+    {
+        _readLoopActive = true;
+        _readThread = new Thread(ReadLoop) { IsBackground = true, Name = "LXRFC-Read" };
+        _readThread.Start();
+    }
+
+    private void ReadLoop()
+    {
+        var buf = new byte[ReadBufferSize];
+        int fd = _socketFd;
+        try
+        {
+            while (_readLoopActive && !_disposed)
+            {
+                if (fd < 0) break;
+                IntPtr got;
+                try { got = read(fd, buf, (IntPtr)buf.Length); }
+                catch { break; }
+                int n = (int)(long)got;
+                if (n > 0)
+                {
+                    _idleCounter = 0;
+                    lock (_framer)
+                    {
+                        for (int i = 0; i < n; i++)
+                        {
+                            _framer.Add(buf[i]);
+                            // Dispatch frames immediately — don't wait for Poll()
+                            while (_codec.TryDecode(_framer, out var frame))
+                            {
+                                _rxQueue.Enqueue(frame);
+                                try { FrameReceived?.Invoke(frame); }
+                                catch (Exception ex) { Log.Ex("LXRFC", "ReadLoop dispatch", ex); }
+                            }
+                        }
+                    }
+                }
+                else if (n == 0) { Log.D("LXRFC", "ReadLoop: peer closed"); break; }
+                else
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    if (err == EAGAIN)
+                    {
+                        _idleCounter++;
+                        if (_idleCounter > MaxIdleTimeouts) { Log.D("LXRFC", "ReadLoop: idle timeout"); break; }
+                        Thread.Sleep(50); continue;
+                    }
+                    Log.D("LXRFC", $"ReadLoop: read errno={err}"); break;
+                }
+            }
+        }
+        catch (Exception ex) { if (_readLoopActive) Log.Ex("LXRFC", "ReadLoop", ex); }
+        finally { _readLoopActive = false; if (IsConnected) OnDisconnected(); }
     }
 
     public void Send(ushort cmd, byte[] payload)
     {
-        var sock = _socket;
-        if (sock < 0 || !IsConnected) return;
-        byte[] bytes; lock (_lock) { bytes = _codec.Encode(cmd, payload); }
-        try { send(sock, bytes, (IntPtr)bytes.Length, 0); } catch (Exception ex) { Log.Ex("LXRFC", $"Send cmd=0x{cmd:X4}", ex); }
+        _idleCounter = 0;
+        if (!IsConnected || _socketFd < 0) return;
+        byte[] bytes;
+        lock (_sendLock) { bytes = _codec.Encode(cmd, payload); }
+        try
+        {
+            lock (_sendLock)
+            {
+                IntPtr w = write(_socketFd, bytes, (IntPtr)bytes.Length);
+                if (w == (IntPtr)(-1)) Log.D("LXRFC", $"Send 0x{cmd:X4} failed errno={Marshal.GetLastWin32Error()}");
+            }
+        }
+        catch (Exception ex) { Log.Ex("LXRFC", $"Send 0x{cmd:X4}", ex); }
     }
 
     public void Poll(int timeoutMs)
     {
-        var sock = _socket;
-        if (sock < 0 || !IsConnected) return;
+        _idleCounter = 0;
+        if (!IsConnected) return;
         var end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-        var buf = new byte[512];
-        _pollSeq++;
         while (true)
         {
-            int got; try { got = (int)recv(sock, buf, (IntPtr)buf.Length, 0); } catch { got = -1; }
-            if (got > 0)
-            { Log.D("LXRFC", $"Poll#{_pollSeq}: recv {got} bytes"); _recvTimeouts = 0;
-              lock (_framer) { for (int i = 0; i < got; i++) { _framer.Add(buf[i]); while (_codec.TryDecode(_framer, out var f)) _rxQueue.Enqueue(f); } } }
-            else if (got == 0) { Log.D("LXRFC", $"Poll#{_pollSeq}: recv=0, disconnected"); OnDisconnected(); return; }
-            else
-            {
-                _recvTimeouts++;
-                if (_recvTimeouts >= MaxIdleTimeouts)
-                { Log.D("LXRFC", $"Poll#{_pollSeq}: idle timeout ({_recvTimeouts} timeouts), disconnecting"); OnDisconnected(); return; }
-                if (_recvTimeouts == 1 || _recvTimeouts % 5 == 0) Log.D("LXRFC", $"Poll#{_pollSeq}: recv timeout (#{_recvTimeouts})");
-            }
             while (_rxQueue.TryDequeue(out var frame)) FrameReceived?.Invoke(frame);
-            if (!IsConnected || DateTime.UtcNow >= end) break;
+            if (!IsConnected || !_readLoopActive) return;
+            if (DateTime.UtcNow >= end) break;
             Thread.Sleep(20);
         }
         while (_rxQueue.TryDequeue(out var frame)) FrameReceived?.Invoke(frame);
     }
 
     private void OnDisconnected() { if (!IsConnected) return; IsConnected = false; Disconnected?.Invoke(); }
-    public void Close() { IsConnected = false; Cleanup(); }
-    private void Cleanup() { if (_socket >= 0) { lock (_lock) { try { close(_socket); } catch { } _socket = -1; } } }
-    public void Dispose() { if (_disposed) return; Close(); _disposed = true; }
-    private static void SetNonBlocking(int fd, bool nb) { var f = fcntl(fd, F_GETFL, 0); fcntl(fd, F_SETFL, nb ? f | O_NONBLOCK : f & ~O_NONBLOCK); }
-    private static byte[] BtAddrToBytes(ulong addr) { var b = new byte[6]; for (int i = 0; i < 6; i++) b[i] = (byte)((addr >> (i * 8)) & 0xFF); return b; }
+    public void Close() { IsConnected = false; _readLoopActive = false; CleanupSocket(); }
+    private void CleanupSocket() { var fd = Interlocked.Exchange(ref _socketFd, -1); if (fd >= 0) close(fd); }
+    public void Dispose() { if (_disposed) return; _disposed = true; Close(); }
 }
