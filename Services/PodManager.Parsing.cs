@@ -310,7 +310,10 @@ public partial class PodManager
             int pos = start + 2;
             for (int i = 0; i < count && pos + 8 < start + len; i++)
             {
-                var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + j].ToString("X2")));
+                // 设备按小端(倒序)传 MAC：wire 首字节是 MAC 末字节。melody HandheldDeviceInfo.parseAddress
+                // 同样倒序还原成 AA:BB:CC:DD:EE:FF 显示序。这里必须反转，否则存下来的地址是真地址的字节倒序，
+                // 回发操作命令(0x0429)时目标对不上 → 设备回 ACK 成功但实际没断开（本次 bug 根因）。
+                var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + 5 - j].ToString("X2")));
                 pos += 6;
 
                 int elemByte6 = pkt[pos++];
@@ -380,8 +383,9 @@ public partial class PodManager
                 autoMode = modeByte == 0;
                 if (!autoMode && len >= 9)
                 {
+                    // MAC 小端倒序，反转成显示序（与 ParseMultiConnect 一致）
                     priorityAddr = string.Join(":",
-                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + j].ToString("X2")));
+                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + 5 - j].ToString("X2")));
                 }
             }
             else
@@ -389,7 +393,7 @@ public partial class PodManager
                 if (modeByte != 0 && len >= 9)
                 {
                     priorityAddr = string.Join(":",
-                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + j].ToString("X2")));
+                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + 5 - j].ToString("X2")));
                 }
             }
 

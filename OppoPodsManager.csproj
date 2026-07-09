@@ -19,7 +19,7 @@
     <AssemblyName>OppoPodsManager</AssemblyName>
     <ApplicationIcon>Assets\tuopan.ico</ApplicationIcon>
     <SupportedOSPlatformVersion Condition="'$(EnableWindowsBackend)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
-    <NoWarn>CA1416;AVLN3001</NoWarn>
+    <NoWarn>CA1416;AVLN3001;IL2104;IL3053</NoWarn>
     <!-- Debug 构建：保留调试符号，禁用 AOT/自包含 -->
     <SelfContained Condition="'$(Configuration)' != 'Release'">false</SelfContained>
   </PropertyGroup>

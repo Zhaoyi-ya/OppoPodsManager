@@ -14,7 +14,6 @@ namespace OppoPodsManager;
 
 /// <summary>
 /// BLE GATT 传输（WinRT Windows.Devices.Bluetooth）。
-/// 服务/特征 UUID 与 melody APK 一致：
 ///   Service 0000079A-…、TX(Write) 0000079B-…、RX(Notify) 0000079C-…、CCCD 2902。
 /// 帧格式用 GattFrameCodec（melody 5 字节头，无 SPP 0xAA 外壳）。
 ///
@@ -78,7 +77,7 @@ public sealed class WindowsGattTransport : IPodTransport
         }
         catch (Exception e)
         {
-            LastError = e.Message;
+            LastError = Log.DescribeException(e);
             Log.Ex("GATT", "Connect", e);
             Cleanup();
             return false;
@@ -96,13 +95,15 @@ public sealed class WindowsGattTransport : IPodTransport
         }
 
         if (!string.IsNullOrEmpty(_device.Name)) DeviceName = _device.Name;
-        Log.D("GATT", $"Connect: 已打开 BLE 设备 name=\"{DeviceName}\" addr={_device.BluetoothAddress:X12}");
+        Log.D("GATT", $"Connect: 已打开 BLE 设备 name=\"{DeviceName}\" addr={_device.BluetoothAddress:X12} 连接态={_device.ConnectionStatus}");
 
         // 取私有服务（uncached 强制走链路，避免系统缓存过期句柄）
         var svcResult = await _device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
+        Log.D("GATT", $"Connect: 取 melody 服务 status={svcResult.Status} 服务数={svcResult.Services.Count}");
         if (svcResult.Status != GattCommunicationStatus.Success || svcResult.Services.Count == 0)
         {
-            LastError = $"未发现 melody GATT 服务 (status={svcResult.Status})";
+            // status=Unreachable 常见于设备只经典配对无 BLE 链路；ProtocolError=GATT 层拒绝
+            LastError = $"未发现 melody GATT 服务 (status={svcResult.Status}; Unreachable 多为设备无 BLE 链路/未在广播)";
             return false;
         }
         var service = svcResult.Services[0];
@@ -323,13 +324,20 @@ public sealed class WindowsGattTransport : IPodTransport
         }
     }
 
-    /// <summary>在给定超时内同步等待一个异步操作，超时返回 false。</summary>
+    /// <summary>在给定超时内同步等待一个异步操作，超时返回 false。超时与异常分别记日志以便定位。</summary>
     private static bool RunSync(Func<System.Threading.Tasks.Task<bool>> op, int timeoutMs)
     {
+        Task<bool>? task = null;
         try
         {
-            var task = op();
-            return task.Wait(timeoutMs) && task.Result;
+            task = op();
+            if (!task.Wait(timeoutMs))
+            {
+                task.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                Log.D("GATT", $"RunSync: 超时 (>{timeoutMs}ms)");
+                return false;
+            }
+            return task.Result;
         }
         catch (Exception ex) { Log.Ex("GATT", "RunSync", ex); return false; }
     }

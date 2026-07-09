@@ -76,6 +76,8 @@ public sealed class SppTransport : IPodTransport
     private const int AF_BTH = 32;
     private const int SOCK_STREAM = 1;
     private const int BTHPROTO_RFCOMM = 3;
+    // Winsock 的 socket() 失败返回 INVALID_SOCKET = (SOCKET)(~0)，即指针宽度全 1
+    private static readonly IntPtr InvalidSocket = new(-1);
 
     // Winsock 常量
     private const int SOL_SOCKET = 0xFFFF;
@@ -138,11 +140,13 @@ public sealed class SppTransport : IPodTransport
     {
         try
         {
-            Log.D("BT", "Connect: 开始");
+            Log.D("BT", "Connect: 开始 (Winsock SPP 回退层)");
             EnsureWsaStarted();
             CloseSocket();
 
+            var swLoc = System.Diagnostics.Stopwatch.StartNew();
             var (addr, name) = _locator.Locate();
+            Log.D("BT", $"Connect: 设备定位耗时{swLoc.ElapsedMilliseconds}ms -> addr={addr:X12} name=\"{name}\"");
             if (addr == 0)
             {
                 LastError = "未找到已配对的 OPPO 设备";
@@ -152,15 +156,10 @@ public sealed class SppTransport : IPodTransport
             DeviceName = name ?? ("耳机 " + addr.ToString("X12"));
             Log.D("BT", $"Connect: 目标 addr={addr:X12} name=\"{DeviceName}\"");
 
-            _socket = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
-            if (_socket == IntPtr.Zero)
-            {
-                LastError = "无法创建 BTH socket";
-                Log.Result("BT", "Connect socket()", false, "WSAErr=" + WSAGetLastError());
-                return false;
-            }
-
-            // 按优先级尝试多种连接方式（UUID+port 组合），部分设备需要特定参数
+            // 按优先级尝试多种连接方式（UUID+port 组合），部分设备需要特定参数。
+            // 每种方式在 TryConnect 内部各自创建全新 socket：Winsock 对一个已发起过
+            // connect 并失败/超时的 socket 再次 connect 会返回 WSAEALREADY(10037)，
+            // 故必须“一次尝试一 socket”，失败即关闭重建，否则后续尝试全部无效。
             bool ok = TryConnect(addr, OppoProtocol.OppoSppUuid, 0)
                    || TryConnect(addr, OppoProtocol.OppoSppUuid, 15)
                    || TryConnect(addr, Guid.Empty, 15)
@@ -168,7 +167,7 @@ public sealed class SppTransport : IPodTransport
             if (!ok)
             {
                 CloseSocket();
-                LastError = "无法连接耳机（已尝试 4 种连接方式）";
+                LastError = "无法连接耳机（已尝试 4 种连接方式，各方式失败原因见上方 TryConnect 日志）";
                 Log.Result("BT", "Connect", false, LastError);
                 return false;
             }
@@ -204,9 +203,28 @@ public sealed class SppTransport : IPodTransport
         }
     }
 
-    /// <summary>尝试通过指定参数建立 BTH RFCOMM 连接（带超时，避免不可达设备长时间阻塞）</summary>
+    /// <summary>
+    /// 尝试通过指定参数建立 BTH RFCOMM 连接（带超时，避免不可达设备长时间阻塞）。
+    /// 每次调用创建全新 socket，成功则赋给 _socket 并返回 true；失败则立即关闭该 socket，
+    /// 保证下一种连接方式从干净状态发起（否则复用已失败 socket 会得到 WSAEALREADY=10037）。
+    /// </summary>
     private bool TryConnect(ulong btAddr, Guid serviceUuid, uint port)
     {
+        // 每种尝试用统一标签，便于在日志里对齐“同一次尝试”的各行输出
+        string uuidTag = serviceUuid == Guid.Empty ? "empty" : serviceUuid.ToString("D").Substring(0, 8);
+        string label = $"TryConnect(addr={btAddr:X12}, uuid={uuidTag}, port={port})";
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // 每种连接方式独占一个新建 socket
+        IntPtr sock = socket(AF_BTH, SOCK_STREAM, BTHPROTO_RFCOMM);
+        if (sock == InvalidSocket || sock == IntPtr.Zero)
+        {
+            int se = WSAGetLastError();
+            Log.Result("BT", $"{label} socket()", false, Wsa(se));
+            return false;
+        }
+        Log.D("BT", $"{label} 新建 socket=0x{sock.ToInt64():X}");
+
         var sa = new SockAddrBth
         {
             family = AF_BTH,
@@ -218,59 +236,92 @@ public sealed class SppTransport : IPodTransport
         var saPtr = Marshal.AllocHGlobal(saSize);
         Marshal.StructureToPtr(sa, saPtr, false);
 
+        bool connected = false;
         try
         {
             // 切到非阻塞，发起 connect 后用 select 等待可写，超时即判失败
             uint nonBlocking = 1;
-            ioctlsocket(_socket, FIONBIO, ref nonBlocking);
+            ioctlsocket(sock, FIONBIO, ref nonBlocking);
 
-            int result = connect(_socket, saPtr, saSize);
+            int result = connect(sock, saPtr, saSize);
             if (result == 0)
             {
-                Log.Result("BT", $"TryConnect(uuid={serviceUuid}, port={port})", true, "立即连通");
-                return RestoreBlocking();
+                Log.Result("BT", label, true, $"立即连通 (耗时{sw.ElapsedMilliseconds}ms)");
+                connected = RestoreBlocking(sock);
+                return connected;
             }
 
             int err = WSAGetLastError();
             if (err != WSAEWOULDBLOCK)
             {
-                Log.Result("BT", $"TryConnect(uuid={serviceUuid}, port={port})", false, "connect WSAErr=" + err);
+                // 非 WOULDBLOCK 即真正的 connect 失败（如 10037/10060/10050），直接给出解码
+                Log.Result("BT", label, false, $"connect {Wsa(err)} (耗时{sw.ElapsedMilliseconds}ms)");
                 return false;
             }
 
-            var writefds = new FdSet { fd_count = 1, fd_array0 = _socket };
-            var exceptfds = new FdSet { fd_count = 1, fd_array0 = _socket };
+            // 进入等待：非阻塞 connect 已发起，用 select 等 socket 可写
+            var writefds = new FdSet { fd_count = 1, fd_array0 = sock };
+            var exceptfds = new FdSet { fd_count = 1, fd_array0 = sock };
             var tv = new TimeVal { tv_sec = ConnectTimeoutMs / 1000, tv_usec = (ConnectTimeoutMs % 1000) * 1000 };
 
             int sel = select(0, IntPtr.Zero, ref writefds, ref exceptfds, ref tv);
-            if (sel <= 0)
+            if (sel == 0)
             {
-                Log.Result("BT", $"TryConnect(uuid={serviceUuid}, port={port})", false, sel == 0 ? "超时" : "select 错误 WSAErr=" + WSAGetLastError());
-                return false;  // 超时或错误
+                Log.Result("BT", label, false, $"select 超时 (预算{ConnectTimeoutMs}ms, 实耗{sw.ElapsedMilliseconds}ms; 设备无响应/信道忙/被手机占用)");
+                return false;
             }
-
-            // 用 SO_ERROR 确认 connect 结果
-            int soError = 0, len = sizeof(int);
-            if (getsockopt(_socket, SOL_SOCKET, SO_ERROR, ref soError, ref len) != 0 || soError != 0)
+            if (sel < 0)
             {
-                Log.Result("BT", $"TryConnect(uuid={serviceUuid}, port={port})", false, "SO_ERROR=" + soError);
+                Log.Result("BT", label, false, $"select 错误 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
                 return false;
             }
 
-            Log.Result("BT", $"TryConnect(uuid={serviceUuid}, port={port})", true);
-            return RestoreBlocking();
+            // 用 SO_ERROR 确认 connect 结果（select 可写也可能是失败，须复核）
+            int soError = 0, len = sizeof(int);
+            int gso = getsockopt(sock, SOL_SOCKET, SO_ERROR, ref soError, ref len);
+            if (gso != 0)
+            {
+                Log.Result("BT", label, false, $"getsockopt(SO_ERROR) 失败 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
+                return false;
+            }
+            if (soError != 0)
+            {
+                Log.Result("BT", label, false, $"SO_ERROR={Wsa(soError)} (耗时{sw.ElapsedMilliseconds}ms)");
+                return false;
+            }
+
+            Log.Result("BT", label, true, $"耗时{sw.ElapsedMilliseconds}ms");
+            connected = RestoreBlocking(sock);
+            return connected;
         }
         finally
         {
             Marshal.FreeHGlobal(saPtr);
+            if (connected)
+            {
+                // 成功：本 socket 成为活动连接
+                _socket = sock;
+            }
+            else
+            {
+                // 失败：关闭本次尝试的 socket，避免句柄泄漏与 WSAEALREADY
+                closesocket(sock);
+            }
         }
     }
 
+    /// <summary>把 WSA 错误码格式化为 "WSAErr=码(名称)"，名称来自 Log 的解码表。</summary>
+    private static string Wsa(int code)
+    {
+        var name = Log.DescribeWsaOrWin32(code);
+        return name != null ? $"WSAErr={code}({name})" : $"WSAErr={code}";
+    }
+
     /// <summary>connect 成功后恢复阻塞模式（recv 靠 SO_RCVTIMEO 控制超时）</summary>
-    private bool RestoreBlocking()
+    private static bool RestoreBlocking(IntPtr sock)
     {
         uint blocking = 0;
-        ioctlsocket(_socket, FIONBIO, ref blocking);
+        ioctlsocket(sock, FIONBIO, ref blocking);
         return true;
     }
     /// <summary>编码并发送一帧（Winsock send，socket 锁保护）。</summary>
@@ -286,7 +337,7 @@ public sealed class SppTransport : IPodTransport
             }
             int sent = send(_socket, bytes, bytes.Length, 0);
             if (sent < 0)
-                Log.Result("BT", $"Send cmd=0x{cmd:X4} ({bytes.Length}B)", false, "WSAErr=" + WSAGetLastError());
+                Log.Result("BT", $"Send cmd=0x{cmd:X4} ({bytes.Length}B)", false, Wsa(WSAGetLastError()));
             else
                 Log.D("BT", $"Send cmd=0x{cmd:X4} payload={payload?.Length ?? 0}B -> {sent}B");
         }
@@ -307,7 +358,7 @@ public sealed class SppTransport : IPodTransport
                 int err = WSAGetLastError();
                 // 超时/暂时无数据：本轮结束，正常返回
                 if (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) return;
-                Log.D("BT", $"Poll: recv 错误 WSAErr={err},判定断开");
+                Log.D("BT", $"Poll: recv 错误 {Wsa(err)}, 判定断开");
                 OnDisconnected();
                 return;
             }

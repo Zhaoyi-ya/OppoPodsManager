@@ -30,6 +30,7 @@ public sealed class FallbackTransport : IPodTransport
 
     public bool Connect()
     {
+        var swAll = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < _factories.Length; i++)
         {
             var candidate = _factories[i]();
@@ -39,6 +40,7 @@ public sealed class FallbackTransport : IPodTransport
             candidate.FrameReceived += ForwardFrame;
             candidate.Disconnected += ForwardDisconnected;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             bool ok;
             try { ok = candidate.Connect(); }
             catch (Exception ex) { Log.Ex("FALLBACK", $"{label}.Connect", ex); ok = false; }
@@ -47,7 +49,7 @@ public sealed class FallbackTransport : IPodTransport
             {
                 _active = candidate;
                 LastError = null;
-                Log.Result("FALLBACK", "Connect", true, $"活动链路={label}");
+                Log.Result("FALLBACK", "Connect", true, $"活动链路={label} (该链路耗时{sw.ElapsedMilliseconds}ms, 总耗时{swAll.ElapsedMilliseconds}ms)");
                 return true;
             }
 
@@ -56,10 +58,10 @@ public sealed class FallbackTransport : IPodTransport
             candidate.FrameReceived -= ForwardFrame;
             candidate.Disconnected -= ForwardDisconnected;
             try { candidate.Dispose(); } catch { }
-            Log.D("FALLBACK", $"{label} 连接失败: {candidate.LastError}");
+            Log.D("FALLBACK", $"[{i + 1}/{_factories.Length}] {label} 连接失败 (耗时{sw.ElapsedMilliseconds}ms): {candidate.LastError}");
         }
 
-        Log.Result("FALLBACK", "Connect", false, "所有传输均失败");
+        Log.Result("FALLBACK", "Connect", false, $"所有传输均失败 (总耗时{swAll.ElapsedMilliseconds}ms; 末次原因: {LastError})");
         return false;
     }
 

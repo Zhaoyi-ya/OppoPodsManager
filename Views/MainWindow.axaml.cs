@@ -41,9 +41,16 @@ file static class AppConst
 
 public partial class MainWindow : SukiWindow
 {
-    // 前端只依赖 IPodManager 契约；构造点耦合具体类，其余交互全走接口
-    private readonly IPodManager _pods = new PodManager();
-    private CancellationTokenSource? _pollCts;
+    // 前端只依赖 IPodManager 契约；构造点耦合具体类，其余交互全走接口。
+    // 多耳机切换：本字段可被 SwitchToDevice 替换为定向到某副耳机的新实例；
+    // 所有事件处理器在触发时实时读取本字段，故替换后自动指向新设备。
+    private IPodManager _pods = new PodManager();
+    // 当前设备会话令牌：取消它 = 停掉当前耳机的连接循环（切换/关闭时用）。
+    private CancellationTokenSource? _sessionCts;
+    // 已发现的"当前已连接"耳机 (地址,名称)，与 CbDevice 选项一一对应。
+    private readonly List<(ulong addr, string name)> _devices = new();
+    // 抑制 CbDevice 程序化改动触发切换。
+    private bool _deviceComboSuppress;
     private string _ancMain = "", _ancLevel = "";
     /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
     private readonly Dictionary<string, string> _ancLastSub = new();
@@ -267,12 +274,14 @@ public partial class MainWindow : SukiWindow
         TbCustomName.Text = customName ?? "";
         UpdateTitle();
 
-        _pods.StateChanged += OnStateChanged;
-        _pods.StateChanged += () => Dispatcher.UIThread.Post(() => SyncMultiDeviceList());
+        // 多耳机选择器：发现在后台线程做，避免阻塞构造/UI
+        CbDevice.SelectionChanged += CbDevice_Changed;
+
+        WirePods(_pods);
         Closing += OnWindowClosing;
-        Closed += (_, _) => { _pollCts?.Cancel(); _pods.Dispose(); };
-        _ = ConnectAsync();
-        _ = CheckForUpdateAsync(); // 后台检查更新
+        Closed += (_, _) => { _sessionCts?.Cancel(); _pods.Dispose(); };
+        _ = InitAndStartAsync();      // 异步发现已连接耳机 → 定向 → 启动连接循环
+        _ = CheckForUpdateAsync();    // 后台检查更新
         }
         catch (Exception ex)
         {
@@ -281,26 +290,205 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    private async Task ConnectAsync()
+    /// <summary>
+    /// 启动流程：后台发现"当前已连接"的耳机 → 若有则定向到（上次保存/第一个）→ 启动连接循环。
+    /// 发现为空时保留默认实例（连第一个匹配），连接成功后会自动补一次发现填充选择器。
+    /// </summary>
+    private async Task InitAndStartAsync()
     {
-        while (!_realClose)
+        try
         {
-            Log.D("UI", "ConnectAsync: 尝试连接");
-            await _pods.ConnectAsync();
-            if (_pods.IsConnected)
+            var devices = await Task.Run(() => DeviceDiscovery.ListConnected());
+            ApplyDeviceList(devices);
+
+            if (_devices.Count > 0)
             {
-                Log.D("UI", "ConnectAsync: 已连接,进入轮询");
-                _pollCts = new CancellationTokenSource();
-                await _pods.PollAsync(_pollCts.Token);
-                Log.D("UI", "ConnectAsync: 轮询结束");
+                ulong saved = ParseAddr(SettingsManager.GetString("LastDeviceAddr"));
+                int idx = saved != 0 ? _devices.FindIndex(d => d.addr == saved) : -1;
+                if (idx < 0) idx = 0;
+
+                var (addr, name) = _devices[idx];
+                _deviceComboSuppress = true;
+                CbDevice.SelectedIndex = idx;
+                _deviceComboSuppress = false;
+
+                var old = _pods;
+                UnwirePods(old);
+                _pods = new PodManager(addr, name);
+                WirePods(_pods);
+                try { old.Dispose(); } catch { }
+                Log.D("UI", $"InitAndStart: 定向连接 addr={addr:X12} name=\"{name}\"");
             }
             else
             {
-                Log.D("UI", "ConnectAsync: 连接失败 -> " + (_pods.LastError ?? "unknown"));
+                Log.D("UI", "InitAndStart: 当前无已连接耳机,沿用默认(第一个匹配)连接");
             }
-            _ = Dispatcher.UIThread.InvokeAsync(() => OnStateChanged());
-            if (!_realClose) { Log.D("UI", "ConnectAsync: 5s 后重试"); await Task.Delay(5000); }
         }
+        catch (Exception ex) { Log.Ex("UI", "InitAndStartAsync", ex); }
+
+        StartSession();
+    }
+
+    /// <summary>为当前 _pods 启动一个连接循环会话（带独立会话令牌）。</summary>
+    private void StartSession()
+    {
+        _sessionCts = new CancellationTokenSource();
+        _ = ConnectLoop(_pods, _sessionCts.Token);
+    }
+
+    /// <summary>
+    /// 单副耳机的连接/重连循环。绑定到传入的 pods 实例与会话令牌：
+    /// - 会话令牌取消（切换设备/关闭）→ 退出循环并释放该实例（本循环独占其生命周期）。
+    /// - Reconnect/Disconnect 只停 PollAsync，不取消会话，故循环会自动重连。
+    /// - UI 更新前用 ReferenceEquals 校验，避免慢速旧连接覆盖新设备界面。
+    /// </summary>
+    private async Task ConnectLoop(IPodManager pods, CancellationToken sessionCt)
+    {
+        try
+        {
+            while (!_realClose && !sessionCt.IsCancellationRequested)
+            {
+                Log.D("UI", "ConnectLoop: 尝试连接");
+                await pods.ConnectAsync();
+                if (sessionCt.IsCancellationRequested) break;
+
+                if (pods.IsConnected)
+                {
+                    Log.D("UI", "ConnectLoop: 已连接,进入轮询");
+                    using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(sessionCt);
+                    // Reconnect/Disconnect 通过 pods.Disconnect() 令 PollAsync 自然结束
+                    await pods.PollAsync(pollCts.Token);
+                    Log.D("UI", "ConnectLoop: 轮询结束");
+                }
+                else
+                {
+                    Log.D("UI", "ConnectLoop: 连接失败 -> " + (pods.LastError ?? "unknown"));
+                }
+
+                if (ReferenceEquals(pods, _pods))
+                    _ = Dispatcher.UIThread.InvokeAsync(() => OnStateChanged());
+
+                if (!_realClose && !sessionCt.IsCancellationRequested)
+                {
+                    Log.D("UI", "ConnectLoop: 5s 后重试");
+                    try { await Task.Delay(5000, sessionCt); } catch (OperationCanceledException) { break; }
+                }
+            }
+        }
+        finally
+        {
+            Log.D("UI", "ConnectLoop: 会话结束,释放该设备实例");
+            try { pods.Dispose(); } catch { }
+        }
+    }
+
+    // ==================== 多耳机选择器 ====================
+    // 只列"当前已连接"的耳机；发现动作仅在 3 个时机触发，绝不轮询：
+    //   1) 启动时（InitAndStartAsync）
+    //   2) 本机连接成功后一次（补齐列表，见 OnStateChanged 首连分支）
+    //   3) 用户点刷新按钮
+    private bool _deviceListRefreshedOnConnect;
+
+    /// <summary>把发现结果套用到 _devices + CbDevice 选项（须在 UI 线程调用）。保持不误触发切换。</summary>
+    private void ApplyDeviceList(IReadOnlyList<(ulong addr, string name)> devices)
+    {
+        // 记住当前选中地址，套用后尽量恢复
+        ulong current = _devices.Count > 0 && CbDevice.SelectedIndex >= 0 && CbDevice.SelectedIndex < _devices.Count
+            ? _devices[CbDevice.SelectedIndex].addr
+            : ParseAddr(SettingsManager.GetString("LastDeviceAddr"));
+
+        _devices.Clear();
+        _devices.AddRange(devices);
+
+        _deviceComboSuppress = true;
+        CbDevice.Items.Clear();
+        foreach (var (addr, name) in _devices) CbDevice.Items.Add(name);
+        int restore = current != 0 ? _devices.FindIndex(d => d.addr == current) : -1;
+        if (restore >= 0) CbDevice.SelectedIndex = restore;
+        _deviceComboSuppress = false;
+
+        // 选择器仅在有 2 副及以上已连接耳机时显示（单副无需切换）；刷新按钮常显以便重扫
+        CbDevice.IsVisible = _devices.Count >= 2;
+        BtnRefreshDevices.IsVisible = true;
+    }
+
+    /// <summary>后台重新发现已连接耳机并刷新选择器（供刷新按钮/首连补齐用）。</summary>
+    private async Task RefreshDeviceListAsync()
+    {
+        var devices = await Task.Run(() => DeviceDiscovery.ListConnected());
+        ApplyDeviceList(devices);
+    }
+
+    /// <summary>用户在选择器里切换耳机。</summary>
+    private void CbDevice_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_deviceComboSuppress) return;
+        int idx = CbDevice.SelectedIndex;
+        if (idx < 0 || idx >= _devices.Count) return;
+
+        var (addr, name) = _devices[idx];
+        // 与当前正连着的同一台则忽略
+        if (_pods.IsConnected && ParseAddr(SettingsManager.GetString("LastDeviceAddr")) == addr)
+            return;
+
+        Log.D("UI", $"用户操作: 切换耳机 -> addr={addr:X12} name=\"{name}\"");
+        SwitchToDevice(addr, name);
+    }
+
+    /// <summary>刷新按钮：后台重新扫描"当前已连接"的耳机。</summary>
+    private async void RefreshDevices_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "用户操作: 刷新耳机列表");
+        try { await RefreshDeviceListAsync(); }
+        catch (Exception ex) { Log.Ex("UI", "RefreshDevices_Click", ex); }
+    }
+
+    /// <summary>
+    /// 切换到指定耳机：停当前会话(异步释放旧实例)→ 换 _pods → 重连。
+    /// 关闭可能过期的小窗（它持有旧 _pods 引用），下次打开会用新实例重建。
+    /// </summary>
+    private void SwitchToDevice(ulong addr, string? name)
+    {
+        // 1) 停当前会话（旧循环在 ConnectAsync 返回后会自行退出并释放旧实例）
+        _sessionCts?.Cancel();
+        _pods.Disconnect();          // 尽快让 PollAsync 结束
+
+        // 2) 解绑旧实例事件，关闭过期小窗
+        UnwirePods(_pods);
+        if (_smallWindow != null)
+        {
+            try { _smallWindow.Close(); } catch { }
+            _smallWindow = null;
+        }
+
+        // 3) 换上定向到新耳机的实例
+        _pods = new PodManager(addr, name);
+        WirePods(_pods);
+        _deviceListRefreshedOnConnect = false;   // 新设备连上后允许再补一次发现
+        SettingsManager.SetString("LastDeviceAddr", addr.ToString("X12"));
+
+        // 4) UI 立即反映"连接中"，并启动新会话
+        ResetUi();
+        OnStateChanged();
+        StartSession();
+    }
+
+    /// <summary>订阅 pods 的状态事件（合并为单一方法便于切换时解绑）。</summary>
+    private void WirePods(IPodManager pods) => pods.StateChanged += PodsStateChanged;
+    private void UnwirePods(IPodManager pods) => pods.StateChanged -= PodsStateChanged;
+
+    /// <summary>pods 状态变化统一处理：刷新主界面 + 同步多设备列表。</summary>
+    private void PodsStateChanged()
+    {
+        OnStateChanged();
+        Dispatcher.UIThread.Post(() => SyncMultiDeviceList());
+    }
+
+    /// <summary>解析 12 位十六进制地址字符串为 48 位地址；失败返回 0。</summary>
+    private static ulong ParseAddr(string? hex)
+    {
+        if (string.IsNullOrEmpty(hex)) return 0;
+        return ulong.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out var a) ? a : 0;
     }
 
     private void OnStateChanged() => Dispatcher.UIThread.Post(() =>
@@ -331,6 +519,14 @@ public partial class MainWindow : SukiWindow
                 _wasConnected = true;
                 _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.Battery);
                 _pods.SendQueryEqAll();  // 首次连接时查询设备端 EQ 列表
+
+                // 首次连接成功后补一次"已连接耳机"发现（事件驱动，非轮询），填充选择器。
+                // 每个会话只补一次，避免重连反复扫描。
+                if (!_deviceListRefreshedOnConnect)
+                {
+                    _deviceListRefreshedOnConnect = true;
+                    _ = RefreshDeviceListAsync();
+                }
             }
         }
         else
@@ -1903,10 +2099,13 @@ public partial class MainWindow : SukiWindow
     }
 
     // ===== 设备列表 =====
+    // 记录上次渲染的列表签名：SyncMultiDeviceList 会被每次 StateChanged（含电量/ANC 轮询，约2s一次）触发，
+    // 若每次都 Clear+重建，正打开的右键菜单会因宿主 Border 被销毁而闪退（"稍微移动就消失"的真因）。
+    // 仅当设备列表数据真正变化时才重建，让菜单在轮询期间保持打开。
+    private string _deviceListSignature = "";
+
     private void SyncMultiDeviceList()
     {
-        DeviceList.Items.Clear();
-
         var all = _pods.State.ConnectedDevices.ToList();
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
@@ -1924,6 +2123,16 @@ public partial class MainWindow : SukiWindow
                 IsCurrentDevice = true,
             });
         }
+
+        // 计算列表签名（含影响渲染与菜单的所有字段 + 能力 + 连接态）
+        var sig = string.Join("|", all.Select(d =>
+            $"{d.Address};{d.DeviceName};{d.ConnectionState};{d.IsCurrentDevice};{d.IsAudioActive};{d.IsMainAudioDevice}"))
+            + $"##manage={canManage};auto={_pods.State.MultiConnectAutoMode};conn={_pods.State.Connected}";
+        if (sig == _deviceListSignature && DeviceList.Items.Count > 0)
+            return;   // 数据未变，跳过重建，保住已打开的菜单
+        _deviceListSignature = sig;
+
+        DeviceList.Items.Clear();
 
         // 自动模式提示
         if (canManage && _pods.State.MultiConnectAutoMode && all.Count > 1)
@@ -1984,6 +2193,7 @@ public partial class MainWindow : SukiWindow
 
             // 右键菜单 / 左键操作
             var menu = new ContextMenu();
+            // isReal：有真实 MAC 的列表项（"current" 是无多连接列表时的型号占位，不能下发操作）
             var isReal = !string.IsNullOrEmpty(d.Address) && d.Address != "current";
 
             if (isReal && !d.IsCurrentDevice)
@@ -2015,6 +2225,17 @@ public partial class MainWindow : SukiWindow
                 unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
                 menu.Items.Add(unpair);
             }
+            else if (isReal && d.IsCurrentDevice)
+            {
+                // 当前设备（本机）也可调整：把音频主通道切回本机（当音频正在别的设备上时有用）。
+                // 依据 melody：当前设备走的是设为优先设备，不提供断开/解绑（不能把自己踢掉）。
+                if (canManage && !d.IsAudioActive)
+                {
+                    var setPri = new MenuItem { Header = "切换音频到本机" };
+                    setPri.Click += (_, _) => _pods.SendMultiConnectSetPriority(d.Address);
+                    menu.Items.Add(setPri);
+                }
+            }
 
             if (menu.Items.Count > 0)
             {
@@ -2026,7 +2247,16 @@ public partial class MainWindow : SukiWindow
                 {
                     var pt = e.GetCurrentPoint(border);
                     if (!pt.Properties.IsLeftButtonPressed) return;
-                    if (d.ConnectionState == 2)
+                    if (d.IsCurrentDevice)
+                    {
+                        // 当前设备（本机）：仅在支持管理且音频不在本机时，把音频切回本机
+                        if (canManage && !d.IsAudioActive)
+                        {
+                            Log.D("UI", $"切换音频到本机 -> {d.DeviceName} ({d.Address})");
+                            _pods.SendMultiConnectSetPriority(d.Address);
+                        }
+                    }
+                    else if (d.ConnectionState == 2)
                     {
                         if (canManage)
                         {

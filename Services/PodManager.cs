@@ -74,6 +74,9 @@ public partial class PodManager : IPodManager
 
     public PodManager() : this(TransportFactory.Create()) { }
 
+    /// <summary>连接指定地址的耳机（多耳机切换用）。addr==0 等价于无参构造。</summary>
+    public PodManager(ulong targetAddr, string? name) : this(TransportFactory.Create(targetAddr, name)) { }
+
     public PodManager(IPodTransport transport)
     {
         // 包一层 PacketDispatcher：SendTracked 走 10s 超时/重试/配对；普通 Send 透传
@@ -356,12 +359,17 @@ public partial class PodManager : IPodManager
         TrySend(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
     }
 
-    /// <summary>多设备操作统一入口（能力门控 + 日志）。</summary>
+    /// <summary>
+    /// 多设备操作统一入口。用 SendSet（带 ACK 追踪/重试）而非裸 Send：
+    /// - 设备回 0x8429 status=0 → 成功；status!=0 → CommandFailed 提示；超时 → 重试后报超时。
+    /// - 打印完整载荷字节，便于据日志确认设备是"拒绝(NAK)""无响应"还是"格式不符被忽略"。
+    /// 原实现用裸 TrySend(fire-and-forget)，设备丢包或拒绝都无声无息，正是"点断开没反应"的元凶之一。
+    /// </summary>
     private void SendMultiConnectOp(byte operateType, string targetAddress, string label, bool clearAddress = false)
     {
-        Log.D("RFCOMM", $"多设备操作: {label} addr={targetAddress} type={operateType}");
-        TrySend(OppoProtocol.CmdOperateHandheld,
-                OppoProtocol.MultiConnectOpPayload(operateType, targetAddress, clearAddress));
+        var payload = OppoProtocol.MultiConnectOpPayload(operateType, targetAddress, clearAddress);
+        Log.D("RFCOMM", $"多设备操作: {label} addr={targetAddress} type={operateType} payload=[{BitConverter.ToString(payload)}]");
+        SendSet(OppoProtocol.CmdOperateHandheld, payload, $"多设备{label}");
     }
 
     public void SendMultiConnectConnect(string targetAddress) =>

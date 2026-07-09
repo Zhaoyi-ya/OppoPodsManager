@@ -18,6 +18,10 @@ public static partial class OppoProtocol
     /// </summary>
     public static byte[] MultiConnectOpPayload(byte operateType, string targetAddress, bool clearAddress = false)
     {
+        // MAC 按显示序(大端 AA..FF)正序写入——与 melody SetCommandManager.setRelatedDeviceInfo 一致
+        // (System.arraycopy(I4.g.V(addr), 0, bArr, 1, 6)，无反转)。
+        // 注意：0x8112 列表响应里 MAC 是小端(倒序)上报，ParseMultiConnect 已反转成真实显示序存储，
+        // 故这里直接正序写真实 MAC 即与设备端匹配。两处一定要配套，否则地址错位→设备 ACK 成功却不断开。
         var mac = ParseMac(targetAddress);
         if (operateType == MultiOpUnpair)
         {

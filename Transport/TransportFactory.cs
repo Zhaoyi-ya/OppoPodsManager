@@ -12,7 +12,15 @@ public static class TransportFactory
     /// <summary>可选注入点：测试或自定义实现时设置；为 null 时按平台自动选择。</summary>
     public static Func<IPodTransport>? Override { get; set; }
 
-    public static IPodTransport Create()
+    /// <summary>不指定目标：连接第一个匹配的耳机（单设备旧行为）。</summary>
+    public static IPodTransport Create() => Create(0, null);
+
+    /// <summary>
+    /// 指定目标耳机地址创建传输栈（多耳机切换用）。
+    /// targetAddr==0 时等价于旧的"第一个匹配"行为。
+    /// 非 0 时：RFCOMM StreamSocket 按地址过滤，Spp/Gatt 注入 FixedDeviceLocator 精确指向该设备。
+    /// </summary>
+    public static IPodTransport Create(ulong targetAddr, string? name)
     {
         if (Override != null)
         {
@@ -25,11 +33,19 @@ public static class TransportFactory
         {
             // 经典 SPP (RFCOMM) 优先——多数 OPPO 耳机在 Windows 下只暴露经典口。
             // 依次：WinRT StreamSocket → Winsock P/Invoke 回退 → BLE GATT 回退。
-            Log.D("FACTORY", "Create: Windows 平台 -> RFCOMM(StreamSocket) 优先, Winsock 次之, GATT 回退");
+            Log.D("FACTORY", $"Create: Windows 平台 -> RFCOMM(StreamSocket) 优先, Winsock 次之, GATT 回退 (目标={(targetAddr == 0 ? "任意" : targetAddr.ToString("X12"))})");
+            if (targetAddr == 0)
+            {
+                return new FallbackTransport(
+                    () => new WindowsRfcommStreamTransport(),
+                    () => new SppTransport(),
+                    () => new WindowsGattTransport());
+            }
+            // 定向：三条链路都锁定同一台设备
             return new FallbackTransport(
-                () => new WindowsRfcommStreamTransport(),
-                () => new SppTransport(),
-                () => new WindowsGattTransport());
+                () => new WindowsRfcommStreamTransport(targetAddr),
+                () => new SppTransport(new FixedDeviceLocator(targetAddr, name)),
+                () => new WindowsGattTransport(new FixedDeviceLocator(targetAddr, name)));
         }
 #endif
 

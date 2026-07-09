@@ -24,6 +24,13 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
 {
     private const int ConnectTimeoutMs = 6000;   // StreamSocket.ConnectAsync 超时上限
 
+    // 目标设备地址（48 位）。0 = 不限（沿用"品牌名优先/首个"旧行为）；非 0 = 精确连接该耳机。
+    private readonly ulong _targetAddr;
+
+    /// <summary>默认不限目标（连第一个匹配）。多耳机切换时用带地址的重载。</summary>
+    public WindowsRfcommStreamTransport() : this(0) { }
+    public WindowsRfcommStreamTransport(ulong targetAddr) { _targetAddr = targetAddr; }
+
     private readonly IFrameCodec _codec = new SppFrameCodec();
     private readonly List<byte> _framer = new();         // 帧累积缓冲
     private readonly ConcurrentQueue<PodFrame> _rxQueue = new();  // 已解码队列（Poll 交付）
@@ -47,13 +54,28 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     /// <summary>发现 RFCOMM 服务 → 建立 StreamSocket 连接 → 写入器/读取器就绪 → 启动后台读循环。</summary>
     public bool Connect()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            Log.D("RFSOCK", "Connect: 开始");
-            if (!RunSync(ConnectAsyncCore, ConnectTimeoutMs))
+            Log.D("RFSOCK", $"Connect: 开始 (超时预算={ConnectTimeoutMs}ms)");
+            var outcome = RunSync(ConnectAsyncCore, ConnectTimeoutMs);
+            if (!outcome.Ok)
             {
                 Cleanup();
-                if (string.IsNullOrEmpty(LastError)) LastError = "RFCOMM StreamSocket 连接超时";
+                // 区分“真超时”与“抛异常”——原先一律写“连接超时”会掩盖真正原因
+                if (outcome.TimedOut)
+                {
+                    LastError = $"RFCOMM StreamSocket 连接超时 (>{ConnectTimeoutMs}ms, 实耗{sw.ElapsedMilliseconds}ms; 常见原因: 耳机正被手机占用/信道忙/不在范围)";
+                }
+                else if (outcome.Error != null)
+                {
+                    // 展开 WinRT 异常链，暴露 HRESULT 真正错误码
+                    LastError = $"RFCOMM 连接异常 (耗时{sw.ElapsedMilliseconds}ms): {Log.DescribeException(outcome.Error)}";
+                }
+                else if (string.IsNullOrEmpty(LastError))
+                {
+                    LastError = $"RFCOMM 连接失败 (耗时{sw.ElapsedMilliseconds}ms, ConnectAsyncCore 返回 false)";
+                }
                 Log.Result("RFSOCK", "Connect", false, LastError);
                 return false;
             }
@@ -61,13 +83,13 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
             IsConnected = true;
             LastError = null;
             StartReadLoop();
-            Log.Result("RFSOCK", "Connect", true, $"name=\"{DeviceName}\"");
+            Log.Result("RFSOCK", "Connect", true, $"name=\"{DeviceName}\" 耗时{sw.ElapsedMilliseconds}ms");
             return true;
         }
         catch (Exception e)
         {
-            LastError = e.Message;
-            Log.Ex("RFSOCK", "Connect", e);
+            LastError = Log.DescribeException(e);
+            Log.Ex("RFSOCK", $"Connect (耗时{sw.ElapsedMilliseconds}ms)", e);
             Cleanup();
             return false;
         }
@@ -76,23 +98,31 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     /// <summary>异步连接核心：发现服务 → 打开 StreamSocket → 初始化 Writer/Reader。</summary>
     private async Task<bool> ConnectAsyncCore()
     {
-        _service = await RfcommServiceFinder.FindServiceAsync();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _service = await RfcommServiceFinder.FindServiceAsync(_targetAddr);
+        Log.D("RFSOCK", $"Connect: 服务发现耗时{sw.ElapsedMilliseconds}ms (目标={(_targetAddr == 0 ? "任意" : _targetAddr.ToString("X12"))})");
         if (_service == null) { LastError = "未发现 OPPO SPP RFCOMM 服务"; return false; }
 
         var dev = _service.Device;
         DeviceName = dev?.Name ?? "OPPO 耳机";
-        Log.D("RFSOCK", $"Connect: 命中服务 name=\"{DeviceName}\" host={_service.ConnectionHostName} svc={_service.ConnectionServiceName}");
+        // 记录设备连接态：BluetoothDevice.ConnectionStatus=Disconnected 常意味着
+        // 经典链路未建立（耳机没在放音/未与本机建立 ACL），是 ConnectAsync 超时的先兆
+        var connStatus = dev?.ConnectionStatus.ToString() ?? "Unknown";
+        Log.D("RFSOCK", $"Connect: 命中服务 name=\"{DeviceName}\" 设备连接态={connStatus} host={_service.ConnectionHostName} svc={_service.ConnectionServiceName}");
 
         _socket = new StreamSocket();
         // 用服务自带的 ConnectionHostName / ConnectionServiceName 连接
+        var swConn = System.Diagnostics.Stopwatch.StartNew();
+        Log.D("RFSOCK", "Connect: StreamSocket.ConnectAsync 开始...");
         await _socket.ConnectAsync(_service.ConnectionHostName, _service.ConnectionServiceName);
+        Log.D("RFSOCK", $"Connect: StreamSocket.ConnectAsync 完成 耗时{swConn.ElapsedMilliseconds}ms");
 
         _writer = new DataWriter(_socket.OutputStream);
         _reader = new DataReader(_socket.InputStream) { InputStreamOptions = InputStreamOptions.Partial };
 
         _framer.Clear();
         while (_rxQueue.TryDequeue(out _)) { }
-        Log.D("RFSOCK", "Connect: StreamSocket 就绪");
+        Log.D("RFSOCK", $"Connect: StreamSocket 就绪 (总耗时{sw.ElapsedMilliseconds}ms)");
         return true;
     }
 
@@ -132,11 +162,16 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
         catch (OperationCanceledException) { /* 正常取消（CTS 触发）*/ }
         catch (Exception ex)
         {
-            if (!ct.IsCancellationRequested) Log.Ex("RFSOCK", "ReadLoop", ex);
+            if (!ct.IsCancellationRequested)
+                Log.D("RFSOCK", $"ReadLoop 异常判定断开: {Log.DescribeException(ex)}");
         }
         finally
         {
-            if (!ct.IsCancellationRequested) OnDisconnected();
+            if (!ct.IsCancellationRequested)
+            {
+                Log.D("RFSOCK", "ReadLoop: 结束 -> 触发断开");
+                OnDisconnected();
+            }
         }
     }
 
@@ -214,15 +249,39 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
         _readLoop = null;
     }
 
-    /// <summary>在给定超时内同步等待异步 Task&lt;bool>，超时返回 false。</summary>
-    private static bool RunSync(Func<Task<bool>> op, int timeoutMs)
+    /// <summary>RunSync 的结构化结果：区分成功 / 超时 / 抛异常，便于日志给出准确原因。</summary>
+    private readonly struct SyncOutcome
     {
+        public bool Ok { get; init; }
+        public bool TimedOut { get; init; }
+        public Exception? Error { get; init; }
+    }
+
+    /// <summary>
+    /// 在给定超时内同步等待异步 Task&lt;bool>。
+    /// 返回结构化结果：真正超时(TimedOut) 与 任务抛异常(Error) 是两种不同故障，
+    /// 原实现把两者都压成 false，导致上层永远只报“连接超时”，掩盖了真实 HRESULT。
+    /// </summary>
+    private static SyncOutcome RunSync(Func<Task<bool>> op, int timeoutMs)
+    {
+        Task<bool>? task = null;
         try
         {
-            var task = op();
-            return task.Wait(timeoutMs) && task.Result;
+            task = op();
+            if (!task.Wait(timeoutMs))
+            {
+                // 超时：任务仍在跑，挂一个续延吞掉后续异常，避免 UnobservedTaskException
+                task.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                return new SyncOutcome { Ok = false, TimedOut = true };
+            }
+            return new SyncOutcome { Ok = task.Result };
         }
-        catch (Exception ex) { Log.Ex("RFSOCK", "RunSync", ex); return false; }
+        catch (Exception ex)
+        {
+            // task.Wait 抛出的通常是 AggregateException，Log 层会展开到真正 InnerException
+            Log.Ex("RFSOCK", "RunSync", ex);
+            return new SyncOutcome { Ok = false, Error = ex };
+        }
     }
 
     /// <summary>释放全部 WinRT 资源（幂等）。</summary>

@@ -239,7 +239,11 @@ public static class DeviceProfileLoader
         caps.HasFirmwareUpdate     = FlagOn(func, "autoFirmwareUpdate");
         caps.HasPromptVolume       = FlagOn(func, "promptVolume") || func.TryGetProperty("promptVolumeRange", out _);
 
-        caps.HasGameMode = FunctionGameModeSupported(func);
+        // 游戏模式（低延迟）是通用 SPP 能力：DeviceModels.json 里没有任何逐机型的 gameMode 标志
+        // （既无 gameModeList，也无扁平 gameMode:1），melody 也是对所有机型发批量查询 0x28(FeatureGameMain)
+        // 由设备回报实际支持/状态（见 ParseBatchStatus）。故凡受支持机型即开放游戏模式开关；
+        // 不支持的设备回报里不含 0x28，开关保持默认、无副作用。
+        caps.HasGameMode = caps.IsSupported || FunctionGameModeSupported(func);
 
         if (func.TryGetProperty("gameSoundList", out var gsl) && gsl.ValueKind == JsonValueKind.Array)
         {
