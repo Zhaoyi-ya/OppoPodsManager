@@ -21,4 +21,4 @@ Desktop.ini
 ## Backup / Temp
 *_backup*/
 *.orig
-*.tmp
+*.tmp.vscode/

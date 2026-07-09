@@ -13,7 +13,7 @@
          其它平台保持纯 net10.0，便于后续 Linux/macOS 后端。 -->
     <TargetFramework Condition="'$(EnableWindowsBackend)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="'$(EnableWindowsBackend)' != 'true'">net10.0</TargetFramework>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+	<RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
     <Nullable>enable</Nullable>
     <RootNamespace>OppoPodsManager</RootNamespace>
     <AssemblyName>OppoPodsManager</AssemblyName>
@@ -35,6 +35,14 @@
     <DebugType>none</DebugType>
   </PropertyGroup>
 
+  <!-- Linux 编译符号 + 非 Windows 平台禁用 AOT（Tmds.DBus 依赖动态代码）-->
+  <PropertyGroup Condition="'$(EnableWindowsBackend)' != 'true'">
+    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(EnableWindowsBackend)' != 'true'">
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
   <!-- 启用 Windows 后端时定义 WINDOWS 编译符号 -->
   <PropertyGroup Condition="'$(EnableWindowsBackend)' == 'true'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
@@ -43,6 +51,11 @@
   <!-- 非 Windows 目标：把 Windows 专属源码排除出编译 -->
   <ItemGroup Condition="'$(EnableWindowsBackend)' != 'true'">
     <Compile Remove="Transport\Windows\**\*.cs" />
+  </ItemGroup>
+
+  <!-- Windows 目标：把 Linux 专属源码排除出编译 -->
+  <ItemGroup Condition="'$(EnableWindowsBackend)' == 'true'">
+    <Compile Remove="Transport\Linux\**\*.cs" />
   </ItemGroup>
 
   <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
@@ -54,6 +67,11 @@
   <!-- Avalonia assets -->
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- Unix 平台专属包：BlueZ D-Bus 通信 -->
+  <ItemGroup Condition="'$(EnableWindowsBackend)' != 'true'">
+    <PackageReference Include="Tmds.DBus" Version="0.19.0" />
   </ItemGroup>
 
   <!-- Avalonia + SukiUI packages -->
@@ -72,6 +90,7 @@
     <_PublishDir Condition="'$(PublishDir)' != ''">$(PublishDir)</_PublishDir>
     <_PublishDir Condition="!HasTrailingSlash('$(_PublishDir)')">$(_PublishDir)\</_PublishDir>
   </PropertyGroup>
-  <Exec Command="del /f /q &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
+	<Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))" Command="del /f /q &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
+	<Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="rm -f &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
 </Target>
 </Project>

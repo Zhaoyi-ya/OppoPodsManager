@@ -66,6 +66,7 @@ public partial class MainWindow : SukiWindow
     private WindowIcon? _iconConnected, _iconDisconnected;
     private TrayIcon? _trayIcon;
     private SmallWindow? _smallWindow;
+    private DateTime _smallWindowShownAt = DateTime.MinValue;
     private readonly object _logLock = new();
     private readonly List<string> _logLines = new(512);
     private int _logHead;
@@ -634,10 +635,10 @@ public partial class MainWindow : SukiWindow
         if ((DateTime.Now - _featureUserSetAt).TotalSeconds > 3)
         {
             // 状态回读同步：均用静默设置，避免初始化/轮询勾选反向触发 _Changed 下发命令
-            if (s.SpatialSound != _prevSpatialSound) { _prevSpatialSound = s.SpatialSound; SetSpatialCheckedSilent(s.SpatialSound); }
+            if (s.SpatialSound != _prevSpatialSound) { _prevSpatialSound = s.SpatialSound; SetSpatialCheckedSilent(s.SpatialSound); CbGameSound.IsEnabled = !s.SpatialSound; }
             if (caps.HasSpatialAudio && s.SpatialMode != _prevSpatialMode) { _prevSpatialMode = s.SpatialMode; SyncSpatialModeFromState(s.SpatialMode); }
             if (s.GameMode != _prevGameMode) { _prevGameMode = s.GameMode; SetGameCheckedSilent(s.GameMode); }
-            if (s.GameSound != _prevGameSound) { _prevGameSound = s.GameSound; SetGameSoundCheckedSilent(s.GameSound); }
+            if (s.GameSound != _prevGameSound) { _prevGameSound = s.GameSound; SetGameSoundCheckedSilent(s.GameSound); CbSpatial.IsEnabled = !s.GameSound; SetEqControlsEnabled(!s.GameSound); }
             if (s.DualDevice != _prevDualDevice) { _prevDualDevice = s.DualDevice; SetDualDeviceCheckedSilent(s.DualDevice); }
         }
 
@@ -1014,7 +1015,11 @@ public partial class MainWindow : SukiWindow
             {
                 SetGameSoundCheckedSilent(false);
                 _pods.SendGameSound(false);
+                // 游戏音效被关 → 恢复 EQ 控制
+                SetEqControlsEnabled(true);
             }
+            // 互斥禁用：开空间音效 → 游戏音效禁用；关 → 恢复
+            CbGameSound.IsEnabled = !on;
             _pods.SendSpatial(on);
         }
     }
@@ -1041,8 +1046,32 @@ public partial class MainWindow : SukiWindow
                 SetSpatialCheckedSilent(false);
                 _pods.SendSpatial(false);
             }
+            // 互斥禁用：开游戏音效 → 空间音效禁用 + EQ 控制（预设列表+滑块）禁用；关 → 恢复
+            CbSpatial.IsEnabled = !on;
+            SetEqControlsEnabled(!on);
             _pods.SendGameSound(on);
         }
+    }
+
+    private void SetEqControlsEnabled(bool enabled)
+    {
+        // 均衡器滑块 + dB 标签
+        EqSlider62.IsEnabled = enabled;
+        EqSlider250.IsEnabled = enabled;
+        EqSlider1k.IsEnabled = enabled;
+        EqSlider4k.IsEnabled = enabled;
+        EqSlider8k.IsEnabled = enabled;
+        EqSlider16k.IsEnabled = enabled;
+        EqDb62.Opacity = enabled ? 0.5 : 0.2;
+        EqDb250.Opacity = enabled ? 0.5 : 0.2;
+        EqDb1k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb4k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb8k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb16k.Opacity = enabled ? 0.5 : 0.2;
+        // 预设列表 + 新建按钮
+        LbEqBuiltinPresets.IsEnabled = enabled;
+        LbEqCustomPresets.IsEnabled = enabled;
+        BtnEqNew.IsEnabled = enabled;
     }
 
     /// <summary>不触发事件地设置游戏音效勾选态（避免互斥联动递归下发命令）。</summary>
@@ -1906,7 +1935,7 @@ public partial class MainWindow : SukiWindow
 
         DiDeviceName.Text = caps.ModelName;
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
-        DiCodec.Text = CodecName(_pods.State.CodecType);
+        DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
 
         // 音效增强互斥组
         bool showSpatial = caps.HasSpatialSound;
@@ -1949,21 +1978,6 @@ public partial class MainWindow : SukiWindow
         var ordered = versions.OrderBy(kv => kv.Key).Select(kv => kv.Value);
         return string.Join(".", ordered);
     }
-
-    private static string CodecName(int id) => id switch
-    {
-        0 => "SBC",
-        1 => "AAC",
-        2 => "LDAC",
-        3 => "LHDC",
-        4 => "LC3",
-        5 => "aptX",
-        6 => "aptX HD",
-        7 => "aptX Adaptive",
-        8 => "SSC (Samsung)",
-        -1 => "-",
-        _ => $"未知 ({id})"
-    };
 
     private bool _diEnhanceSuppress;
     private void DiEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
@@ -2089,13 +2103,40 @@ public partial class MainWindow : SukiWindow
         CbSpatial.IsChecked = false;
         CbGame.IsChecked = false;
         CbGameSound.IsChecked = false;
+        // 恢复互斥禁用状态
+        CbSpatial.IsEnabled = true;
+        CbGameSound.IsEnabled = true;
+        SetEqControlsEnabled(true);
     }
 
     private void OnWindowClosing(object? s, WindowClosingEventArgs e)
     {
-        if (_realClose || CbTray.IsChecked != true) return;
+        // 真正退出（QuitApplication 已设 _realClose）→ 放行
+        if (_realClose) return;
+
+        // 托盘已启用 → 隐藏而非关闭
+        if (CbTray.IsChecked == true)
+        {
+            e.Cancel = true;
+            Hide();
+            return;
+        }
+
+        // 托盘未启用 → 必须显式退出
+        // TrayIcon 会让进程保活，单纯 Close() 不会终止进程，后台服务卡住
+        // 之后若误点托盘图标调 Show() → "Cannot re-show a closed window" 崩溃
         e.Cancel = true;
-        Hide();
+        QuitApplication();
+    }
+
+    /// <summary>统一退出：停止轮询、释放设备、隐藏托盘、终止进程。</summary>
+    private void QuitApplication()
+    {
+        _realClose = true;
+        _pollCts?.Cancel();
+        _pods.Dispose();
+        if (_trayIcon != null) _trayIcon.IsVisible = false;
+        Environment.Exit(0);
     }
 
     // ===== 设备列表 =====
@@ -2375,25 +2416,37 @@ public partial class MainWindow : SukiWindow
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_smallWindow == null) return;
+                    // Show 后 300ms 内忽略 Deactivated，避免 Show/Activate 过程中瞬时焦点丢失导致循环
+                    if ((DateTime.Now - _smallWindowShownAt).TotalMilliseconds < 300) return;
                     try { _smallWindow.Hide(); }
                     catch (ObjectDisposedException) { }
                     catch (InvalidOperationException) { }
                     _trayClickTimer = null;
                 });
             });
+            // 窗口被用户点 X 关闭后置 null，下次重新创建（Close 后不能再 Show）
+            _smallWindow.Closed += (_, _) => _smallWindow = null;
         }
+
+        // 先 Show 再定位：Show 后 FrameSize 才有值，能拿到含装饰的实际窗口尺寸
+        _smallWindow.Show();
+        _smallWindow.Activate();
+        _smallWindowShownAt = DateTime.Now;
 
         // 定位到屏幕右下角（紧贴任务栏上方）
         var screen = Screens.Primary ?? Screens.All.FirstOrDefault();
         if (screen != null)
         {
             var area = screen.WorkingArea;
+            var scale = screen.Scaling;
+            // FrameSize 含窗口装饰（阴影/边框），比 Width/Height 更准确
+            var frame = _smallWindow.FrameSize;
+            var w = (int)Math.Ceiling((frame?.Width  ?? _smallWindow.Width)  * scale);
+            var h = (int)Math.Ceiling((frame?.Height ?? _smallWindow.Height) * scale);
             _smallWindow.Position = new PixelPoint(
-                area.X + area.Width  - (int)_smallWindow.Width  - 8,
-                area.Y + area.Height - (int)_smallWindow.Height - 8);
+                area.X + area.Width  - w,
+                area.Y + area.Height - h);
         }
-        _smallWindow.Show();
-        _smallWindow.Activate();
     }
 
     private void ShowBigWindow()
@@ -2473,7 +2526,7 @@ public partial class MainWindow : SukiWindow
         menu.Add(showItem);
         menu.Add(new NativeMenuItemSeparator());
         var quitItem = new NativeMenuItem("退出");
-        quitItem.Click += (_, _) => { _realClose = true; Environment.Exit(0); };
+        quitItem.Click += (_, _) => QuitApplication();
         menu.Add(quitItem);
         _trayIcon.Menu = menu;
     }

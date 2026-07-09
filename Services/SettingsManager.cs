@@ -14,6 +14,9 @@ public static class SettingsManager
 {
     private static readonly string FilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "OppoPodsManager", "settings.json");
+    private static readonly string OldFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "OppoPodsWin", "settings.json");
 
     private static Dictionary<string, string> _cache = new();
@@ -26,6 +29,16 @@ public static class SettingsManager
             return _cache;
         try
         {
+            // 迁移旧配置：OppoPodsWin → OppoPodsManager
+            if (!File.Exists(FilePath) && File.Exists(OldFilePath))
+            {
+                var dir = Path.GetDirectoryName(FilePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+                File.Copy(OldFilePath, FilePath);
+                Log.D("CFG", $"Migrate: {OldFilePath} → {FilePath}");
+            }
+
             if (File.Exists(FilePath))
             {
                 var json = File.ReadAllText(FilePath);
