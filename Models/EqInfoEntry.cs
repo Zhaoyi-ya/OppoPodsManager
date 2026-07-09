@@ -8,6 +8,12 @@ public class EqInfoEntry
     /// <summary>EQ 预设唯一 ID（protocolIndex）。</summary>
     public byte EqId { get; set; }
 
+    /// <summary>设备端允许的最小增益值。</summary>
+    public int MinValue { get; set; } = -6;
+
+    /// <summary>设备端允许的最大增益值。</summary>
+    public int MaxValue { get; set; } = 6;
+
     /// <summary>设备端存储的预设名称（UTF-8）；空串表示未命名。</summary>
     public string Name { get; set; } = "";
 

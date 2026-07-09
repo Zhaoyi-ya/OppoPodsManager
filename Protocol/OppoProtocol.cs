@@ -400,7 +400,7 @@ public static partial class OppoProtocol
             string name = "";
             if (nameLen > 0 && pos + nameLen <= payload.Length)
             {
-                name = System.Text.Encoding.UTF8.GetString(payload, pos, nameLen);
+                name = System.Text.Encoding.UTF8.GetString(payload, pos, nameLen).Trim();
                 pos += nameLen;
             }
 
@@ -420,6 +420,8 @@ public static partial class OppoProtocol
             entries.Add(new EqInfoEntry
             {
                 EqId = eqId,
+                MinValue = minValue,
+                MaxValue = maxValue,
                 Name = name,
                 IsSelected = isSelected,
                 Frequencies = freqs,
@@ -431,12 +433,18 @@ public static partial class OppoProtocol
     }
 
     /// <summary>
-    /// 删除设备端 EQ 预设的载荷（cmd 0x0418, actionType=3）。
-    /// 只需 eqId，无需频率/增益数据。
+    /// 删除设备端 EQ 预设的兜底载荷（cmd 0x0418, actionType=3）。
+    /// 官方 Melody 会发送完整 EqInfo；仅在找不到原条目时使用此兜底。
     /// </summary>
     public static byte[] EqDeletePayload(int eqId)
     {
         return [3, 0xFA, 0x06, (byte)eqId, 0];
+    }
+
+    /// <summary>按 Melody 的 EqInfo 形态删除：action=3 + eqId + name + frequency/db arrays。</summary>
+    public static byte[] EqDeletePayload(EqInfoEntry entry)
+    {
+        return EqInfoPayload(3, entry.Gains, entry.Frequencies, entry.Name, entry.EqId, entry.MinValue, entry.MaxValue);
     }
 
     /// <summary>
@@ -450,11 +458,24 @@ public static partial class OppoProtocol
     }
 
     /// <summary>
-    /// 自定义 EQ 频段增益载荷（cmd 0x0418），带预设名称。
-    /// name 为空时与无参构造函数一致（5 字节头 + freqCount + 频段数据）。
-    /// name 非空时写入 nameLen + UTF-8 名称字节。
+    /// 新建自定义 EQ 预设载荷（cmd 0x0418, actionType=1）。仅用于创建新预设，eqId 必为 0。
+    /// 对应 Melody 的 B8.c.i(addr, eqInfo, 1)。
     /// </summary>
-    public static byte[] EqDetailPayload(int[] gains, int[] frequencies, string name)
+    public static byte[] EqDetailPayload(int[] gains, int[] frequencies, string name, byte eqId = 0)
+    {
+        return EqInfoPayload(1, gains, frequencies, name, eqId, -6, 6);
+    }
+
+    /// <summary>
+    /// 更新/应用已有 EQ 预设载荷（cmd 0x0418, actionType=2）。带原 eqId + 完整 EqInfo。
+    /// 对应 Melody 的 B8.c.i(addr, eqInfo, 2)：编辑滑块预览与切换选中都走此 action。
+    /// </summary>
+    public static byte[] EqUpdatePayload(EqInfoEntry entry)
+    {
+        return EqInfoPayload(2, entry.Gains, entry.Frequencies, entry.Name, entry.EqId, entry.MinValue, entry.MaxValue);
+    }
+
+    private static byte[] EqInfoPayload(int actionType, int[] gains, int[] frequencies, string name, byte eqId, int minValue, int maxValue)
     {
         int count = Math.Min(gains.Length, frequencies.Length);
         count = Math.Clamp(count, 1, 32);
@@ -462,10 +483,10 @@ public static partial class OppoProtocol
         int nameLen = nameBytes.Length;
         // 5 字节头 + nameLen + 1 字节 freqCount + 3 字节每频段
         var payload = new byte[5 + nameLen + 1 + 3 * count];
-        payload[0] = 1;            // actionType: 1=新建/应用
-        payload[1] = 0xFA;         // min: -6 (signed byte)
-        payload[2] = 0x06;         // max: +6
-        payload[3] = 0;            // eqId: 0（新建预设）
+        payload[0] = (byte)actionType;
+        payload[1] = unchecked((byte)(sbyte)Math.Clamp(minValue, -128, 127));
+        payload[2] = unchecked((byte)(sbyte)Math.Clamp(maxValue, -128, 127));
+        payload[3] = eqId;         // eqId: 0=新建, 非0=更新
         payload[4] = (byte)nameLen;
         if (nameLen > 0)
             nameBytes.CopyTo(payload, 5);
@@ -476,7 +497,7 @@ public static partial class OppoProtocol
             int offset = 6 + nameLen + 3 * i;
             payload[offset]       = (byte)(freq & 0xFF);         // LE low
             payload[offset + 1]   = (byte)((freq >> 8) & 0xFF); // LE high
-            payload[offset + 2]   = (byte)Math.Clamp(gains[i], -6, 6); // signed dB
+            payload[offset + 2]   = unchecked((byte)(sbyte)Math.Clamp(gains[i], minValue, maxValue)); // signed dB
         }
         return payload;
     }

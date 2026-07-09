@@ -276,17 +276,39 @@ public partial class PodManager
             var entries = OppoProtocol.ParseEqAll(payload);
             if (entries.Count == 0) { Log.D("RFCOMM", "ParseEqAll: 解析到 0 个条目"); return; }
 
+            var now = DateTime.Now;
+            foreach (var expired in _pendingDeleteEqIds.Where(kv => kv.Value <= now).Select(kv => kv.Key).ToList())
+                _pendingDeleteEqIds.Remove(expired);
+
+            // 按 _pendingDeleteEqIds 过滤已发送删除命令但设备短时间内仍回读旧状态的条目。
+            // Melody 删除后立即移除 UI，并保持约 1 秒删除追踪窗口；这里不要在第一次过滤后清空。
+            List<EqInfoEntry> valid;
+            if (_pendingDeleteEqIds.Count > 0)
+            {
+                valid = entries.Where(e => !_pendingDeleteEqIds.ContainsKey(e.EqId)).ToList();
+                var before = entries.Count;
+                var filtered = before - valid.Count;
+                if (filtered > 0)
+                {
+                    var ids = string.Join(",", _pendingDeleteEqIds.Keys.Select(id => id.ToString()));
+                    Log.D("RFCOMM", $"ParseEqAll: 删除追踪窗口内过滤 {filtered} 个旧条目 (ids=[{ids}]), 剩余 {valid.Count} 个");
+                }
+                if (valid.Count == 0) { Log.D("RFCOMM", "ParseEqAll: 过滤后无有效条目"); return; }
+            }
+            else
+                valid = entries.ToList();
+
             // 提取设备端名称（eqId → name），补充/覆盖 JSON 内置 EqNames
             var deviceNames = new Dictionary<byte, string>();
-            foreach (var e in entries)
-                if (!string.IsNullOrEmpty(e.Name) && !deviceNames.ContainsKey(e.EqId))
+            foreach (var e in valid)
+                if (!deviceNames.ContainsKey(e.EqId))
                     deviceNames[e.EqId] = e.Name;
 
             Caps.DeviceEqNames = deviceNames;
-            State.DeviceEqEntries = entries;
+            State.DeviceEqEntries = valid;
 
             // 若当前选中的预设 eqId 匹配设备端某条目且设备端有名称，更新显示
-            foreach (var e in entries)
+            foreach (var e in valid)
             {
                 if (e.IsSelected && !string.IsNullOrEmpty(e.Name))
                 {

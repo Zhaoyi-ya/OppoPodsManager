@@ -165,22 +165,10 @@ public partial class MainWindow : SukiWindow
         CbTheme.SelectionChanged += CbTheme_Changed;
         TbCustomName.TextChanged += TbCustomName_Changed;
 
-        // EQ 滑块事件
-        EqSlider62.PropertyChanged += EqSlider_Changed;
-        EqSlider250.PropertyChanged += EqSlider_Changed;
-        EqSlider1k.PropertyChanged += EqSlider_Changed;
-        EqSlider4k.PropertyChanged += EqSlider_Changed;
-        EqSlider8k.PropertyChanged += EqSlider_Changed;
-        EqSlider16k.PropertyChanged += EqSlider_Changed;
+        BuildEqBandControls(GetCurrentEqFrequencies());
         // EQ 预设列表（左右分栏：系统预设 / 自定义）
         LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
         LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
-
-        // 设备详情 — 音效增强互斥
-        DiEnhanceNone.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceSpatial.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceGame.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceEq.IsCheckedChanged += DiEnhance_Changed;
 
         // 初始加载自定义 EQ 预设列表
         RefreshEqPresetList();
@@ -560,7 +548,7 @@ public partial class MainWindow : SukiWindow
         var prevCount = _pods.State.DeviceEqEntries.Count;
         if (CbEq.ItemCount == 0 || prevCount != _lastDeviceEqCount
             || caps.EqPresets.Keys.Any(k => !CbEq.Items.Contains(k))
-            || _pods.State.DeviceEqEntries.Any(e => !string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name)))
+            || _pods.State.DeviceEqEntries.Any(e => !string.IsNullOrWhiteSpace(e.Name) && !CbEq.Items.Contains(e.Name)))
         {
             RefreshAllEqViews();
         }
@@ -692,25 +680,55 @@ public partial class MainWindow : SukiWindow
 
     private void CbAuto_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        try
+        bool enable = CbAuto.IsChecked == true;
+        SettingsManager.SetBool("AutoStart", enable);
+        try { ApplyAutoStart(enable); }
+        catch (Exception ex) { Log.Ex("UI", "ApplyAutoStart", ex); }
+    }
+
+    /// <summary>
+    /// 按平台注册/取消开机自启（都带 --minimized 静默启动）：
+    ///   Windows：写 HKCU\...\Run 注册表值；
+    ///   Linux：写 ~/.config/autostart/oppopods.desktop（XDG 自启规范，GNOME/KDE/XFCE 通用）。
+    /// 其它平台静默跳过。
+    /// </summary>
+    private static void ApplyAutoStart(bool enable)
+    {
+        var exe = Environment.ProcessPath ?? "";
+        if (OperatingSystem.IsWindows())
         {
             using var runKey = Microsoft.Win32.Registry.CurrentUser
                 .OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
             if (runKey is null) return;
-
-            if (CbAuto.IsChecked == true)
+            if (enable) runKey.SetValue("OPPOPods", $"\"{exe}\" --minimized");
+            else { try { runKey.DeleteValue("OPPOPods", throwOnMissingValue: false); } catch { } }
+        }
+        else if (OperatingSystem.IsLinux())
+        {
+            // 全限定 System.IO 以避免与 Avalonia.Controls.Shapes.Path 冲突
+            var autostartDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "autostart");
+            var desktopFile = System.IO.Path.Combine(autostartDir, "oppopods.desktop");
+            if (enable)
             {
-                SettingsManager.SetBool("AutoStart", true);
-                var exe = Environment.ProcessPath ?? "";
-                runKey.SetValue("OPPOPods", $"\"{exe}\" --minimized");
+                System.IO.Directory.CreateDirectory(autostartDir);
+                // Exec 用 --minimized 静默启动；X-GNOME-Autostart-enabled 供部分 DE 识别。
+                var content =
+                    "[Desktop Entry]\n" +
+                    "Type=Application\n" +
+                    "Name=OPPO Pods Manager\n" +
+                    $"Exec=\"{exe}\" --minimized\n" +
+                    "Terminal=false\n" +
+                    "X-GNOME-Autostart-enabled=true\n";
+                System.IO.File.WriteAllText(desktopFile, content);
+                Log.D("UI", $"ApplyAutoStart: 已写入 {desktopFile}");
             }
             else
             {
-                SettingsManager.SetBool("AutoStart", false);
-                try { runKey.DeleteValue("OPPOPods", throwOnMissingValue: false); } catch { }
+                try { if (System.IO.File.Exists(desktopFile)) System.IO.File.Delete(desktopFile); } catch { }
+                Log.D("UI", "ApplyAutoStart: 已移除 Linux 自启");
             }
         }
-        catch { }
     }
     private void CbAutoUpdate_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
         => SettingsManager.SetString("AutoCheckUpdate", CbAutoUpdate.IsChecked == true ? "true" : "false");
@@ -1040,15 +1058,40 @@ public partial class MainWindow : SukiWindow
         {
             Log.D("UI", $"用户操作: 游戏音效开关 -> {on}");
             _featureUserSetAt = DateTime.Now;
-            // 音效增强互斥：开游戏音效 → 需显式关空间音效（设备不会自动关），UI 同步取消勾选并下发关闭命令
-            if (on && _pods.Caps.GameSoundMutexSpatial && CbSpatial.IsChecked == true)
+            if (on)
             {
-                SetSpatialCheckedSilent(false);
-                _pods.SendSpatial(false);
+                // 音效增强互斥：开游戏音效 → 需显式关空间音效（设备不会自动关），UI 同步取消勾选并下发关闭命令
+                if (_pods.Caps.GameSoundMutexSpatial && CbSpatial.IsChecked == true)
+                {
+                    SetSpatialCheckedSilent(false);
+                    _pods.SendSpatial(false);
+                }
+                // EQ 互斥：开游戏音效 → 重置 EQ 到默认预设（"关闭"/无效果）
+                if (_pods.Caps.GameSoundMutexEq)
+                {
+                    var def = _pods.Caps.DefaultEqPreset;
+                    _pods.SendEq(def);
+                    _eqCurrentPreset = def;
+                    // 同步主页下拉框与面板列表选中
+                    CbEq.SelectionChanged -= CbEq_SelectionChanged;
+                    CbEq.SelectedItem = def;
+                    CbEq.SelectionChanged += CbEq_SelectionChanged;
+                    // 面板内置/自定义列表均取消选中
+                    _eqSuppressListEvent = true;
+                    LbEqBuiltinPresets.SelectedItem = null;
+                    LbEqCustomPresets.SelectedItem = null;
+                    _eqSuppressListEvent = false;
+                }
+                // 互斥禁用：空间音效禁用 + EQ 控制禁用
+                CbSpatial.IsEnabled = false;
+                SetEqControlsEnabled(false);
             }
-            // 互斥禁用：开游戏音效 → 空间音效禁用 + EQ 控制（预设列表+滑块）禁用；关 → 恢复
-            CbSpatial.IsEnabled = !on;
-            SetEqControlsEnabled(!on);
+            else
+            {
+                // 关游戏音效 → 恢复空间音效 + EQ 控制
+                CbSpatial.IsEnabled = true;
+                SetEqControlsEnabled(true);
+            }
             _pods.SendGameSound(on);
         }
     }
@@ -1056,18 +1099,10 @@ public partial class MainWindow : SukiWindow
     private void SetEqControlsEnabled(bool enabled)
     {
         // 均衡器滑块 + dB 标签
-        EqSlider62.IsEnabled = enabled;
-        EqSlider250.IsEnabled = enabled;
-        EqSlider1k.IsEnabled = enabled;
-        EqSlider4k.IsEnabled = enabled;
-        EqSlider8k.IsEnabled = enabled;
-        EqSlider16k.IsEnabled = enabled;
-        EqDb62.Opacity = enabled ? 0.5 : 0.2;
-        EqDb250.Opacity = enabled ? 0.5 : 0.2;
-        EqDb1k.Opacity = enabled ? 0.5 : 0.2;
-        EqDb4k.Opacity = enabled ? 0.5 : 0.2;
-        EqDb8k.Opacity = enabled ? 0.5 : 0.2;
-        EqDb16k.Opacity = enabled ? 0.5 : 0.2;
+        foreach (var slider in _eqSliders.Values)
+            slider.IsEnabled = enabled;
+        foreach (var label in _eqDbLabels.Values)
+            label.Opacity = enabled ? 0.95 : 0.35;
         // 预设列表 + 新建按钮
         LbEqBuiltinPresets.IsEnabled = enabled;
         LbEqCustomPresets.IsEnabled = enabled;
@@ -1124,6 +1159,19 @@ public partial class MainWindow : SukiWindow
         if (_pods.Caps.EqPresets.ContainsKey(name)
             || _pods.State.DeviceEqEntries.Any(ev => ev.Name == name))
         {
+            // EQ ↔ 游戏音效互斥：选中非默认预设且游戏音效开启 → 先关游戏音效
+            if (name != _pods.Caps.DefaultEqPreset
+                && _pods.Caps.GameSoundMutexEq
+                && CbGameSound.IsChecked == true)
+            {
+                Log.D("UI", $"EQ下拉: 选中预设 {name} 互斥游戏音效 → 关闭");
+                _featureUserSetAt = DateTime.Now;
+                SetGameSoundCheckedSilent(false);
+                CbSpatial.IsEnabled = true;
+                SetEqControlsEnabled(true);
+                _pods.SendGameSound(false);
+            }
+
             _eqCurrentPreset = name;
             _pods.SendEq(name);
             // 同步到 EQ 面板的预设列表
@@ -1255,7 +1303,7 @@ public partial class MainWindow : SukiWindow
         {
             case 0:
                 theme.ChangeBaseTheme(Avalonia.Styling.ThemeVariant.Default);
-                _isLightTheme = false; // follow system default (for now treat as dark)
+                _isLightTheme = Application.Current?.ActualThemeVariant == Avalonia.Styling.ThemeVariant.Light;
                 break;
             case 1:
                 theme.ChangeBaseTheme(Avalonia.Styling.ThemeVariant.Dark);
@@ -1315,6 +1363,7 @@ public partial class MainWindow : SukiWindow
         if (DialogConfirmBtn.IsVisible)
             DialogConfirmBtn.Background = Brushes.Transparent;
 
+        RefreshEqBandVisuals();
         HighlightAnc();
         var s = _pods.State;
         StatusDot.Fill = s.Connected ? BrushGreen : BrushRed;
@@ -1479,26 +1528,166 @@ public partial class MainWindow : SukiWindow
     private string _eqCurrentPreset = "";
     private int _eqCurrentId; // 当前编辑的设备端预设 eqId，0=新建
     private bool _eqSuppressListEvent;
+    private bool _eqSuppressSliderEvent;
     private int _lastDeviceEqCount = -1;
+    private readonly Dictionary<int, Slider> _eqSliders = new();
+    private readonly Dictionary<int, TextBlock> _eqDbLabels = new();
+    private readonly Dictionary<int, TextBlock> _eqFrequencyLabels = new();
+    private readonly List<TextBlock> _eqScaleLabels = new();
     /// <summary>进入编辑时的滑块快照，用于重置。</summary>
     private double[] _eqBackupSliders = Array.Empty<double>();
+
+    private int[] GetCurrentEqFrequencies()
+    {
+        var capsFreqs = _pods.Caps.CustomEqFrequencies;
+        if (capsFreqs.Length > 0) return capsFreqs;
+
+        var deviceFreqs = _pods.State.DeviceEqEntries
+            .FirstOrDefault(e => e.Frequencies.Length > 0)?.Frequencies;
+        return deviceFreqs is { Length: > 0 }
+            ? deviceFreqs
+            : [62, 250, 1000, 4000, 8000, 16000];
+    }
+
+    private void BuildEqBandControls(int[] frequencies)
+    {
+        EqBandsPanel.Children.Clear();
+        _eqSliders.Clear();
+        _eqDbLabels.Clear();
+        _eqFrequencyLabels.Clear();
+        _eqScaleLabels.Clear();
+
+        if (frequencies.Length == 0) return;
+
+        var topScale = new TextBlock { Text = "+6", FontSize = 10, FontWeight = FontWeight.Medium, Foreground = BrushWhite, Opacity = 0.78, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+        var midScale = new TextBlock { Text = " 0", FontSize = 10, FontWeight = FontWeight.Medium, Foreground = BrushWhite, Opacity = 0.68, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var bottomScale = new TextBlock { Text = "-6", FontSize = 10, FontWeight = FontWeight.Medium, Foreground = BrushWhite, Opacity = 0.78, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom };
+        _eqScaleLabels.Add(topScale);
+        _eqScaleLabels.Add(midScale);
+        _eqScaleLabels.Add(bottomScale);
+
+        var scaleGrid = new Grid
+        {
+            Height = 180,
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            Children =
+            {
+                topScale,
+                midScale,
+                bottomScale,
+            }
+        };
+        Grid.SetRow(scaleGrid.Children[1], 1);
+        Grid.SetRow(scaleGrid.Children[2], 2);
+        EqBandsPanel.Children.Add(scaleGrid);
+
+        foreach (var frequency in frequencies)
+        {
+            if (_eqSliders.ContainsKey(frequency)) continue;
+
+            var dbLabel = new TextBlock
+            {
+                Text = "0",
+                FontSize = 11,
+                FontWeight = FontWeight.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = BrushWhite,
+                Opacity = 0.95,
+                Margin = new Thickness(0, 0, 0, 2),
+            };
+            var slider = new Slider
+            {
+                Width = 36,
+                Height = 180,
+                Orientation = Orientation.Vertical,
+                Minimum = -6,
+                Maximum = 6,
+                Value = 0,
+                TickFrequency = 1,
+                IsSnapToTickEnabled = true,
+                Tag = frequency,
+            };
+            slider.PropertyChanged += EqSlider_Changed;
+
+            var frequencyLabel = new TextBlock
+            {
+                Text = FormatEqFrequency(frequency),
+                FontSize = 12,
+                FontWeight = FontWeight.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Foreground = BrushWhite,
+                Opacity = 0.98,
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+
+            var band = new StackPanel
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    dbLabel,
+                    slider,
+                    frequencyLabel,
+                }
+            };
+
+            _eqSliders[frequency] = slider;
+            _eqDbLabels[frequency] = dbLabel;
+            _eqFrequencyLabels[frequency] = frequencyLabel;
+            EqBandsPanel.Children.Add(band);
+        }
+        RefreshEqBandVisuals();
+    }
+
+    private static string FormatEqFrequency(int frequency)
+    {
+        if (frequency >= 1000 && frequency % 1000 == 0) return $"{frequency / 1000}k";
+        return frequency >= 1000 ? $"{frequency / 1000.0:0.#}k" : frequency.ToString();
+    }
+
+    private void UpdateEqDbLabel(int frequency, double value)
+    {
+        if (!_eqDbLabels.TryGetValue(frequency, out var label)) return;
+        var db = (int)Math.Round(value);
+        var sign = db > 0 ? "+" : "";
+        label.Text = $"{sign}{db}";
+        label.Foreground = db switch
+        {
+            > 0 => BrushLightGreen,
+            < 0 => BrushLightRed,
+            _ => BrushWhite,
+        };
+        label.Opacity = 0.95;
+    }
+
+    private void RefreshEqBandVisuals()
+    {
+        foreach (var label in _eqScaleLabels)
+        {
+            label.Foreground = BrushWhite;
+            label.Opacity = 0.78;
+        }
+        foreach (var label in _eqFrequencyLabels.Values)
+        {
+            label.Foreground = BrushWhite;
+            label.Opacity = 0.98;
+        }
+        foreach (var (frequency, slider) in _eqSliders)
+            UpdateEqDbLabel(frequency, slider.Value);
+    }
 
     /// <summary>滑块值变更 → 更新对应 dB 标签，触发防抖预览下发。</summary>
     private void EqSlider_Changed(object? s, Avalonia.AvaloniaPropertyChangedEventArgs e)
     {
         if (e.Property != Slider.ValueProperty) return;
         if (s is not Slider slider) return;
+        if (slider.Tag is not int frequency) return;
 
-        var db = (int)Math.Round(slider.Value);
-        var sign = db > 0 ? "+" : "";
-        var text = $"{sign}{db}";
-
-        if (slider == EqSlider62) EqDb62.Text = text;
-        else if (slider == EqSlider250) EqDb250.Text = text;
-        else if (slider == EqSlider1k) EqDb1k.Text = text;
-        else if (slider == EqSlider4k) EqDb4k.Text = text;
-        else if (slider == EqSlider8k) EqDb8k.Text = text;
-        else if (slider == EqSlider16k) EqDb16k.Text = text;
+        UpdateEqDbLabel(frequency, slider.Value);
+        if (_eqSuppressSliderEvent) return;
 
         // 防抖 150ms 后下发自定义 EQ（实时预览）
         _eqDebounceTimer?.Stop();
@@ -1610,7 +1799,7 @@ public partial class MainWindow : SukiWindow
         foreach (var kv in caps.EqPresets)
             CbEq.Items.Add(kv.Key);
         foreach (var e in _pods.State.DeviceEqEntries)
-            if (!string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name))
+            if (!string.IsNullOrWhiteSpace(e.Name) && !CbEq.Items.Contains(e.Name))
                 CbEq.Items.Add(e.Name);
         // 恢复选中
         if (!string.IsNullOrEmpty(_eqCurrentPreset) && CbEq.Items.Contains(_eqCurrentPreset))
@@ -1631,7 +1820,7 @@ public partial class MainWindow : SukiWindow
         // 右：自定义
         foreach (var e in _pods.State.DeviceEqEntries)
         {
-            if (!string.IsNullOrEmpty(e.Name) && !caps.EqPresets.ContainsKey(e.Name))
+            if (!string.IsNullOrWhiteSpace(e.Name) && !caps.EqPresets.ContainsKey(e.Name))
                 LbEqCustomPresets.Items.Add(new EqPresetItem { Name = e.Name, IsCustom = false, EqId = e.EqId });
         }
 
@@ -1650,10 +1839,12 @@ public partial class MainWindow : SukiWindow
         LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
         _eqSuppressListEvent = false;
 
-        // 保存后重新获取当前预设的 eqId
+        // 保存后重新获取当前预设的 eqId（优先按 _eqCurrentId 匹配，其次按名称）
         if (!string.IsNullOrEmpty(_eqCurrentPreset))
         {
-            var entry = _pods.State.DeviceEqEntries.FirstOrDefault(e => e.Name == _eqCurrentPreset);
+            var entry = _eqCurrentId > 0
+                ? _pods.State.DeviceEqEntries.FirstOrDefault(e => e.EqId == _eqCurrentId)
+                : _pods.State.DeviceEqEntries.FirstOrDefault(e => e.Name == _eqCurrentPreset);
             if (entry != null) _eqCurrentId = entry.EqId;
         }
 
@@ -1697,6 +1888,19 @@ public partial class MainWindow : SukiWindow
     /// <summary>预设选中 → 内置发送切换、隐藏滑块；自定义/设备端展开编辑。</summary>
     private void ApplyEqSelection(EqPresetItem item, bool sendToDevice = true)
     {
+        // EQ ↔ 游戏音效互斥：选中非默认预设且游戏音效开启 → 先关游戏音效
+        if (_pods.IsConnected && _pods.Caps.GameSoundMutexEq
+            && item.Name != _pods.Caps.DefaultEqPreset
+            && CbGameSound.IsChecked == true)
+        {
+            Log.D("UI", $"EQ面板: 选中预设 {item.Name} 互斥游戏音效 → 关闭");
+            _featureUserSetAt = DateTime.Now;
+            SetGameSoundCheckedSilent(false);
+            CbSpatial.IsEnabled = true;
+            SetEqControlsEnabled(true);
+            _pods.SendGameSound(false);
+        }
+
         _eqCurrentPreset = item.Name;
 
         if (_pods.IsConnected && sendToDevice)
@@ -1719,18 +1923,21 @@ public partial class MainWindow : SukiWindow
 
         // 自定义/设备端预设：显示滑块编辑
         EqSliderCard.IsVisible = true;
-        // 尝试加载设备保存的增益值
-        var entry = _pods.State.DeviceEqEntries.FirstOrDefault(d => d.Name == item.Name);
+        // 尝试加载设备保存的增益值（优先按 eqId，其次按名称）
+        var entry = item.EqId > 0
+            ? _pods.State.DeviceEqEntries.FirstOrDefault(d => d.EqId == item.EqId)
+            : _pods.State.DeviceEqEntries.FirstOrDefault(d => d.Name == item.Name);
         if (entry is { Gains.Length: > 0, Frequencies.Length: > 0 })
         {
-            var freqMap = new Dictionary<int, Slider>
-            {
-                { 62, EqSlider62 }, { 250, EqSlider250 }, { 1000, EqSlider1k },
-                { 4000, EqSlider4k }, { 8000, EqSlider8k }, { 16000, EqSlider16k },
-            };
+            BuildEqBandControls(entry.Frequencies);
+            _eqSuppressSliderEvent = true;
             for (int i = 0; i < entry.Frequencies.Length; i++)
-                if (freqMap.TryGetValue(entry.Frequencies[i], out var sld))
+                if (_eqSliders.TryGetValue(entry.Frequencies[i], out var sld))
+                {
                     sld.Value = entry.Gains[i];
+                    UpdateEqDbLabel(entry.Frequencies[i], entry.Gains[i]);
+                }
+            _eqSuppressSliderEvent = false;
         }
         else SetAllEqSliders(0);
         SnapshotSliders();
@@ -1773,13 +1980,13 @@ public partial class MainWindow : SukiWindow
     }
 
     /// <summary>新建/保存后立即在自定义列表中追加并选中，不等设备响应。</summary>
-    private void AddCustomPresetToList(string name)
+    private void AddCustomPresetToList(string name, byte eqId = 0)
     {
-        // 避免重复——已有同名项则只选中不追加
+        // 避免重复——已有同名项则只更新 eqId 并选中（设备响应后刷新）
         foreach (var item in LbEqCustomPresets.Items.OfType<EqPresetItem>())
-            if (item.Name == name) { LbEqCustomPresets.SelectedItem = item; return; }
+            if (item.Name == name) { item.EqId = eqId; LbEqCustomPresets.SelectedItem = item; return; }
 
-        var newItem = new EqPresetItem { Name = name, IsCustom = true, EqId = 0 };
+        var newItem = new EqPresetItem { Name = name, IsCustom = true, EqId = eqId };
         _eqSuppressListEvent = true;
         LbEqBuiltinPresets.SelectedItem = null;
         LbEqCustomPresets.Items.Add(newItem);
@@ -1792,41 +1999,39 @@ public partial class MainWindow : SukiWindow
 
     private void SetAllEqSliders(double value)
     {
-        EqSlider62.Value = value;
-        EqSlider250.Value = value;
-        EqSlider1k.Value = value;
-        EqSlider4k.Value = value;
-        EqSlider8k.Value = value;
-        EqSlider16k.Value = value;
+        _eqSuppressSliderEvent = true;
+        foreach (var (frequency, slider) in _eqSliders)
+        {
+            slider.Value = value;
+            UpdateEqDbLabel(frequency, value);
+        }
+        _eqSuppressSliderEvent = false;
     }
 
-    /// <summary>将 6 段 UI 滑块值映射到设备频率数组，未对应 UI 的频段填 0。</summary>
+    /// <summary>将当前 UI 滑块值映射到设备频率数组。</summary>
     private int[] SliderToGains()
     {
-        var freqSliders = new Dictionary<int, double>
-        {
-            { 62, EqSlider62.Value },
-            { 250, EqSlider250.Value },
-            { 1000, EqSlider1k.Value },
-            { 4000, EqSlider4k.Value },
-            { 8000, EqSlider8k.Value },
-            { 16000, EqSlider16k.Value },
-        };
-        var freqs = _pods.Caps.CustomEqFrequencies;
-        // 如果能力表无频率，直接用 UI 硬编码的 6 段兜底
-        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
+        var freqs = GetCurrentEqFrequencies();
+        if (_eqSliders.Count != freqs.Length || freqs.Any(f => !_eqSliders.ContainsKey(f)))
+            BuildEqBandControls(freqs);
+
         var gains = new int[freqs.Length];
         for (int i = 0; i < freqs.Length; i++)
-            gains[i] = freqSliders.TryGetValue(freqs[i], out var v) ? (int)Math.Round(v) : 0;
+            gains[i] = _eqSliders.TryGetValue(freqs[i], out var sld) ? (int)Math.Round(sld.Value) : 0;
         return gains;
     }
 
-    /// <summary>向设备发送当前 UI 滑块值作为自定义 EQ。</summary>
+    /// <summary>向设备发送当前 UI 滑块值作为自定义 EQ 实时预览。
+    /// 仅对已有预设（有 eqId）用 action=2 更新；新建预设在保存前不下发，避免设备重复建项。</summary>
     private void SendCurrentCustomEq()
     {
         if (!_pods.IsConnected || _pods.Caps.CustomEqFrequencies.Length == 0) return;
-        var gains = SliderToGains();
-        _pods.SendCustomEq(gains);
+        if (_eqCurrentId == 0 || string.IsNullOrEmpty(_eqCurrentPreset))
+        {
+            Log.D("UI", "EQ预览: 新建预设保存前不下发，避免设备重复建项");
+            return;
+        }
+        _pods.UpdateCustomEq((byte)_eqCurrentId, SliderToGains(), _eqCurrentPreset);
     }
 
     // ---- 按钮操作 ----
@@ -1852,6 +2057,7 @@ public partial class MainWindow : SukiWindow
         } while (true);
         _eqCurrentPreset = name;
         _eqCurrentId = 0;
+        BuildEqBandControls(GetCurrentEqFrequencies());
         SetAllEqSliders(0);
         SnapshotSliders();
         EqSliderCard.IsVisible = true;
@@ -1872,61 +2078,101 @@ public partial class MainWindow : SukiWindow
             EqHintText.Text = "名称仅支持中文/英文/数字，不含空格与特殊字符";
             return;
         }
-        Log.D("UI", $"EQ保存: name={_eqCurrentPreset} eqId={_eqCurrentId}");
-        // 编辑已有预设：先删旧再新建
-        if (_eqCurrentId != 0 && _pods.IsConnected)
-            _pods.DeleteEq(_eqCurrentId);
-        DoSaveEqPreset(_eqCurrentPreset, 0);
-        // 保存后重置 eqId，等设备响应后由 RefreshAllEqViews 重新赋值，避免同名取到旧 id
-        _eqCurrentId = 0;
+        var selectedEqId = (LbEqCustomPresets.SelectedItem as EqPresetItem)?.EqId ?? 0;
+        var saveEqId = selectedEqId > 0 ? selectedEqId : _eqCurrentId;
+        if (saveEqId > 0) _eqCurrentId = saveEqId;
+        Log.D("UI", $"EQ保存: name={_eqCurrentPreset} eqId={saveEqId}");
+        DoSaveEqPreset(_eqCurrentPreset, saveEqId);
         SnapshotSliders();
 
         // 立即添加到自定义列表并选中，不等设备异步响应
-        AddCustomPresetToList(_eqCurrentPreset);
+        AddCustomPresetToList(_eqCurrentPreset, (byte)saveEqId);
     }
 
     private void SnapshotSliders()
     {
-        _eqBackupSliders = new[] { EqSlider62.Value, EqSlider250.Value, EqSlider1k.Value, EqSlider4k.Value, EqSlider8k.Value, EqSlider16k.Value };
+        _eqBackupSliders = GetCurrentEqFrequencies()
+            .Select(f => _eqSliders.TryGetValue(f, out var slider) ? slider.Value : 0)
+            .ToArray();
     }
 
     private async void EqListItemDelete_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (s is not Button btn || btn.Tag is not string name) return;
-        if (!await ShowConfirmDialog("删除预设", $"确定要删除预设「{name}」吗？")) return;
+        if (s is not Button btn || btn.Tag is not int eqId) return;
+        // 从列表项取显示名称（仅用于确认对话框提示）
+        var listItem = btn.DataContext as EqPresetItem;
+        var displayName = listItem?.Name ?? $"eqId={eqId}";
 
-        // 仅设备端预设可删除，内置预设忽略
-        var devEntry = _pods.State.DeviceEqEntries.FirstOrDefault(ev => ev.Name == name);
-        if (devEntry != null)
+        if (!await ShowConfirmDialog("删除预设", $"确定要删除预设「{displayName}」吗？")) return;
+
+        if (eqId > 0)
         {
-            _pods.DeleteEq(devEntry.EqId);
-            // DeleteEq 内部会调 SendQueryEqAll，OnStateChanged 会自动刷新列表
+            // 按 eqId 删除设备端条目
+            _pods.DeleteEq(eqId);
+            RemoveCustomEqLocally(eqId, displayName);
         }
         else
         {
-            Log.D("UI", $"EQ面板: 内置预设「{name}」不可删除，已忽略");
-            return;
+            // eqId=0（新建后未同步的条目）：尝试按名称在设备端查找
+            var removedEqId = 0;
+            if (!string.IsNullOrEmpty(displayName))
+            {
+                var devEntry = _pods.State.DeviceEqEntries.FirstOrDefault(ev => ev.Name == displayName);
+                if (devEntry != null)
+                {
+                    removedEqId = devEntry.EqId;
+                    _pods.DeleteEq(devEntry.EqId);
+                }
+                else
+                {
+                    Log.D("UI", $"EQ面板: 预设「{displayName}」设备端不存在，仅从列表移除");
+                }
+            }
+            RemoveCustomEqLocally(removedEqId, displayName);
         }
 
-        if (_eqCurrentPreset == name)
+        if (_eqCurrentPreset == displayName)
         {
             _eqCurrentPreset = "";
             SetAllEqSliders(0);
         }
-        EqHintText.Text = $"「{name}」已删除";
+        EqHintText.Text = $"「{displayName}」已删除";
+    }
+
+    private void RemoveCustomEqLocally(int eqId, string displayName)
+    {
+        // 本机 SPP 设备的 0x8122 不回读权威列表（常返回空），删除必须乐观更新本地状态，
+        // 否则后续 OnStateChanged → RefreshAllEqViews 会从未更新的 DeviceEqEntries 把已删项重建出来。
+        _pods.State.DeviceEqEntries = _pods.State.DeviceEqEntries
+            .Where(e => eqId > 0 ? e.EqId != eqId : e.Name != displayName)
+            .ToList();
+
+        var item = LbEqCustomPresets.Items.OfType<EqPresetItem>()
+            .FirstOrDefault(e => eqId > 0 ? e.EqId == eqId : e.Name == displayName);
+        if (item != null)
+            LbEqCustomPresets.Items.Remove(item);
+
+        if (CbEq.Items.Contains(displayName))
+            CbEq.Items.Remove(displayName);
     }
 
     private void DoSaveEqPreset(string name, int eqId = 0)
     {
         _eqCurrentPreset = name;
         if (_pods.IsConnected)
-            _pods.SendCustomEq(SliderToGains(), name);
+        {
+            // 已有预设 → action=2 更新；新预设 → action=1 新建（APK: B8.c.i action 2 vs 1）
+            if (eqId > 0)
+                _pods.UpdateCustomEq((byte)eqId, SliderToGains(), name);
+            else
+                _pods.SendCustomEq(SliderToGains(), name);
+        }
         EqHintText.Text = $"已保存「{name}」到设备";
     }
 
     // ---- 设备详情 ----
 
-    /// <summary>刷新设备详情页（固件、编解码器、音效增强）。</summary>
+    /// <summary>刷新设备详情页（固件、编解码器）。</summary>
     private void RefreshDeviceInfo()
     {
         var caps = _modelOverride != null
@@ -1936,29 +2182,6 @@ public partial class MainWindow : SukiWindow
         DiDeviceName.Text = caps.ModelName;
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
         DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
-
-        // 音效增强互斥组
-        bool showSpatial = caps.HasSpatialSound;
-        bool showGame = caps.HasGameSound;
-        bool showEq = caps.EqPresets.Count > 0;
-        bool hasMutex = caps.GameSoundMutexes.Count > 0;
-
-        DiEnhanceNone.IsVisible = hasMutex;
-        DiEnhanceSpatial.IsVisible = showSpatial && hasMutex;
-        DiEnhanceGame.IsVisible = showGame && hasMutex;
-        DiEnhanceEq.IsVisible = showEq && hasMutex;
-        DiEnhanceHint.Text = hasMutex
-            ? "以下音效互斥，同一时间只能启用一个"
-            : "当前设备不支持音效互斥";
-
-        // 刷新选中态
-        _diEnhanceSuppress = true;
-        var current = _pods.CurrentEnhancement();
-        DiEnhanceNone.IsChecked = current == AudioEnhancement.None;
-        DiEnhanceSpatial.IsChecked = current == AudioEnhancement.SpatialSound;
-        DiEnhanceGame.IsChecked = current == AudioEnhancement.GameSound;
-        DiEnhanceEq.IsChecked = current == AudioEnhancement.Eq;
-        _diEnhanceSuppress = false;
     }
 
     /// <summary>固件版本 CSV → 显示格式：138.138.105。</summary>
@@ -1977,23 +2200,6 @@ public partial class MainWindow : SukiWindow
         // 按设备类型排序输出
         var ordered = versions.OrderBy(kv => kv.Key).Select(kv => kv.Value);
         return string.Join(".", ordered);
-    }
-
-    private bool _diEnhanceSuppress;
-    private void DiEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_diEnhanceSuppress || !_pods.IsConnected) return;
-        if (s is not RadioButton rb || rb.IsChecked != true) return;
-
-        AudioEnhancement mode;
-        if (rb == DiEnhanceNone) mode = AudioEnhancement.None;
-        else if (rb == DiEnhanceSpatial) mode = AudioEnhancement.SpatialSound;
-        else if (rb == DiEnhanceGame) mode = AudioEnhancement.GameSound;
-        else if (rb == DiEnhanceEq) mode = AudioEnhancement.Eq;
-        else return;
-
-        Log.D("UI", $"音效增强切换 -> {mode}");
-        _pods.SetAudioEnhancement(mode);
     }
 
     // ---- 浮层对话框（Avalonia 原生遮罩，不创建新窗口）----
@@ -2133,7 +2339,7 @@ public partial class MainWindow : SukiWindow
     private void QuitApplication()
     {
         _realClose = true;
-        _pollCts?.Cancel();
+        _sessionCts?.Cancel();
         _pods.Dispose();
         if (_trayIcon != null) _trayIcon.IsVisible = false;
         Environment.Exit(0);

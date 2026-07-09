@@ -52,6 +52,13 @@ public static class DeviceDiscovery
             return list;
         }
 #endif
+#if LINUX
+        if (OperatingSystem.IsLinux())
+        {
+            try { return new LinuxBluetoothLocator().LocateAllConnected(); }
+            catch (Exception ex) { Log.Ex("BT", "DeviceDiscovery.Linux", ex); }
+        }
+#endif
         return Array.Empty<(ulong, string)>();
     }
 }

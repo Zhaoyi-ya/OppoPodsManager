@@ -22,6 +22,43 @@ public sealed class LinuxBluetoothLocator : IDeviceLocator
         return (0, null);
     }
 
+    /// <summary>
+    /// 枚举当前"已连接"的受支持品牌耳机 (地址, 名称)，供设备选择器使用。
+    /// 用 bluetoothctl devices Paired 列出已配对设备，再用 info 过滤 Connected: yes。
+    /// 与 Windows 端 DeviceDiscovery.ListConnected 语义一致：只列此刻在线的。
+    /// </summary>
+    public IReadOnlyList<(ulong addr, string name)> LocateAllConnected()
+    {
+        var result = new List<(ulong addr, string name)>();
+        var seen = new HashSet<ulong>();
+        try
+        {
+            using var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = "bluetoothctl", Arguments = "devices Paired",
+                RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true,
+            });
+            if (proc == null) return result;
+            var output = StripAnsi(proc.StandardOutput.ReadToEnd());
+            proc.WaitForExit(3000);
+
+            foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var (addr, name) = ParseDeviceLine(line);
+                if (addr == 0 || name == null || !IsSupportedBrand(name)) continue;
+                if (!seen.Add(addr)) continue;
+                if (!IsDeviceConnected(addr)) continue;   // 只列当前已连接
+                result.Add((addr, name));
+                Log.D("BT", $"LocateAllConnected: 命中已连接 addr={addr:X12} name=\"{name}\"");
+            }
+        }
+        catch (Exception ex) { Log.D("BT", $"LocateAllConnected failed: {ex.Message}"); }
+
+        result.Sort((a, b) => string.Compare(a.name, b.name, StringComparison.OrdinalIgnoreCase));
+        Log.D("BT", $"LocateAllConnected: 当前已连接受支持耳机 {result.Count} 副");
+        return result;
+    }
+
     private static (ulong addr, string? name) FindViaBluetoothctl()
     {
         using var proc = Process.Start(new ProcessStartInfo

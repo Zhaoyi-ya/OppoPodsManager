@@ -40,8 +40,8 @@ public partial class PodManager : IPodManager
     public string? LastError => _transport.LastError;
     public bool IsConnected => State.Connected;
 
-    // 等待设备 ACK 的待删除 EQ ID（0x8418 响应后清除并更新 DeviceEqEntries）
-    private int _pendingDeleteEqId = -1;
+    // 跟踪已发送删除命令但设备可能仍短暂回读旧状态的 EQ ID（Melody 式删除追踪窗口）
+    private readonly Dictionary<byte, DateTime> _pendingDeleteEqIds = new();
 
     /// <summary>带超时/重试的设置命令：失败或超时时触发 CommandFailed（供 UI 提示）。</summary>
     private void SendSet(ushort cmd, byte[] payload, string label)
@@ -260,15 +260,12 @@ public partial class PodManager : IPodManager
                     if (status == 0)
                     {
                         Log.D("RFCOMM", $"DispatchFrame: 设置成功 cmd=0x{frame.Cmd:X4}");
-                        // 0x8418 = CmdSetEqDetail 的响应：删除/保存 EQ 的 ACK
-                        if (frame.Cmd == OppoProtocol.CmdSetEqDetail + 0x8000 && _pendingDeleteEqId >= 0)
+                        // 0x8418 = CmdSetEqDetail 的响应：删除/保存 EQ 的 ACK。
+                        // 注意：不由这里处理追踪列表和 DeviceEqEntries——交由 ParseEqAll 统一消费。
+                        // 见 Melody APK 的 f5125V 删除追踪列表做法（ParseEqAll 才是单一过滤点）。
+                        if (frame.Cmd == OppoProtocol.CmdSetEqDetail + 0x8000 && _pendingDeleteEqIds.Count > 0)
                         {
-                            int deleted = _pendingDeleteEqId;
-                            _pendingDeleteEqId = -1;
-                            var old = State.DeviceEqEntries;
-                            State.DeviceEqEntries = old.Where(e => e.EqId != deleted).ToList();
-                            Log.D("RFCOMM", $"删除 EQ eqId={deleted}, 剩余 {State.DeviceEqEntries.Count} 个预设");
-                            StateChanged?.Invoke();
+                            Log.D("RFCOMM", $"收到删除 ACK, _pendingDeleteEqIds=[{string.Join(",", _pendingDeleteEqIds.Keys)}] 等待设备刷新");
                         }
                     }
                     else
@@ -469,6 +466,9 @@ public partial class PodManager : IPodManager
         if (State.GameSound) return AudioEnhancement.GameSound;
         if (Caps.GameSoundMutexSpatial && State.SpatialSound) return AudioEnhancement.SpatialSound;
         // EQ 视为"调音"生效：有非默认预设即算（EQ 总有值，故仅在与游戏音效互斥的型号上作为一员）
+        if (Caps.GameSoundMutexEq && State.EqPreset is { } preset
+            && preset != "?" && preset != Caps.DefaultEqPreset)
+            return AudioEnhancement.Eq;
         return AudioEnhancement.None;
     }
 
@@ -539,22 +539,14 @@ public partial class PodManager : IPodManager
         _transport.Send(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll);
     }
 
-    /// <summary>发送自定义 EQ 频段增益（cmd 0x0418）。gains 为各频段 dB 值，顺序对应 CustomEqFrequencies。</summary>
-    public void SendCustomEq(int[] gains)
+    private int[] ResolveCustomEqFreqs()
     {
-        if (!Supports(OppoProtocol.CmdSetEqDetail))
-        {
-            Log.D("RFCOMM", $"SendCustomEq: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
-            return;
-        }
         var freqs = Caps.CustomEqFrequencies;
-        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
-        var payload = OppoProtocol.EqDetailPayload(gains, freqs);
-        Log.D("RFCOMM", $"SendCustomEq gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
-        SendSet(OppoProtocol.CmdSetEqDetail, payload, "自定义 EQ");
+        return freqs.Length == 0 ? [62, 250, 1000, 4000, 8000, 16000] : freqs;
     }
 
-    /// <summary>保存带名称的自定义 EQ 到设备（cmd 0x0418, actionType=1 + name）。保存后查询设备端列表以获取分配的新 eqId。</summary>
+    /// <summary>新建自定义 EQ 预设（cmd 0x0418, actionType=1）。仅创建，不用于更新已有预设。
+    /// 对应 Melody 的 B8.c.i(addr, eqInfo, 1)。发送后查询列表以取得设备分配的新 eqId。</summary>
     public void SendCustomEq(int[] gains, string name)
     {
         if (!Supports(OppoProtocol.CmdSetEqDetail))
@@ -562,15 +554,38 @@ public partial class PodManager : IPodManager
             Log.D("RFCOMM", $"SendCustomEq(name): 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
             return;
         }
-        var freqs = Caps.CustomEqFrequencies;
-        if (freqs.Length == 0) freqs = [62, 250, 1000, 4000, 8000, 16000];
+        var freqs = ResolveCustomEqFreqs();
         var payload = OppoProtocol.EqDetailPayload(gains, freqs, name);
-        Log.D("RFCOMM", $"SendCustomEq name={name} gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
-        SendSet(OppoProtocol.CmdSetEqDetail, payload, $"保存 EQ {name}");
+        Log.D("RFCOMM", $"SendCustomEq(新建) name={name} gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
+        SendSet(OppoProtocol.CmdSetEqDetail, payload, $"新建 EQ {name}");
         SendQueryEqAll();
     }
 
-    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。内部等待 0x8418 响应后从本地 State 中移除条目，无需重新查询。</summary>
+    /// <summary>更新/应用已有 EQ 预设（cmd 0x0418, actionType=2）。带原 eqId + 完整 EqInfo，避免设备当新建。
+    /// 对应 Melody 的 B8.c.i(addr, eqInfo, 2)：编辑滑块预览与切换选中都走此 action。</summary>
+    public void UpdateCustomEq(byte eqId, int[] gains, string name, int minValue = -6, int maxValue = 6)
+    {
+        if (!Supports(OppoProtocol.CmdSetEqDetail))
+        {
+            Log.D("RFCOMM", $"UpdateCustomEq: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
+            return;
+        }
+        var freqs = ResolveCustomEqFreqs();
+        var entry = new EqInfoEntry
+        {
+            EqId = eqId,
+            Name = name,
+            Frequencies = freqs,
+            Gains = gains,
+            MinValue = minValue,
+            MaxValue = maxValue,
+        };
+        var payload = OppoProtocol.EqUpdatePayload(entry);
+        Log.D("RFCOMM", $"UpdateCustomEq(更新) eqId={eqId} name={name} gains=[{string.Join(",", gains)}] freqs=[{string.Join(",", freqs)}] payload=[{string.Join(",", payload)}]");
+        SendSet(OppoProtocol.CmdSetEqDetail, payload, $"更新 EQ {name}");
+    }
+
+    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。发送删除命令后立即查询全量列表以刷新。</summary>
     public void DeleteEq(int eqId)
     {
         if (!Supports(OppoProtocol.CmdSetEqDetail))
@@ -578,10 +593,18 @@ public partial class PodManager : IPodManager
             Log.D("RFCOMM", $"DeleteEq: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
             return;
         }
-        var payload = OppoProtocol.EqDeletePayload(eqId);
-        Log.D("RFCOMM", $"DeleteEq eqId={eqId} payload=[{string.Join(",", payload)}]");
-        _pendingDeleteEqId = eqId;
+        var entry = State.DeviceEqEntries.FirstOrDefault(e => e.EqId == eqId);
+        var payload = entry != null
+            ? OppoProtocol.EqDeletePayload(entry)
+            : OppoProtocol.EqDeletePayload(eqId);
+        Log.D("RFCOMM", $"DeleteEq eqId={eqId} fullEntry={entry != null} payload=[{string.Join(",", payload)}]");
+        _pendingDeleteEqIds[(byte)eqId] = DateTime.Now.AddSeconds(1);
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "删除 EQ");
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(1000);
+            SendQueryEqAll();
+        });
     }
 
     public async Task PollAsync(CancellationToken ct)

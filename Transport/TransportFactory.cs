@@ -53,10 +53,17 @@ public static class TransportFactory
 		if (OperatingSystem.IsLinux())
 		{
 			// Linux: RFCOMM (AF_BLUETOOTH socket) 优先，BLE GATT (BlueZ D-Bus) 回退
-			Log.D("FACTORY", "Create: Linux 平台 -> RFCOMM 优先, GATT 回退");
+			Log.D("FACTORY", $"Create: Linux 平台 -> RFCOMM 优先, GATT 回退 (目标={(targetAddr == 0 ? "任意" : targetAddr.ToString("X12"))})");
+			if (targetAddr == 0)
+			{
+				return new FallbackTransport(
+					() => new LinuxRfcommStreamTransport(),
+					() => new LinuxGattTransport());
+			}
+			// 定向：两条链路都注入固定地址定位器，锁定同一台设备（多耳机切换）
 			return new FallbackTransport(
-				() => new LinuxRfcommStreamTransport(),
-				() => new LinuxGattTransport());
+				() => new LinuxRfcommStreamTransport(new FixedDeviceLocator(targetAddr, name)),
+				() => new LinuxGattTransport(new FixedDeviceLocator(targetAddr, name)));
 		}
 
 		Log.D("FACTORY", "Create: 当前平台无传输实现,抛出 PlatformNotSupportedException");

@@ -75,6 +75,19 @@ public class DeviceCapabilities
     public bool GameSoundMutexEq => GameSoundMutexes.Contains(1) || GameSoundMutexes.Contains(3);
     public bool GameSoundMutexSpatial => GameSoundMutexes.Contains(2);
 
+    /// <summary>默认 EQ 预设名（关闭/无效果），用于互斥时回退。取 EqPresets 中最小 protocolIndex 对应的名称；无预设时返回 "默认"。</summary>
+    public string DefaultEqPreset
+    {
+        get
+        {
+            byte min = byte.MaxValue;
+            string name = "默认";
+            foreach (var kv in EqPresets)
+                if (kv.Value < min) { min = kv.Value; name = kv.Key; }
+            return name;
+        }
+    }
+
     // ========== EQ 预设 ==========
     public Dictionary<string, byte> EqPresets { get; set; } = new();
     public Dictionary<byte, string> EqNames { get; set; } = new();
