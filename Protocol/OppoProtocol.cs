@@ -150,6 +150,7 @@ public static partial class OppoProtocol
     public const byte EvtGaming        = 0x0F;  // 多连接游戏/手持/点击等级公共事件
     public const byte EvtOneshot       = 0x10;  // Oneshot 状态
     public const byte EvtToneChange    = 0x11;  // 耳音调变更
+    public const byte EvtUserInteraction = 0xF1;  // 用户交互事件（UserInteractionEventInfo）
 
     /// <summary>0x0204 子类型 → 可读名称（用于日志）。</summary>
     public static string ActiveReportName(int subType) => subType switch
@@ -169,6 +170,7 @@ public static partial class OppoProtocol
         EvtGaming        => "游戏/手持公共事件",
         EvtOneshot       => "Oneshot",
         EvtToneChange    => "耳音调",
+        EvtUserInteraction => "用户交互",
         _                => "未知(0x" + subType.ToString("X2") + ")"
     };
 
@@ -318,6 +320,25 @@ public static partial class OppoProtocol
         // 归一化: OPPO 私有编号 → A2DP 标准（SPP 和 GATT 都使用 OPPO 编号，1↔2 互换）
         raw = raw switch { 1 => 2, 2 => 1, _ => raw };
         return raw;
+    }
+
+    /// <summary>
+    /// 解析用户交互事件（0x0204 中 kind=0xF1 的数据体）。
+    /// payload = [DeviceType(1B), Button(1B), ButtonAction(1B), Function(1B), Scene(1B), Options(variable int16[])]
+    /// 返回可读描述，如 "耳机 触控区: 双击"；解析失败返回 null。
+    /// </summary>
+    public static string? ParseUserInteraction(byte[] payload, int start, int len)
+    {
+        try
+        {
+            if (payload == null || len < 5) return null;
+            var evt = new Models.UserInteractionEventInfo(payload, start, len);
+            return evt.Description;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>

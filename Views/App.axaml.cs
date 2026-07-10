@@ -20,14 +20,11 @@ public partial class App : Application
             var args = Environment.GetCommandLineArgs();
 
             var mainWindow = new MainWindow();
-            if (args.Contains("--minimized"))
-            {
-                mainWindow.WindowState = WindowState.Minimized;
-                mainWindow.Show();
-                mainWindow.Hide();
-            }
-
+            // 静默启动：设为 MainWindow 但不 Show()，避免任务栏闪现。
+            // MainWindow 构造函数会检测 --minimized 并保持隐藏 + ShowInTaskbar=false。
             desktop.MainWindow = mainWindow;
+            if (!args.Contains("--minimized"))
+                mainWindow.Show();
         }
 
         base.OnFrameworkInitializationCompleted();

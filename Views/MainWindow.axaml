@@ -214,11 +214,14 @@
 
          <CheckBox x:Name="CbAutoUpdate" Content="自动检查更新" Margin="0,0,0,2"/>
          <Button x:Name="BtnCheckUpdate" Content="检查更新" Height="32" FontSize="11"
+             Padding="12,0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"
              Click="BtnCheckUpdate_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
 
          <Button x:Name="BtnFeedback" Content="提交反馈" Height="32" FontSize="11"
+             Padding="12,0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"
              Click="BtnFeedback_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
          <Button x:Name="BtnViewLog" Content="查看日志" Height="32" FontSize="11"
+             Padding="12,0" VerticalContentAlignment="Center" HorizontalContentAlignment="Center"
              Click="BtnViewLog_Click" HorizontalAlignment="Stretch" Margin="0,0,0,10"/>
 
          <CheckBox x:Name="CbTray" Content="关闭到托盘"/>
@@ -261,7 +264,9 @@
           Click="BtnLogBack_Click" Padding="12,0" Background="Transparent"/>
       <TextBlock Text="日志" FontSize="15" FontWeight="Medium"
          VerticalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-      <Button x:Name="BtnLogExport" Content="导出原文" Height="28" FontSize="11"
+      <Button x:Name="BtnLogToggle" Content="简化版" Height="28" FontSize="11"
+          Click="BtnLogToggle_Click" Padding="12,0"/>
+      <Button x:Name="BtnLogExport" Content="导出 ZIP" Height="28" FontSize="11"
           Click="BtnLogExport_Click" Padding="12,0"/>
      </StackPanel>
      <!-- 日志列表卡片（固定大小，内容滚动） -->
