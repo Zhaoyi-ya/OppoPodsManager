@@ -67,13 +67,13 @@ public partial class MainWindow : SukiWindow
     private TrayIcon? _trayIcon;
     private SmallWindow? _smallWindow;
     private DateTime _smallWindowShownAt = DateTime.MinValue;
-    private readonly object _logLock = new();
-    private readonly List<string> _logLines = new(512);
-    private int _logHead;
+    private readonly Util.LogManager _logManager = new();
     private DispatcherTimer? _trayClickTimer;
     private DispatcherTimer? _logRefreshTimer;
     private bool _logAutoScroll = true;
     private ScrollViewer? _logScrollViewer;
+    /// <summary>日志显示模式：true=简化版（翻译+合并），false=完整版（原始行）。</summary>
+    private bool _logSimplified = true;
     private DispatcherTimer? _eqDebounceTimer;
     private bool _realClose;
     /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
@@ -146,7 +146,8 @@ public partial class MainWindow : SukiWindow
         NavHome.Classes.Add("selected");
 
         // 挂载调试日志监听器，捕获 Log.D/Ex 输出到 UI 日志面板
-        Trace.Listeners.Add(new LogTraceListener(this));
+        _logManager.CleanOldLogs(7); // 启动时清理 7 天前的旧日志
+        Trace.Listeners.Add(new LogTraceListener(_logManager));
             Log.D("UI", "InitializeComponent OK");
 
         // Wire events programmatically (Avalonia 12 compatibility)
@@ -268,7 +269,7 @@ public partial class MainWindow : SukiWindow
 
         WirePods(_pods);
         Closing += OnWindowClosing;
-        Closed += (_, _) => { _sessionCts?.Cancel(); _pods.Dispose(); };
+        Closed += (_, _) => { _sessionCts?.Cancel(); _pods.Dispose(); _logManager.Dispose(); };
         _ = InitAndStartAsync();      // 异步发现已连接耳机 → 定向 → 启动连接循环
         _ = CheckForUpdateAsync();    // 后台检查更新
         }
@@ -1494,22 +1495,22 @@ public partial class MainWindow : SukiWindow
 """;
 
             var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-            var fileName = $"OPPO Pods Manager_反馈_{date}.log";
+            // Linux 可能返回空，退回到用户主目录
+            if (string.IsNullOrEmpty(desktop))
+                desktop = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrEmpty(desktop))
+                desktop = Environment.CurrentDirectory;
+
+            var fileName = $"OPPOPods_feedback_{date}.zip";
             var filePath = System.IO.Path.Combine(desktop, fileName);
 
-            using var sw = new System.IO.StreamWriter(filePath, false);
-            sw.Write(header);
-            sw.WriteLine("--- 运行日志 ---");
-            lock (_logLock)
-            {
-                foreach (var line in _logLines)
-                    sw.WriteLine(line);
-            }
+            // 打包所有历史日志 + 系统信息为 ZIP
+            _logManager.ExportLogsAsZip(filePath, header);
 
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
             _ = Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog($"日志已导出到桌面：{fileName}\n\n浏览器已打开反馈页面，请填写描述并上传日志文件", "提交反馈"));
+                await ShowCheckResultDialog($"日志已打包导出到：{filePath}\n\n浏览器已打开反馈页面，请填写描述并上传该 ZIP 文件", "提交反馈"));
         }
         catch (Exception ex)
         {
@@ -1702,17 +1703,10 @@ public partial class MainWindow : SukiWindow
 
     // ---- 预设列表 ----
 
-    /// <summary>向内存日志缓冲追加一行。</summary>
+    /// <summary>向 LogManager 追加一行日志。</summary>
     public void AppendLog(string tag, string msg)
     {
-        lock (_logLock)
-        {
-            var line = $"{DateTime.Now:HH:mm:ss.fff} [{tag}] {msg}";
-            if (_logLines.Count < 500)
-                _logLines.Add(line);
-            else
-                _logLines[_logHead++ % 500] = line;
-        }
+        _logManager.AppendLog(tag, msg);
     }
 
     /// <summary>可合并的轮询发送行（只合并发送，不合并收到）。</summary>
@@ -1723,55 +1717,64 @@ public partial class MainWindow : SukiWindow
         "查询固件", "查询空间音效", "注册通知", "查询多设备列表",
     };
 
-    /// <summary>刷新日志列表视图（翻译 + 合并连续轮询行，避免刷屏）。</summary>
+    /// <summary>刷新日志列表视图（支持简化版/完整版切换）。</summary>
     private void RefreshLogView()
     {
-        var entries = new List<string>();
-        lock (_logLock)
-        {
-            foreach (var line in _logLines)
-            {
-                var t = TranslateLog(line);
-                if (t.Length == 0) continue;
-                entries.Add(t);
-            }
-        }
-
-        // 合并连续轮询行
-        var merged = new List<string>();
-        var pollBuf = new List<string>();
-        string? pollTs = null;
-        void FlushPoll()
-        {
-            if (pollBuf.Count > 0)
-            {
-                var summary = pollBuf.Count <= 2
-                    ? string.Join("，", pollBuf)
-                    : $"后台轮询发送（{string.Join("、", pollBuf.Distinct())}，共{pollBuf.Count}次）";
-                merged.Add($"{pollTs}  {summary}");
-                pollBuf.Clear();
-                pollTs = null;
-            }
-        }
-        foreach (var entry in entries)
-        {
-            var ts = entry.Length >= 12 ? entry[..12].TrimEnd() : "";
-            var msg = entry.Length > 13 ? entry[14..] : entry;
-            if (_mergePatterns.Contains(msg))
-            {
-                pollBuf.Add(msg);
-                pollTs ??= ts;
-            }
-            else
-            {
-                FlushPoll();
-                merged.Add(entry);
-            }
-        }
-        FlushPoll();
+        var lines = _logManager.GetRecentLines();
+        if (lines.Count == 0) return;
 
         LbLog.Items.Clear();
-        foreach (var m in merged) LbLog.Items.Add(m);
+
+        if (_logSimplified)
+        {
+            // 简化版：翻译 + 合并轮询
+            var entries = new List<string>();
+            foreach (var line in lines)
+            {
+                var t = TranslateLog(line);
+                if (t.Length > 0) entries.Add(t);
+            }
+
+            var merged = new List<string>();
+            var pollBuf = new List<string>();
+            string? pollTs = null;
+            void FlushPoll()
+            {
+                if (pollBuf.Count > 0)
+                {
+                    var summary = pollBuf.Count <= 2
+                        ? string.Join("，", pollBuf)
+                        : $"后台轮询发送（{string.Join("、", pollBuf.Distinct())}，共{pollBuf.Count}次）";
+                    merged.Add($"{pollTs}  {summary}");
+                    pollBuf.Clear();
+                    pollTs = null;
+                }
+            }
+            foreach (var entry in entries)
+            {
+                var ts = entry.Length >= 12 ? entry[..12].TrimEnd() : "";
+                var msg = entry.Length > 13 ? entry[14..] : entry;
+                if (_mergePatterns.Contains(msg))
+                {
+                    pollBuf.Add(msg);
+                    pollTs ??= ts;
+                }
+                else
+                {
+                    FlushPoll();
+                    merged.Add(entry);
+                }
+            }
+            FlushPoll();
+
+            foreach (var m in merged) LbLog.Items.Add(m);
+        }
+        else
+        {
+            // 完整版：原始行
+            foreach (var line in lines)
+                LbLog.Items.Add(line);
+        }
 
         // 自动跟随最新日志
         if (_logAutoScroll && _logScrollViewer != null)
@@ -2933,19 +2936,30 @@ public partial class MainWindow : SukiWindow
 
         var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
         {
-            Title = "导出原始日志",
-            DefaultExtension = "txt",
+            Title = "导出日志 ZIP",
+            DefaultExtension = "zip",
             ShowOverwritePrompt = true,
-            SuggestedFileName = $"OPPOPods_log_{DateTime.Now:yyyyMMdd_HHmmss}.txt"
+            SuggestedFileName = $"OPPOPods_logs_{DateTime.Now:yyyyMMdd_HHmmss}.zip"
         });
         if (file == null) return;
 
-        lock (_logLock)
+        try
         {
-            using var stream = new System.IO.StreamWriter(file.Path.LocalPath, false);
-            foreach (var line in _logLines)
-                stream.WriteLine(line);
+            _logManager.ExportLogsAsZip(file.Path.LocalPath);
+            await ShowCheckResultDialog($"日志已导出：{file.Path.LocalPath}", "导出成功");
         }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "BtnLogExport_Click", ex);
+            await ShowCheckResultDialog($"导出失败：{ex.Message}", "错误");
+        }
+    }
+
+    private void BtnLogToggle_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _logSimplified = !_logSimplified;
+        BtnLogToggle.Content = _logSimplified ? "简化版" : "完整版";
+        RefreshLogView();
     }
 
     /// <summary>将技术日志翻译为白话中文，用于 UI 面板显示。</summary>
@@ -3245,15 +3259,15 @@ public partial class MainWindow : SukiWindow
     }
 }
 
-/// <summary>捕获 Trace.WriteLine 输出（含 Log.D/Ex/Result），转发到 MainWindow 的 UI 日志面板。</summary>
+/// <summary>捕获 Trace.WriteLine 输出（含 Log.D/Ex/Result），转发到 LogManager。</summary>
 internal sealed class LogTraceListener : TraceListener
 {
-    private readonly WeakReference<MainWindow> _window;
-    public LogTraceListener(MainWindow w) => _window = new(w);
+    private readonly Util.LogManager _logManager;
+    public LogTraceListener(Util.LogManager mgr) => _logManager = mgr;
     public override void Write(string? message) { }
     public override void WriteLine(string? message)
     {
-        if (message != null && _window.TryGetTarget(out var w))
-            w.AppendLog("TRACE", message);
+        if (message != null)
+            _logManager.AppendLog("TRACE", message);
     }
 }
