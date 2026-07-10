@@ -183,12 +183,14 @@ public partial class MainWindow : SukiWindow
         ApplyTheme(themeIndex);
         CbTheme.SelectedIndex = themeIndex;
 
-        // 开机自启时最小化启动
+        // 开机自启静默启动：不显示窗口、不在任务栏出现（仅托盘图标）。
+        // App.OnFrameworkInitializationCompleted 在 --minimized 时不会调用 Show()，
+        // 这里再关掉任务栏显示，确保开机时任务栏不闪现任务。
         var args = Environment.GetCommandLineArgs();
         if (args.Contains("--minimized"))
         {
+            ShowInTaskbar = false;
             WindowState = WindowState.Minimized;
-            Hide();
         }
 
         // 固定在屏幕右下角（已取消，使用默认居中）
@@ -2542,6 +2544,8 @@ public partial class MainWindow : SukiWindow
 
     private void ShowFromTray()
     {
+        // 静默启动时曾关闭任务栏显示，用户主动打开时恢复
+        ShowInTaskbar = true;
         Show();
         WindowState = WindowState.Normal;
         Activate();

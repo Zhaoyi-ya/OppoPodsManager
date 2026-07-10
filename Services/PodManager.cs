@@ -405,6 +405,13 @@ public partial class PodManager : IPodManager
             payload = OppoProtocol.AncPayloadByName(m);
         }
         SendSet(OppoProtocol.CmdAnc, payload, $"降噪设置 {mode}");
+
+        // 乐观更新：部分型号（如 Enco Air4 Pro）设置降噪后不回标准 ACK（0x8404 返回非 0），
+        // 但模式实际已切换。这里立即把 UI 状态更新为用户所选模式，避免"切了但界面不同步"。
+        // 若与设备真实状态不符，随后的主动上报/查询回读会校正。
+        State.AncMode = mode;
+        if (mode != "Smart") State.IntelligentRealtime = "";
+        StateChanged?.Invoke();
     }
 
     public void SendBattery()

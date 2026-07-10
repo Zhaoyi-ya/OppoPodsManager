@@ -146,6 +146,13 @@ public partial class PodManager
             case OppoProtocol.EvtOneshot:
             case OppoProtocol.EvtToneChange:
                 break;
+            case OppoProtocol.EvtUserInteraction:
+                if (bodyLen >= 5)
+                {
+                    var desc = OppoProtocol.ParseUserInteraction(pkt, bodyStart, bodyLen);
+                    Log.D("RFCOMM", $"ParseActiveReport: 用户交互 -> {desc ?? "(解析失败)"} raw={BitConverter.ToString(pkt, bodyStart, Math.Min(bodyLen, 12))}");
+                }
+                break;
             default:
                 Log.D("RFCOMM", $"ParseActiveReport: 未识别子类型 0x{subType:X2}");
                 break;
@@ -185,6 +192,8 @@ public partial class PodManager
         int kind = pkt[start];
         int infoStart = start + 1;
         int infoLen = len - 1;
+        // 原始字节日志：便于诊断某些型号（如 Enco Air4 Pro）通透模式上报格式
+        Log.D("RFCOMM", $"ParseNoiseChange: kind={kind} raw={BitConverter.ToString(pkt, start, Math.Min(len, 12))}");
 
         if (kind == 1)
         {
@@ -206,9 +215,28 @@ public partial class PodManager
                 Log.D("RFCOMM", $"ParseNoiseChange: 智能实时 -> {name}");
             }
         }
+        else if (kind == 0xF1)
+        {
+            // 用户交互事件（触控/按键操作），非降噪模式变更
+            var desc = OppoProtocol.ParseUserInteraction(pkt, infoStart, infoLen);
+            Log.D("RFCOMM", $"ParseNoiseChange: 用户交互 -> {desc ?? "(解析失败)"}");
+        }
         else
         {
-            _transport.Send(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc);
+            // 兜底：先尝试直接从位图解析（部分型号如 Enco Air4 Pro 切通透时 kind 非 1/4，
+            // 例如 kind=2/6/22 等），能解出就直接更新，避免仅靠查询回读导致不同步。
+            var name = ParseNoiseBitmap(pkt, infoStart, infoLen);
+            if (name != null)
+            {
+                State.AncMode = name;
+                if (name != "Smart") State.IntelligentRealtime = "";
+                Log.D("RFCOMM", $"ParseNoiseChange: 位图兜底 kind={kind} -> {name}");
+            }
+            else
+            {
+                // 仍解不出 → 回读查询
+                _transport.Send(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc);
+            }
         }
         StateChanged?.Invoke();
     }
