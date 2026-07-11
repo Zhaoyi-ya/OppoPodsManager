@@ -1,4 +1,4 @@
-name: Require logs for bug reports
+name: Require log file
 
 on:
   issues:
@@ -8,21 +8,19 @@ permissions:
   issues: write
 
 jobs:
-  require-logs:
-    name: Check required log attachment
+  require-log-file:
+    name: Check log file
     runs-on: ubuntu-latest
-    if: contains(github.event.issue.labels.*.name, 'bug')
     steps:
-      - name: Check issue log attachment
+      - name: Check log file
         uses: actions/github-script@v7
         with:
           script: |
             const issue = context.payload.issue;
             const body = issue.body || '';
 
-            const logSectionMatch = body.match(/### 日志文件（必须上传）([\s\S]*?)(?:\n### |$)/);
+            const logSectionMatch = body.match(/### 日志文件([\s\S]*?)(?:\n### |$)/);
             const logSection = logSectionMatch ? logSectionMatch[1].trim() : '';
-
             const hasAttachment = /https:\/\/(?:github\.com\/user-attachments\/files\/|user-images\.githubusercontent\.com\/|private-user-images\.githubusercontent\.com\/)/i.test(logSection);
 
             if (hasAttachment) {
@@ -48,15 +46,6 @@ jobs:
               return;
             }
 
-            const marker = '<!-- require-logs-bot -->';
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              per_page: 100
-            });
-            const alreadyCommented = comments.some(comment => comment.body && comment.body.includes(marker));
-
             try {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
@@ -68,12 +57,21 @@ jobs:
               core.warning(`Failed to add missing logs label: ${error.message}`);
             }
 
+            const marker = '<!-- require-log-file -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              per_page: 100
+            });
+            const alreadyCommented = comments.some(comment => comment.body && comment.body.includes(marker));
+
             if (!alreadyCommented) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `${marker}\n这个 Issue 没有检测到日志附件，因此已自动关闭。\n\n请在“日志文件（必须上传）”区域上传软件导出的日志压缩包，然后重新打开 Issue。\n\n获取方式：软件内进入“设置” → “查看日志” → 导出日志，然后把导出的日志压缩包拖拽到日志输入框中。`
+                body: `${marker}\n未检测到日志文件附件，请上传日志文件后重新打开 Issue。`
               });
             }
 
