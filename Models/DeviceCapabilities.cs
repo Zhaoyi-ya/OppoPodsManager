@@ -38,6 +38,8 @@ public class DeviceCapabilities
     public bool HasAdaptiveAnc { get; set; }
     public bool IsLegacyAnc { get; set; }
     public bool HasGameMode { get; set; }
+    /// <summary>运行时确定的游戏模式 feature：0=未确认、0x06=旧版低延迟、0x28=新版主开关。</summary>
+    public byte GameModeFeatureId { get; set; }
     public bool HasGameSound { get; set; }
     public byte GameSoundType { get; set; }
 
@@ -81,6 +83,27 @@ public class DeviceCapabilities
         bool supportsV2 = supportedCommands.Contains(OppoProtocol.CmdQueryHeadsetSpatial);
         HasSpatialAudio = whitelisted && supportsV2;
         HasSpatialSound = whitelisted && !supportsV2;
+    }
+
+    /// <summary>
+    /// 根据 0x810D 实际返回的 feature 选择游戏模式协议。
+    /// 白名单已明确支持游戏音效时优先新版；否则优先旧版 0x06，避免旧设备误用 0x28。
+    /// </summary>
+    public void ResolveGameModeProtocol(IReadOnlyDictionary<byte, byte> returnedFeatures)
+    {
+        bool hasLegacy = returnedFeatures.ContainsKey(OppoProtocol.FeatureGameLL);
+        bool hasMain = returnedFeatures.ContainsKey(OppoProtocol.FeatureGameMain);
+
+        if (HasGameSound && hasMain)
+            GameModeFeatureId = OppoProtocol.FeatureGameMain;
+        else if (hasLegacy)
+            GameModeFeatureId = OppoProtocol.FeatureGameLL;
+        else if (hasMain)
+            GameModeFeatureId = OppoProtocol.FeatureGameMain;
+        else if (HasGameMode)
+            GameModeFeatureId = OppoProtocol.GameModeFeature(HasGameSound);
+
+        HasGameMode = GameModeFeatureId != 0;
     }
 
     public HashSet<int> GameSoundMutexes { get; set; } = new();

@@ -380,7 +380,9 @@ public partial class PodManager : IPodManager
     public void SendGameMode(bool on)
     {
         if (!Caps.HasGameMode) return;
-        byte feature = OppoProtocol.GameModeFeature(Caps.HasGameSound);
+        byte feature = Caps.GameModeFeatureId != 0
+            ? Caps.GameModeFeatureId
+            : OppoProtocol.GameModeFeature(Caps.HasGameSound);
         Log.D("RFCOMM", $"SendGameMode on={on} feature=0x{feature:X2}");
         SendFeatureSwitch(feature, on, "游戏模式");
     }
