@@ -858,22 +858,6 @@
        </Grid>
       </StackPanel>
      </Border>
-     <!-- 音效增强互斥组 -->
-     <Border Padding="18,16"
-       CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
-      <StackPanel Spacing="10">
-       <TextBlock Text="音效增强" FontSize="13" FontWeight="Medium"
-          Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
-       <TextBlock x:Name="DiEnhanceHint" Text="" FontSize="10"
-          Opacity="0.45" Foreground="{DynamicResource SukiText}"/>
-       <StackPanel x:Name="DiEnhanceGroup" Spacing="6">
-        <RadioButton x:Name="DiEnhanceNone" Content="关闭" GroupName="Enhancement"/>
-        <RadioButton x:Name="DiEnhanceSpatial" Content="空间音效" GroupName="Enhancement"/>
-        <RadioButton x:Name="DiEnhanceGame" Content="游戏音效" GroupName="Enhancement"/>
-        <RadioButton x:Name="DiEnhanceEq" Content="大师调音 (EQ)" GroupName="Enhancement"/>
-       </StackPanel>
-      </StackPanel>
-     </Border>
     </StackPanel>
    </ScrollViewer>
   </Grid>

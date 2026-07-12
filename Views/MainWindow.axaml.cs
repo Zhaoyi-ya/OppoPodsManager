@@ -219,11 +219,6 @@ public partial class MainWindow : SukiWindow
         LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
         LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
 
-        // 设备详情 — 音效增强互斥
-        DiEnhanceNone.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceSpatial.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceGame.IsCheckedChanged += DiEnhance_Changed;
-        DiEnhanceEq.IsCheckedChanged += DiEnhance_Changed;
 
         // 初始加载自定义 EQ 预设列表
         RefreshEqPresetList();
@@ -2483,7 +2478,7 @@ public partial class MainWindow : SukiWindow
 
     // ---- 设备详情 ----
 
-    /// <summary>刷新设备详情页（固件、编解码器、音效增强）。</summary>
+    /// <summary>刷新设备详情页（固件、编解码器）。</summary>
     private void RefreshDeviceInfo()
     {
         var caps = _modelOverride != null
@@ -2493,29 +2488,6 @@ public partial class MainWindow : SukiWindow
         DiDeviceName.Text = caps.ModelName;
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
         DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
-
-        // 音效增强互斥组
-        bool showSpatial = caps.HasSpatialSound;
-        bool showGame = caps.HasGameSound;
-        bool showEq = caps.EqPresets.Count > 0;
-        bool hasMutex = caps.GameSoundMutexes.Count > 0;
-
-        DiEnhanceNone.IsVisible = hasMutex;
-        DiEnhanceSpatial.IsVisible = showSpatial && hasMutex;
-        DiEnhanceGame.IsVisible = showGame && hasMutex;
-        DiEnhanceEq.IsVisible = showEq && hasMutex;
-        DiEnhanceHint.Text = hasMutex
-            ? "以下音效互斥，同一时间只能启用一个"
-            : "当前设备不支持音效互斥";
-
-        // 刷新选中态
-        _diEnhanceSuppress = true;
-        var current = _pods.CurrentEnhancement();
-        DiEnhanceNone.IsChecked = current == AudioEnhancement.None;
-        DiEnhanceSpatial.IsChecked = current == AudioEnhancement.SpatialSound;
-        DiEnhanceGame.IsChecked = current == AudioEnhancement.GameSound;
-        DiEnhanceEq.IsChecked = current == AudioEnhancement.Eq;
-        _diEnhanceSuppress = false;
 
         // 耳机操控卡片（开发阶段强制显示）
         // DiTouchCard.IsVisible = caps.HasKeyFunction;
@@ -2537,23 +2509,6 @@ public partial class MainWindow : SukiWindow
         // 按设备类型排序输出
         var ordered = versions.OrderBy(kv => kv.Key).Select(kv => kv.Value);
         return string.Join(".", ordered);
-    }
-
-    private bool _diEnhanceSuppress;
-    private void DiEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_diEnhanceSuppress || !_pods.IsConnected) return;
-        if (s is not RadioButton rb || rb.IsChecked != true) return;
-
-        AudioEnhancement mode;
-        if (rb == DiEnhanceNone) mode = AudioEnhancement.None;
-        else if (rb == DiEnhanceSpatial) mode = AudioEnhancement.SpatialSound;
-        else if (rb == DiEnhanceGame) mode = AudioEnhancement.GameSound;
-        else if (rb == DiEnhanceEq) mode = AudioEnhancement.Eq;
-        else return;
-
-        Log.D("UI", $"音效增强切换 -> {mode}");
-        _pods.SetAudioEnhancement(mode);
     }
 
     // ---- 浮层对话框（Avalonia 原生遮罩，不创建新窗口）----

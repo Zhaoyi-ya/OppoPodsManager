@@ -76,15 +76,6 @@ public interface IPodManager : IDisposable
     /// <summary>游戏音效开关（cmd 0x0423）。关闭发 type=0、开启发 Caps.GameSoundType。</summary>
     void SendGameSound(bool on);
 
-    // ----- 音效增强互斥组（游戏音效 ↔ 调音 ↔ 空间音效）-----
-    // 型号 gameSoundMutexes 决定哪些项互斥。若互斥，可将它们做成单选控件。
-
-    /// <summary>读当前生效的音效增强项（从设备状态推导），用于单选控件回显。</summary>
-    AudioEnhancement CurrentEnhancement();
-
-    /// <summary>设置音效增强（互斥单选）。选一项会自动关互斥的其它项；mode=Eq 时须传 eqName。</summary>
-    void SetAudioEnhancement(AudioEnhancement mode, string? eqName = null);
-
     // ==================== 功能开关 ====================
 
     /// <summary>游戏模式（低延迟）。按设备是否支持游戏音效自动选择新版或旧版 feature。</summary>
@@ -129,9 +120,4 @@ public interface IPodManager : IDisposable
 
     /// <summary>[兼容旧接口] connect=true=连接、false=断开。新代码建议使用语义化方法。</summary>
     void SendOperateHandheld(string targetAddress, bool connect = true);
-
-    // ==================== UI 辅助 ====================
-
-    /// <summary>UI 注入"用户刚操作"时间戳钩子，用于抑制轮询回读在短时间内覆盖用户刚做的选择。</summary>
-    void SetFeatureUserSetHook(Action hook);
 }
