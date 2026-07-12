@@ -29,9 +29,19 @@ public partial class PodManager
         {
             Log.D("RFCOMM", $"ParseProductId: 精确识别为 {byId.ModelName}");
             Caps = byId;
-            RebuildCapabilitySet();
+            UpdateSpatialCapabilities();
             StateChanged?.Invoke();
         }
+    }
+
+    private void ParseCapabilities(byte[] pkt, int start, int len)
+    {
+        var payload = Slice(pkt, start, len);
+        State.SupportedCommands = OppoProtocol.ParseCapabilityCommands(payload);
+        UpdateSpatialCapabilities();
+        Log.D("RFCOMM", $"能力位图: {State.SupportedCommands.Count} 条命令, " +
+            $"空间协议={(Caps.HasSpatialAudio ? "V2/0x0422" : Caps.HasSpatialSound ? "旧版/feature27" : "无")}");
+        StateChanged?.Invoke();
     }
 
     private void ParseBattery(byte[] pkt, int start, int len)
@@ -388,7 +398,7 @@ public partial class PodManager
             int pos = start + 2;
             for (int i = 0; i < count && pos + 8 < start + len; i++)
             {
-                int entryStart = pos;  // 记录本条目的起始位置，保存原始字节供 setRelatedDeviceInfo 重建
+                int entryStart = pos;
 
                 // 设备按小端(倒序)传 MAC：wire 首字节是 MAC 末字节。
                 var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + 5 - j].ToString("X2")));
@@ -410,8 +420,7 @@ public partial class PodManager
                     : "Device " + addr.Substring(Math.Max(0, addr.Length - 5));
                 pos += Math.Max(nameLen, 0);
 
-                // 保存该设备条目的原始字节（MAC LE 6B + elemByte6 + connState + flag + nameLen + name），
-                // 供 setRelatedDeviceInfo(0x0408) 重建 payload——取消配对时原样下发不含目标的列表。
+                // 保存该设备条目的原始字节，供诊断未知字段和后续协议扩展。
                 int entryLen = pos - entryStart;
                 var rawEntry = new byte[entryLen];
                 Array.Copy(pkt, entryStart, rawEntry, 0, entryLen);

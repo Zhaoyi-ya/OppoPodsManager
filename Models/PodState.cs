@@ -24,6 +24,8 @@ public class PodState
     public string WearingR { get; set; } = "";
     /// <summary>是否已建立 SPP/BLE 连接。</summary>
     public bool Connected { get; set; }
+    /// <summary>设备通过 0x8100 能力位图声明的命令集合。</summary>
+    public HashSet<ushort> SupportedCommands { get; set; } = new();
     /// <summary>空间音效开关（0x0403 FeatureSpatialSound）。</summary>
     public bool SpatialSound { get; set; }
     /// <summary>空间音频三模式（Off/Fixed/Track）。</summary>

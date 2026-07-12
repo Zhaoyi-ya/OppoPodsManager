@@ -166,8 +166,14 @@
       </Border>
      </Grid>
 
-     <!-- 隐藏的空间音频面板（代码引用） -->
-     <Border x:Name="SpatialAudioPanel" IsVisible="False"/>
+     <Border x:Name="SpatialAudioPanel" IsVisible="False" Padding="16,14"
+       CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
+      <StackPanel Spacing="8">
+       <TextBlock Text="空间音频" FontSize="14" FontWeight="Medium"
+          HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+       <WrapPanel x:Name="SpatialAudioModes" HorizontalAlignment="Center"/>
+      </StackPanel>
+     </Border>
     </StackPanel>
    </ScrollViewer>
 

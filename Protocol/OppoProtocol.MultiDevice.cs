@@ -5,22 +5,27 @@ namespace OppoPodsManager;
 /// <summary>多设备管理与操作常量、载荷构造（cmd 0x0429 全系列）。</summary>
 public static partial class OppoProtocol
 {
-    /// <summary>多设备操作类型（cmd 0x0429 payload[0]）。</summary>
+    /// <summary>
+    /// 多设备操作类型（cmd 0x0429 payload[0]，对应 melody operateMultiConnectHandheldDevice 的 operationType）。
+    ///   1=连接手持设备、2=断开手持设备、3=取消配对、4=设置音频优先设备。
+    /// </summary>
     public const byte MultiOpConnect = 0x01;
     public const byte MultiOpDisconnect = 0x02;
     public const byte MultiOpUnpair = 0x03;
-    public const byte MultiOpManage = 0x04;
+    public const byte MultiOpSetPriority = 0x04;
 
     /// <summary>
-    /// 多设备操作载荷（cmd 0x0429）：
-    ///   operateType 1/2/3：[type(1)][addr(6)]
-    ///   operateType 4：[type(1)][enable(1)][addr(6)]
+    /// 多设备操作载荷（cmd 0x0429），对应 melody SetCommandManager.operateMultiConnectHandheldDevice：
+    ///   operateType 1/2/3：[type(1)][addr(6)]，MAC 按显示顺序正序写入。
+    ///   operateType 4（设置音频优先设备）：
+    ///     - clearAddress=true（恢复自动切换）：[04][00]
+    ///     - clearAddress=false（指定某设备为音频输出）：[04][01][addr(6)]
+    ///   （melody p0：z4=true 发 byte[2]；z4=false 发 byte[8] 且 bar[1]=(!z4?1:0)=1）
     /// </summary>
     public static byte[] MultiConnectOpPayload(byte operateType, string targetAddress, bool clearAddress = false)
     {
-        // 0x0429 操作 1-3（connect/disconnect/unpair）：MAC 按显示顺序写入，无需反转。
         var mac = ParseMac(targetAddress);
-        if (operateType == MultiOpManage)
+        if (operateType == MultiOpSetPriority)
         {
             if (clearAddress)
                 return new byte[] { operateType, 0x00 };
