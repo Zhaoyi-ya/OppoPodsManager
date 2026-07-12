@@ -184,12 +184,13 @@ public static class DeviceProfileLoader
 
         if (!entry.TryGetProperty("function", out var func)) return caps;
 
-        caps.HasSpatialSound = func.TryGetProperty("spatialTypes", out var st);
-        if (st.ValueKind == JsonValueKind.Array)
+        if (func.TryGetProperty("spatialTypes", out var st) && st.ValueKind == JsonValueKind.Array)
         {
-            int n = 0;
-            foreach (var _ in st.EnumerateArray()) { n++; if (n >= 3) break; }
-            if (n >= 3) caps.HasSpatialAudio = true;
+            caps.SpatialTypes = st.EnumerateArray()
+                .Where(v => v.ValueKind == JsonValueKind.Number)
+                .Select(v => v.GetInt32())
+                .Distinct()
+                .ToList();
         }
 
         if (func.TryGetProperty("multiDevicesConnect", out var mdc) && mdc.ValueKind == JsonValueKind.Number)
@@ -240,11 +241,7 @@ public static class DeviceProfileLoader
         caps.HasFirmwareUpdate     = FlagOn(func, "autoFirmwareUpdate");
         caps.HasPromptVolume       = FlagOn(func, "promptVolume") || func.TryGetProperty("promptVolumeRange", out _);
 
-        // 游戏模式（低延迟）是通用 SPP 能力：DeviceModels.json 里没有任何逐机型的 gameMode 标志
-        // （既无 gameModeList，也无扁平 gameMode:1），melody 也是对所有机型发批量查询 0x28(FeatureGameMain)
-        // 由设备回报实际支持/状态（见 ParseBatchStatus）。故凡受支持机型即开放游戏模式开关；
-        // 不支持的设备回报里不含 0x28，开关保持默认、无副作用。
-        caps.HasGameMode = caps.IsSupported || FunctionGameModeSupported(func);
+        caps.HasGameMode = FunctionGameModeSupported(func);
 
         if (func.TryGetProperty("gameSoundList", out var gsl) && gsl.ValueKind == JsonValueKind.Array)
         {
@@ -253,7 +250,13 @@ public static class DeviceProfileLoader
                 if (item.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.Number)
                 {
                     int tv = t.GetInt32();
-                    if (tv != 0) { caps.HasGameSound = true; caps.GameSoundType = (byte)tv; break; }
+                    if (tv != 0)
+                    {
+                        caps.HasGameSound = true;
+                        caps.HasGameMode = true;
+                        caps.GameSoundType = (byte)tv;
+                        break;
+                    }
                 }
             }
         }

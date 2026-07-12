@@ -3,6 +3,7 @@ bin/
 obj/
 publish/
 Network/
+Tests/
 
 ## IDE / VS
 .vs/
@@ -12,6 +13,7 @@ Network/
 *.sln.docstates
 *.userprefs
 .vscode/
+.codegrapgh/
 
 ## OS
 .DS_Store

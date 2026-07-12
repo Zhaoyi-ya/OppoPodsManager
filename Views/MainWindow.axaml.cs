@@ -70,6 +70,7 @@ public partial class MainWindow : SukiWindow
     private DispatcherTimer? _logRefreshTimer;
     private bool _logAutoScroll = true;
     private bool _logScrollPending;
+    private ContextMenu? _openMultiDeviceMenu;
     /// <summary>日志显示模式：true=简化版（翻译+合并），false=完整版（原始行）。</summary>
     private bool _logSimplified = true;
     private ScrollViewer? _logScrollViewer;
@@ -92,7 +93,6 @@ public partial class MainWindow : SukiWindow
     private string? _modelOverride;
     private string? _cachedModelName; // 缓存连接成功后的型号名，避免传输层 DeviceName 波动导致状态栏闪烁
     private DateTime _connectionStatusStartedAt = DateTime.MinValue;
-    private bool _gameModeCompat;
     private bool _findDeviceActive;
     private bool _wasConnected;
     private bool _lowBatteryAlerted;
@@ -165,6 +165,7 @@ public partial class MainWindow : SukiWindow
 
     // CheckBox 脏检查状态
     private bool _prevSpatialSound;
+    private string _spatialModesSignature = "";
     private bool _prevGameMode;
     private bool _prevGameSound;
     private bool _prevDualDevice;
@@ -204,7 +205,6 @@ public partial class MainWindow : SukiWindow
         CbBrand.SelectionChanged += CbBrand_Changed;
         CbSeries.SelectionChanged += CbSeries_Changed;
         CbModel.SelectionChanged += CbModel_Changed;
-        CbGameMode.SelectionChanged += CbGameMode_Changed;
         CbTheme.SelectionChanged += CbTheme_Changed;
         TbCustomName.TextChanged += TbCustomName_Changed;
 
@@ -391,8 +391,6 @@ public partial class MainWindow : SukiWindow
             }
         }
 
-        _gameModeCompat = SettingsManager.GetBool("GameModeCompat", false);
-        CbGameMode.SelectedIndex = _gameModeCompat ? 1 : 0;
 
         var customName = SettingsManager.GetString("CustomName");
         TbCustomName.Text = customName ?? "";
@@ -623,6 +621,7 @@ public partial class MainWindow : SukiWindow
 
         BuildAncUi(caps);
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
+        BuildSpatialAudioUi(caps);
         // CbSpatial.IsVisible = caps.HasSpatialSound;
         // CbDualDevice.IsVisible = caps.HasDualDevice;
         // CbGame.IsVisible = caps.HasGameMode;
@@ -1038,7 +1037,7 @@ public partial class MainWindow : SukiWindow
         {
             Log.D("UI", $"用户操作: 游戏模式开关 -> {on}");
             _featureUserSetAt = DateTime.Now;
-            _pods.SendGameMode(on, _gameModeCompat);
+            _pods.SendGameMode(on);
         }
     }
 
@@ -1206,12 +1205,15 @@ public partial class MainWindow : SukiWindow
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
+        if (_modelOverride != null)
+            caps.ResolveSpatialProtocol(_pods.State.SupportedCommands);
 
         // 统一刷新主页调音 + EQ 面板预设列表
         RefreshAllEqViews();
 
         BuildAncUi(caps);
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
+        BuildSpatialAudioUi(caps);
         // CbSpatial.IsVisible = caps.HasSpatialSound;
         // CbDualDevice.IsVisible = caps.HasDualDevice;
         // CbGame.IsVisible = caps.HasGameMode;
@@ -1250,12 +1252,6 @@ public partial class MainWindow : SukiWindow
                 RequestSyncMultiDeviceList();
             }
         }
-    }
-
-    private void CbGameMode_Changed(object? s, SelectionChangedEventArgs e)
-    {
-        _gameModeCompat = CbGameMode.SelectedIndex == 1;
-        SettingsManager.SetBool("GameModeCompat", _gameModeCompat);
     }
 
     private void CbTheme_Changed(object? s, SelectionChangedEventArgs e)
@@ -2803,6 +2799,11 @@ public partial class MainWindow : SukiWindow
         });
     }
 
+    private void CloseMultiDeviceMenuOnOutsideClick(object? sender, PointerPressedEventArgs e)
+    {
+        _openMultiDeviceMenu?.Close();
+    }
+
     private void SyncMultiDeviceList()
     {
         if (!_pods.State.Connected)
@@ -2951,12 +2952,20 @@ public partial class MainWindow : SukiWindow
                 }
                 else
                 {
-                    // 已连接 → 切换音频 / 断开
+                    // 已连接 → 设为优先设备 / 恢复自动切换 / 断开
                     if (canManage)
                     {
-                        var setPri = new MenuItem { Header = "切换音频到此设备" };
+                        var setPri = new MenuItem { Header = "设为优先设备" };
                         setPri.Click += (_, _) => _pods.SendMultiConnectSetPriority(d.Address);
                         menu.Items.Add(setPri);
+
+                        // 手动指定了优先设备时，提供恢复自动切换（melody 操作 4 + 清除地址）
+                        if (!_pods.State.MultiConnectAutoMode)
+                        {
+                            var autoSwitch = new MenuItem { Header = "恢复自动切换" };
+                            autoSwitch.Click += (_, _) => _pods.SendMultiConnectAutoSwitch();
+                            menu.Items.Add(autoSwitch);
+                        }
                         menu.Items.Add(new Separator());
                     }
                     var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
@@ -2969,34 +2978,62 @@ public partial class MainWindow : SukiWindow
                 unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
                 menu.Items.Add(unpair);
             }
+            else if (isReal && d.IsCurrentDevice)
+            {
+                // 当前设备（本机耳机）：同样可设为优先设备 / 恢复自动切换 / 断开。
+                if (canManage)
+                {
+                    var setPri = new MenuItem { Header = "设为优先设备" };
+                    setPri.Click += (_, _) => _pods.SendMultiConnectSetPriority(d.Address);
+                    menu.Items.Add(setPri);
+
+                    if (!_pods.State.MultiConnectAutoMode)
+                    {
+                        var autoSwitch = new MenuItem { Header = "恢复自动切换" };
+                        autoSwitch.Click += (_, _) => _pods.SendMultiConnectAutoSwitch();
+                        menu.Items.Add(autoSwitch);
+                    }
+                    menu.Items.Add(new Separator());
+                }
+                var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
+                disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
+                menu.Items.Add(disconnect);
+            }
 
             if (menu.Items.Count > 0)
             {
+                menu.Opened += (_, _) => _openMultiDeviceMenu = menu;
+                menu.Closed += (_, _) =>
+                {
+                    if (ReferenceEquals(_openMultiDeviceMenu, menu))
+                        _openMultiDeviceMenu = null;
+                };
                 border.ContextMenu = menu;
                 border.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
 
-                // 左键快捷操作：已连接 → 切换音频；已断开 → 连接
+                // 左键快捷操作：已断开 → 连接；已连接非当前 → 设为优先设备。
                 border.PointerPressed += (s, e) =>
                 {
                     var pt = e.GetCurrentPoint(border);
                     if (!pt.Properties.IsLeftButtonPressed) return;
-                    if (d.ConnectionState == 2)
+                    if (d.IsCurrentDevice)
                     {
+                        // 当前设备（本机）：设为优先设备
                         if (canManage)
                         {
-                            Log.D("UI", $"切换音频 -> {d.DeviceName} ({d.Address})");
+                            Log.D("UI", $"设为优先设备(本机) -> {d.DeviceName} ({d.Address})");
                             _pods.SendMultiConnectSetPriority(d.Address);
                         }
-                        else
-                        {
-                            Log.D("UI", $"连接/切换设备 -> {d.DeviceName} ({d.Address})");
-                            _pods.SendOperateHandheld(d.Address, true);
-                        }
                     }
-                    else
+                    else if (d.ConnectionState != 2)
                     {
                         Log.D("UI", $"连接设备 -> {d.DeviceName} ({d.Address})");
                         _pods.SendMultiConnectConnect(d.Address);
+                    }
+                    else if (canManage)
+                    {
+                        Log.D("UI", $"设为优先设备 -> {d.DeviceName} ({d.Address})");
+                        _pods.SendMultiConnectSetPriority(d.Address);
                     }
                 };
             }
@@ -3227,7 +3264,7 @@ public partial class MainWindow : SukiWindow
             if (caps.HasGameMode)
             {
                 var item = new NativeMenuItem((s.GameMode ? "✓ " : "") + "游戏模式");
-                item.Click += (_, _) => { _pods.SendGameMode(!s.GameMode, _gameModeCompat); };
+                item.Click += (_, _) => { _pods.SendGameMode(!s.GameMode); };
                 menu.Add(item);
             }
             if (caps.HasSpatialSound)
@@ -3301,33 +3338,54 @@ public partial class MainWindow : SukiWindow
 
     private void SyncUi() => OnStateChanged();
 
-    private void SpatialAudio_Init()
+    private void BuildSpatialAudioUi(DeviceCapabilities caps)
     {
-        // Wire RadioButton IsCheckedChanged events for spatial audio group
-        if (SpatialAudioPanel.Child is StackPanel sp)
-            foreach (var child in sp.Children)
-                if (child is WrapPanel wp)
-                    foreach (var c in wp.Children)
-                        if (c is RadioButton rb)
-                            rb.IsCheckedChanged += SpatialAudio_Changed;
+        if (!caps.HasSpatialAudio)
+        {
+            SpatialAudioModes.Children.Clear();
+            _spatialModesSignature = "";
+            return;
+        }
+
+        var supported = caps.SpatialTypes.Where(type => type is >= 0 and <= 2).Distinct().OrderBy(type => type).ToArray();
+        var signature = string.Join(',', supported);
+        if (_spatialModesSignature == signature) return;
+
+        SpatialAudioModes.Children.Clear();
+        foreach (var type in supported)
+        {
+            var (mode, label) = type switch
+            {
+                1 => ("Fixed", "固定"),
+                2 => ("Track", "头部跟踪"),
+                _ => ("Off", "关闭"),
+            };
+            var button = new RadioButton
+            {
+                Content = label,
+                Tag = mode,
+                GroupName = "SpatialAudioMode",
+                Margin = new Thickness(8, 2),
+            };
+            button.IsCheckedChanged += SpatialAudio_Changed;
+            SpatialAudioModes.Children.Add(button);
+        }
+        _spatialModesSignature = signature;
+        SyncSpatialModeFromState(_pods.State.SpatialMode);
     }
 
     /// <summary>按设备回读的空间音频三模式（0x812A）静默勾选对应单选项，不触发 SendSpatialAudio。</summary>
     private void SyncSpatialModeFromState(string mode)
     {
-        if (SpatialAudioPanel.Child is not StackPanel sp) return;
-        foreach (var child in sp.Children)
-            if (child is WrapPanel wp)
-                foreach (var c in wp.Children)
-                    if (c is RadioButton rb && rb.Tag is string tag)
-                    {
-                        bool shouldCheck = tag == mode;
-                        if (rb.IsChecked == shouldCheck) continue;
-                        // 临时摘除事件，避免回读同步反向触发设置命令
-                        rb.IsCheckedChanged -= SpatialAudio_Changed;
-                        rb.IsChecked = shouldCheck;
-                        rb.IsCheckedChanged += SpatialAudio_Changed;
-                    }
+        foreach (var c in SpatialAudioModes.Children)
+            if (c is RadioButton rb && rb.Tag is string tag)
+            {
+                bool shouldCheck = tag == mode;
+                if (rb.IsChecked == shouldCheck) continue;
+                rb.IsCheckedChanged -= SpatialAudio_Changed;
+                rb.IsChecked = shouldCheck;
+                rb.IsCheckedChanged += SpatialAudio_Changed;
+            }
     }
 
     // ========== 品牌/系列/机型树构建 ==========

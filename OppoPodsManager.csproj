@@ -58,6 +58,11 @@
     <Compile Remove="Transport\Linux\**\*.cs" />
   </ItemGroup>
 
+  <!-- 测试工程位于仓库内，但不参与桌面应用编译。 -->
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+  </ItemGroup>
+
   <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
   <ItemGroup>
     <EmbeddedResource Include="Data\DeviceModels.json" LogicalName="OppoPodsManager.DeviceModels.json" />

@@ -29,9 +29,22 @@ public partial class PodManager
         {
             Log.D("RFCOMM", $"ParseProductId: 精确识别为 {byId.ModelName}");
             Caps = byId;
-            RebuildCapabilitySet();
+            UpdateSpatialCapabilities();
             StateChanged?.Invoke();
         }
+    }
+
+    private void ParseCapabilities(byte[] pkt, int start, int len)
+    {
+        var payload = Slice(pkt, start, len);
+        var bitmap = OppoProtocol.CapabilityBitmap(payload);
+        State.SupportedCommands = OppoProtocol.ParseCapabilityCommands(payload);
+        UpdateSpatialCapabilities();
+        Log.D("RFCOMM", $"能力响应: status={(payload.Length > 0 ? payload[0] : -1)}, payload={BitConverter.ToString(payload)}");
+        Log.D("RFCOMM", $"完整能力位图: hex={BitConverter.ToString(bitmap)}, bits(bit0→)={OppoProtocol.CapabilityBitmapBits(bitmap)}");
+        Log.D("RFCOMM", $"能力解析: {State.SupportedCommands.Count} 条命令, " +
+            $"空间协议={(Caps.HasSpatialAudio ? "V2/0x0422" : Caps.HasSpatialSound ? "旧版/feature27" : "无")}");
+        StateChanged?.Invoke();
     }
 
     private void ParseBattery(byte[] pkt, int start, int len)
@@ -388,9 +401,9 @@ public partial class PodManager
             int pos = start + 2;
             for (int i = 0; i < count && pos + 8 < start + len; i++)
             {
-                // 设备按小端(倒序)传 MAC：wire 首字节是 MAC 末字节。melody HandheldDeviceInfo.parseAddress
-                // 同样倒序还原成 AA:BB:CC:DD:EE:FF 显示序。这里必须反转，否则存下来的地址是真地址的字节倒序，
-                // 回发操作命令(0x0429)时目标对不上 → 设备回 ACK 成功但实际没断开（本次 bug 根因）。
+                int entryStart = pos;
+
+                // 设备按小端(倒序)传 MAC：wire 首字节是 MAC 末字节。
                 var addr = string.Join(":", Enumerable.Range(0, 6).Select(j => pkt[pos + 5 - j].ToString("X2")));
                 pos += 6;
 
@@ -410,6 +423,11 @@ public partial class PodManager
                     : "Device " + addr.Substring(Math.Max(0, addr.Length - 5));
                 pos += Math.Max(nameLen, 0);
 
+                // 保存该设备条目的原始字节，供诊断未知字段和后续协议扩展。
+                int entryLen = pos - entryStart;
+                var rawEntry = new byte[entryLen];
+                Array.Copy(pkt, entryStart, rawEntry, 0, entryLen);
+
                 bool isCurrent = (flag & 0x01) != 0;
                 bool isMainAudio = (flag & 0x02) != 0;
                 bool isAudioActive = (flag & 0x04) != 0;
@@ -423,8 +441,10 @@ public partial class PodManager
                     IsCurrentDevice = isCurrent,
                     IsAudioActive = isAudioActive,
                     IsMainAudioDevice = isMainAudio,
+                    RawEntryBytes = rawEntry,
+                    ElemByte6 = (byte)elemByte6,
                 });
-                Log.D("RFCOMM", "ParseMultiConnect: device[" + i + "] addr=" + addr + ", name=\"" + deviceName + "\", connState=" + connState + ", flag=0x" + flag.ToString("X2") + ", cur=" + isCurrent);
+                Log.D("RFCOMM", $"ParseMultiConnect: device[{i}] addr={addr}, name=\"{deviceName}\", connState={connState}, flag=0x{flag:X2}, cur={isCurrent}, rawEntry={entryLen}B");
             }
 
             if (devices.Count > 0)

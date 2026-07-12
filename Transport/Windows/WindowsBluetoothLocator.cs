@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 
@@ -11,21 +12,34 @@ namespace OppoPodsManager;
 [SupportedOSPlatform("windows")]
 public sealed class WindowsBluetoothLocator : IDeviceLocator
 {
-    public (ulong addr, string? name) Locate() => ReadBtDevice();
+    public (ulong addr, string? name) Locate()
+    {
+        var devices = ListPaired();
+        return devices.Count > 0 ? devices[0] : (0, null);
+    }
 
-    private (ulong addr, string? name) ReadBtDevice()
+    /// <summary>枚举注册表中全部受支持品牌或带 OPPO SPP 服务的已配对设备。</summary>
+    public IReadOnlyList<(ulong addr, string name)> ListPaired()
+    {
+        var result = new List<(ulong addr, string name)>();
+        var seen = new HashSet<ulong>();
+        ReadBtDevices(result, seen);
+        return result;
+    }
+
+    private static void ReadBtDevices(List<(ulong addr, string name)> result, HashSet<ulong> seen)
     {
         try
         {
             Log.D("BT", "Locate: 扫描注册表已配对蓝牙设备...");
             using var key = Registry.LocalMachine.OpenSubKey(
                 @"SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices");
-            if (key == null) { Log.D("BT", "Locate: 打不开 BTHPORT\\Devices 注册表项"); return (0, null); }
+            if (key == null) { Log.D("BT", "Locate: 打不开 BTHPORT\\Devices 注册表项"); return; }
 
             var subKeys = key.GetSubKeyNames();
             Log.D("BT", $"Locate: 共 {subKeys.Length} 个已配对设备");
 
-            // 第一轮：按名称匹配 "OPPO"
+            // 第一轮：按所有支持品牌匹配，不再只识别 OPPO。
             foreach (var subName in subKeys)
             {
                 if (subName.Length != 12 || !ulong.TryParse(subName,
@@ -34,10 +48,11 @@ public sealed class WindowsBluetoothLocator : IDeviceLocator
 
                 string? name = ReadBtDeviceName(key, subName);
 
-                if (!string.IsNullOrEmpty(name) && name.Contains("OPPO", StringComparison.OrdinalIgnoreCase))
+                if (IsSupportedBrand(name) && seen.Add(addr))
                 {
-                    Log.D("BT", $"Locate: 按名称命中 OPPO 设备 addr={addr:X12} name=\"{name}\"");
-                    return (addr, name);
+                    var displayName = name ?? ("耳机 " + addr.ToString("X12"));
+                    result.Add((addr, displayName));
+                    Log.D("BT", $"Locate: 按品牌命中设备 addr={addr:X12} name=\"{displayName}\"");
                 }
             }
 
@@ -48,28 +63,24 @@ public sealed class WindowsBluetoothLocator : IDeviceLocator
                     System.Globalization.NumberStyles.HexNumber, null, out var addr))
                     continue;
 
-                if (HasOppoSppService(key, subName))
+                if (HasOppoSppService(key, subName) && seen.Add(addr))
                 {
-                    var name = ReadBtDeviceName(key, subName);
-                    Log.D("BT", $"Locate: 按 SPP UUID 命中 OPPO 设备 addr={addr:X12} name=\"{name}\"");
-                    return (addr, name);
+                    var name = ReadBtDeviceName(key, subName) ?? ("耳机 " + addr.ToString("X12"));
+                    result.Add((addr, name));
+                    Log.D("BT", $"Locate: 按 SPP UUID 命中设备 addr={addr:X12} name=\"{name}\"");
                 }
             }
-
-            // 回退：没找到 OPPO 名称或 UUID 的，返回第一个 BT 地址
-            foreach (var subName in key.GetSubKeyNames())
-            {
-                if (subName.Length == 12 && ulong.TryParse(subName,
-                    System.Globalization.NumberStyles.HexNumber, null, out var addr))
-                {
-                    Log.D("BT", $"Locate: 未命中 OPPO,回退到第一个设备 addr={addr:X12}");
-                    return (addr, null);
-                }
-            }
-            Log.D("BT", "Locate: 未找到任何可用蓝牙设备");
+            Log.D("BT", $"Locate: 注册表候选共 {result.Count} 个");
         }
         catch (Exception ex) { Log.Ex("BT", "Locate", ex); }
-        return (0, null);
+    }
+
+    private static bool IsSupportedBrand(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return false;
+        foreach (var brand in OppoProtocol.SupportedBrands)
+            if (name.Contains(brand, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     /// <summary>从注册表读取蓝牙设备名称</summary>

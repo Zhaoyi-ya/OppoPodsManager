@@ -87,8 +87,8 @@ public interface IPodManager : IDisposable
 
     // ==================== 功能开关 ====================
 
-    /// <summary>游戏模式（低延迟）。compatible=true 额外发低延迟兼容 feature。</summary>
-    void SendGameMode(bool on, bool compatible = false);
+    /// <summary>游戏模式（低延迟）。按设备是否支持游戏音效自动选择新版或旧版 feature。</summary>
+    void SendGameMode(bool on);
 
     /// <summary>双设备/多设备连接总开关（feature 0x11）。</summary>
     void SendDualDevice(bool on);
@@ -105,7 +105,7 @@ public interface IPodManager : IDisposable
     // 用法：先 SendMultiConnectInfo() 刷新，从 State.ConnectedDevices 拿列表。
     // 每项含 Address / ConnectionState / IsCurrentDevice / IsAudioActive / IsMainAudioDevice。
     //   - IsCurrentDevice=true（本机）：不提供断开/解绑。
-    //   - ConnectionState==2 已连接、非当前：可断开；想切音频输出到它 → 设为优先。
+    //   - ConnectionState==2 已连接、非当前：可断开或取消配对。
     //   - ConnectionState==0 已断开：可连接。
     //   - IsAudioActive=true = 此刻正在放音的设备。
 
@@ -118,8 +118,11 @@ public interface IPodManager : IDisposable
     /// <summary>断开指定手持设备。</summary>
     void SendMultiConnectDisconnect(string targetAddress);
 
-    /// <summary>设为优先设备：把音频活动/主通道切到该设备。</summary>
+    /// <summary>设为优先设备：把音频输出手动指定到该设备（cmd 0x0429 操作 4，melody e(4,...,false)）。</summary>
     void SendMultiConnectSetPriority(string targetAddress);
+
+    /// <summary>恢复自动切换：清除手动指定，交回耳机自动决定音频输出（cmd 0x0429 操作 4，melody e(4,...,true)）。</summary>
+    void SendMultiConnectAutoSwitch();
 
     /// <summary>取消配对/解绑指定手持设备。</summary>
     void SendMultiConnectUnpair(string targetAddress);

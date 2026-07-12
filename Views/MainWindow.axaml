@@ -253,8 +253,14 @@
       </Border>
      </Grid>
 
-     <!-- 隐藏的空间音频面板（代码引用） -->
-     <Border x:Name="SpatialAudioPanel" IsVisible="False"/>
+     <Border x:Name="SpatialAudioPanel" IsVisible="False" Padding="16,14"
+       CornerRadius="14" BoxShadow="0 1 4 0 #14000000" Classes="glassCard">
+      <StackPanel Spacing="8">
+       <TextBlock Text="空间音频" FontSize="14" FontWeight="Medium"
+          HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+       <WrapPanel x:Name="SpatialAudioModes" HorizontalAlignment="Center"/>
+      </StackPanel>
+     </Border>
     </StackPanel>
    </ScrollViewer>
 
@@ -279,11 +285,6 @@
          <TextBlock x:Name="ModelNote" Text="" FontSize="10" Opacity="0.55"
             Margin="0,-2,0,8"/>
 
-         <TextBlock Text="游戏模式实现" FontSize="12"
-            Foreground="{DynamicResource SukiText}" Opacity="0.7"/>
-         <ComboBox x:Name="CbGameMode" Height="28" Padding="8,0" HorizontalAlignment="Stretch">
-          <ComboBoxItem Content="标准 (28)"/><ComboBoxItem Content="兼容 (28+06)"/>
-         </ComboBox>
         </StackPanel>
 
         <!-- ====== 右列：工具 ====== -->

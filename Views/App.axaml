@@ -5,5 +5,11 @@
     <Application.Styles>
         <FluentTheme />
         <suki:SukiTheme ThemeColor="Blue" />
+        <!-- 修复 Avalonia 主题模板内 BorderBrush 错绑到 BorderThickness 的 binding error。
+             在 Separator / DropDownButton / 其他控件的 PART_RootBorder 上重设 BorderBrush。
+             注意：此 bug 存在于编译后的 BAML 资源中，源码不可见；样式覆盖能确保运行时正确取值。 -->
+        <Style Selector="Border#PART_RootBorder">
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
     </Application.Styles>
 </Application>

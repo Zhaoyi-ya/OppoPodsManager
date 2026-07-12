@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -45,6 +46,15 @@ public class ConnectedDeviceInfo : INotifyPropertyChanged
 
     /// <summary>UI 显示名称。</summary>
     public string DisplayName => DeviceName;
+
+    /// <summary>
+    /// 来自 0x8112 响应的原始设备条目字节(MAC LE 6B + elemByte6 + connState + flag + nameLen + name)。
+    /// 用于重建 setRelatedDeviceInfo(0x0408) 的 payload——取消配对时删掉目标条目后原样下发。
+    /// </summary>
+    internal byte[] RawEntryBytes { get; set; } = Array.Empty<byte>();
+
+    /// <summary>0x8112 响应中的 elemByte6（设备级别/类型字段，0x0408 下发时用作 type）。</summary>
+    internal byte ElemByte6 { get; set; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnChanged([CallerMemberName] string? n = null) =>

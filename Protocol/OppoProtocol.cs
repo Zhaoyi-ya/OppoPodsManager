@@ -33,6 +33,7 @@ public static partial class OppoProtocol
     public const ushort CmdMultiConnectInfo = 0x0112;  // 查询多设备连接列表
     public const ushort CmdMultiConnectResp = 0x8112;  // 多设备列表响应
     public const ushort CmdOperateHandheld = 0x0429;   // 切换多设备中的活动设备
+    public const ushort CmdSetRelatedDeviceInfo = 0x0408;  // 设置已配对设备列表（Melody: setRelatedDeviceInfo）
     public const ushort CmdQueryProductId = 0x0103;    // 查询远程 Product ID（设备识别主键）
     public const ushort CmdProductIdResp = 0x8103;     // Product ID 响应
 
@@ -44,6 +45,7 @@ public static partial class OppoProtocol
 
     // ----- 设备信息查询（0x1xx，getXxx；响应 0x81xx）-----
     public const ushort CmdQueryCapability   = 0x0100;  // getRemoteCapability 基础能力
+    public const ushort CmdCapabilityResp    = 0x8100;  // 基础能力位图响应
     public const ushort CmdQueryMtu          = 0x0101;  // getRemoteMTU 远程 MTU
     public const ushort CmdQueryVendorId     = 0x0102;  // getRemoteVID 远程 Vendor ID
     // 0x0103 = getRemotePID（= CmdQueryProductId，上方已定义）
@@ -235,6 +237,51 @@ public static partial class OppoProtocol
 
     // ===== 载荷构造（供传输层 Send(cmd, payload)；帧封装交给 IFrameCodec）=====
     public static readonly byte[] PayEmpty = { };
+
+    // Melody e7.Protocol.f22959a：0x0100 响应的 67 位能力位图 → 支持命令集合。
+    private static readonly ushort[][] CapabilityCommands =
+    [
+        [261], [262], [263], [264, 1025, 1046], [265], [1024], [1026], [1027], [268, 1028], [1029],
+        [1030, 271], [1031], [], [1032], [1033], [], [], [276], [], [1038, 1037, 277, 278],
+        [1039], [1040, 281], [517], [3840], [], [280, 1041], [282, 1042], [284, 1043], [],
+        [274, 1035], [286, 287, 1045], [1037], [], [289, 1047], [290, 1048], [], [285, 1044],
+        [291, 1050], [292, 1051], [293, 1052, 295, 1053, 1055], [1057, 35, 36, 34, 294, 297],
+        [61185], [61186], [61187, 1054], [1056], [28], [], [1058, 298], [61188], [1059, 299], [],
+        [1060], [61190], [], [], [1061, 302, 1062], [303], [1063, 304], [305, 1064], [1065, 306],
+        [20], [1069, 307], [1070], [61191], [61192], [61193], [1073, 308],
+    ];
+
+    /// <summary>解析 Melody getRemoteCapability(0x0100) 响应：[status][67-bit bitmap...]。</summary>
+    public static HashSet<ushort> ParseCapabilityCommands(byte[] payload)
+    {
+        var commands = new HashSet<ushort>();
+        if (payload.Length <= 1 || payload[0] != 0) return commands;
+        int bitCount = Math.Min((payload.Length - 1) * 8, CapabilityCommands.Length);
+        for (int bit = 0; bit < bitCount; bit++)
+        {
+            if ((payload[1 + bit / 8] & (1 << (bit % 8))) == 0) continue;
+            foreach (var command in CapabilityCommands[bit]) commands.Add(command);
+        }
+        return commands;
+    }
+
+    /// <summary>提取 0x8100 响应中的纯能力位图（去掉首字节 status）。</summary>
+    public static byte[] CapabilityBitmap(byte[] payload)
+    {
+        if (payload.Length <= 1) return Array.Empty<byte>();
+        var bitmap = new byte[payload.Length - 1];
+        Buffer.BlockCopy(payload, 1, bitmap, 0, bitmap.Length);
+        return bitmap;
+    }
+
+    /// <summary>按协议 bit0→bitN 顺序展开能力位图，便于日志直接核对位号。</summary>
+    public static string CapabilityBitmapBits(byte[] bitmap)
+    {
+        var bits = new char[bitmap.Length * 8];
+        for (int bit = 0; bit < bits.Length; bit++)
+            bits[bit] = (bitmap[bit / 8] & (1 << (bit % 8))) != 0 ? '1' : '0';
+        return new string(bits);
+    }
     /// <summary>查询设备端 EQ 预设列表：1 个 feature，类型 ID=5（equalizer）。</summary>
     public static readonly byte[] PayQueryEqAll = { 0x01, 0x05 };
     public static readonly byte[] PayQueryAnc = { 0x01, 0x01 };
@@ -243,6 +290,27 @@ public static partial class OppoProtocol
     public static readonly byte[] PayRegisterNotify = { 0x01, 0x01, 0x02, 0x02 };
     public static readonly byte[] PayRegisterWear = { 0x02, 0x02 };
     public static readonly byte[] PayBatchQuery = { 0x0B, 0x05, 0x04, 0x0B, 0x11, 0x13, 0x18, 0x06, 0x1B, 0x1C, 0x27, 0x28 };
+
+    /// <summary>
+    /// 按 Melody PollCommandManager.k() 从白名单构造功能状态查询。
+    /// feature 5 始终查询；多设备=17、游戏模式=6、空间音频=27、游戏音效=39/40。
+    /// </summary>
+    public static byte[] BuildFeatureQuery(DeviceCapabilities caps)
+    {
+        var features = new List<byte> { 0x05 };
+        if (caps.HasDualDevice) features.Add(0x11);
+        if (caps.HasGameMode) features.Add(0x06);
+        if (caps.SpatialTypes.Count > 0) features.Add(0x1B);
+        if (caps.HasGameSound)
+        {
+            features.Add(0x27);
+            features.Add(0x28);
+        }
+        var payload = new byte[features.Count + 1];
+        payload[0] = (byte)features.Count;
+        features.CopyTo(payload, 1);
+        return payload;
+    }
 
     public static byte[] FeaturePayload(byte feature, bool on)
     {

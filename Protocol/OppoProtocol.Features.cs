@@ -41,4 +41,11 @@ public static partial class OppoProtocol
     public const byte FeatureIncomingCallCtrl = 0x39;
     public const byte FeatureSleepDetection   = 0x3A;
     public const byte FeatureHeadMotion       = 0x3B;
+
+    /// <summary>
+    /// 按 Melody GameModeItem 的兼容逻辑选择游戏模式开关：
+    /// 支持游戏音效的新设备使用主游戏开关 0x28，旧设备使用低延迟开关 0x06。
+    /// </summary>
+    public static byte GameModeFeature(bool supportsGameSound) =>
+        supportsGameSound ? FeatureGameMain : FeatureGameLL;
 }

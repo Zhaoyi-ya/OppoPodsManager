@@ -10,6 +10,35 @@ namespace OppoPodsManager;
 public static class DeviceDiscovery
 {
     /// <summary>
+    /// 返回自动连接候选。当前连接设备优先，其后补充全部已配对设备；按地址去重。
+    /// 与 ListConnected 不同，此列表包含离线候选，连接器必须逐台尝试并以连接结果为准。
+    /// </summary>
+    public static IReadOnlyList<(ulong addr, string name)> ListCandidates()
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            var result = new List<(ulong addr, string name)>();
+            var seen = new HashSet<ulong>();
+
+            foreach (var device in ListConnected())
+                if (device.addr != 0 && seen.Add(device.addr)) result.Add(device);
+
+            try
+            {
+                foreach (var device in new WindowsBluetoothLocator().ListPaired())
+                    if (device.addr != 0 && seen.Add(device.addr)) result.Add(device);
+            }
+            catch (Exception ex) { Log.Ex("BT", "DeviceDiscovery.RegistryCandidates", ex); }
+
+            Log.D("BT", $"DeviceDiscovery.ListCandidates: {result.Count} 个（已连接优先 + 已配对补充）");
+            return result;
+        }
+#endif
+        return ListConnected();
+    }
+
+    /// <summary>
     /// 返回"当前已连接"的受支持品牌耳机 (地址, 显示名)。无或不支持的平台返回空列表。
     /// 只列出此刻有活动蓝牙链路的设备（不含历史配对但离线的），地址可直接传给 PodManager(targetAddr, name)。
     ///

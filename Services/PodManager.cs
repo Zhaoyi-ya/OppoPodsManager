@@ -19,22 +19,6 @@ public partial class PodManager : IPodManager
     public PodState State { get; } = new();
     public DeviceCapabilities Caps { get; private set; } = DeviceCapabilities.Detect(null);
 
-    // 每设备能力集（命令发送前先做能力判定，不支持则拦截）。
-    // melody 靠 0x11C 位图；本机 SPP 无该响应，改由型号 JSON(Caps) 推导。
-    private readonly HashSet<ushort> _deviceCaps = new();
-
-    // 全局通用能力（所有设备默认支持，无需位图校验）。
-    // 含 0x105/0x106/0x107/0x108/0x109（melody Layer1 allowlist）。
-    private static readonly HashSet<ushort> GlobalCaps = new()
-    {
-        OppoProtocol.CmdQueryProductId, OppoProtocol.CmdProductIdResp,
-        OppoProtocol.CmdBattery, OppoProtocol.CmdBatteryResp,
-        OppoProtocol.CmdActiveReport, OppoProtocol.CmdRegisterNotify,
-        OppoProtocol.CmdBatchQuery,
-        OppoProtocol.CmdQueryVersion, OppoProtocol.CmdQueryUpgradeCap,
-        OppoProtocol.CmdQueryFunctionKey, OppoProtocol.CmdQueryEarStatus,
-    };
-
     public event Action? StateChanged;
     public event Action<string>? CommandFailed;
     public string? LastError => _transport.LastError;
@@ -46,11 +30,6 @@ public partial class PodManager : IPodManager
     /// <summary>带超时/重试的设置命令：失败或超时时触发 CommandFailed（供 UI 提示）。</summary>
     private void SendSet(ushort cmd, byte[] payload, string label)
     {
-        if (!Supports(cmd))
-        {
-            Log.D("RFCOMM", $"SendSet: 型号 {Caps.ModelName} 不支持 {label}(0x{cmd:X4})，已忽略");
-            return;
-        }
         _dispatcher.SendTracked(cmd, payload, (status, _) =>
         {
             if (status != CmdStatus.Success)
@@ -84,90 +63,18 @@ public partial class PodManager : IPodManager
         _transport = _dispatcher;
         _transport.FrameReceived += DispatchFrame;
         _transport.Disconnected += OnDisconnected;
-        RebuildCapabilitySet();
     }
 
-    /// <summary>
-    /// 按当前 Caps（型号 JSON）重建每设备能力集。识别到 productId 后能力随之更新。
-    /// </summary>
-    private void RebuildCapabilitySet()
+    /// <summary>按 Melody 逻辑选择空间音频协议：支持 0x012A 时走 V2，否则走 feature 27 开关。</summary>
+    private void UpdateSpatialCapabilities()
     {
-        _deviceCaps.Clear();
-        // ANC：有降噪选项才允许 ANC 查询/设置
-        if (Caps.AncOptions.Count > 0 || Caps.AncNameToIndex.Count > 0)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdQueryAnc);
-            _deviceCaps.Add(OppoProtocol.CmdAnc);
-            _deviceCaps.Add(OppoProtocol.CmdAncResp);
-        }
-        // EQ：有预设才允许
-        if (Caps.EqPresets.Count > 0)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdQueryEq);
-            _deviceCaps.Add(OppoProtocol.CmdSetEq);
-            _deviceCaps.Add(OppoProtocol.CmdEqResp);
-            _deviceCaps.Add(OppoProtocol.CmdEqNotify);
-            _deviceCaps.Add(OppoProtocol.CmdQueryEqAll);  // 0x0122 设备端 EQ 名称回读
-        }
-        // 自定义 EQ：设备支持即开放 0x0418（频率兜底在 SendCustomEq 内处理）
-        if (Caps.HasCustomEq)
-            _deviceCaps.Add(OppoProtocol.CmdSetEqDetail);
-        // 空间音频三模式：设置命令 0x0422 + 状态回读查询 0x012A（getHeadsetSpatialType）
-        if (Caps.HasSpatialAudio)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdSpatialAudio);
-            _deviceCaps.Add(OppoProtocol.CmdQueryHeadsetSpatial);
-            _deviceCaps.Add(OppoProtocol.CmdHeadsetSpatialResp);
-        }
-        // 双设备连接：多连接列表查询 + 切换活动设备
-        if (Caps.HasDualDevice)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdMultiConnectInfo);
-            _deviceCaps.Add(OppoProtocol.CmdMultiConnectResp);
-            _deviceCaps.Add(OppoProtocol.CmdOperateHandheld);
-        }
-        // 查找耳机：只对 JSON 标记 findDevice 的型号开放；新协议走 setFindMode(0x0400)
-        if (Caps.HasFindDevice)
-            _deviceCaps.Add(OppoProtocol.CmdSetFindMode);
-        // 多连接优先级/自动切换（MultiDevicesConnect>=2 才支持优先设备管理 + 0x0132 查询）
-        if (Caps.HasMultiConnectManage)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdQueryMultiPriority);
-            _deviceCaps.Add(OppoProtocol.CmdMultiPriorityResp);
-        }
-        // 功能开关（空间音效/游戏/双设备）：用通用命令 0x403
-        // ([feature][enable])，兼 BR/EDR 与 LE Audio。
-        // 0x423 是"游戏音效类型"等专用功能的独立命令，不是 0x403 的替代路径。
-        if (Caps.HasSpatialSound || Caps.HasGameMode || Caps.HasDualDevice)
-            _deviceCaps.Add(OppoProtocol.CmdSetFeature);        // 0x403 通用功能开关
-        // 游戏音效：设置命令 0x423（setGameSoundTypeEnable）+ 查询命令 0x12B（GameSoundInfo）
-        if (Caps.HasGameSound)
-        {
-            _deviceCaps.Add(OppoProtocol.CmdSetFeatureSwitch);
-            _deviceCaps.Add(OppoProtocol.CmdQueryGameSound);
-        }
-        // 编解码器查询：受支持型号普遍可用（有响应则解析，无响应超时丢弃，无副作用）
-        if (Caps.IsSupported)
-            _deviceCaps.Add(OppoProtocol.CmdQueryCodecType);
+        Caps.ResolveSpatialProtocol(State.SupportedCommands);
     }
-
-    /// <summary>命令能力判定：全局通用集 或 每设备集 命中才可发。</summary>
-    private bool Supports(ushort cmd) => GlobalCaps.Contains(cmd) || _deviceCaps.Contains(cmd);
 
     /// <summary>该型号是否有"智能切换"档位（有则需额外查询实时档位 [0x03,0x01]）。</summary>
     private bool HasSmartMode() => Caps.AncNameToIndex.ContainsKey("Smart");
 
-    /// <summary>能力门控的发送：不支持则拦截并记日志（"UNSUPPORTED cmd=0x..." 模式）。</summary>
-    private bool TrySend(ushort cmd, byte[] payload)
-    {
-        if (!Supports(cmd))
-        {
-            Log.D("RFCOMM", $"TrySend: 拦截不支持的命令 cmd=0x{cmd:X4}（当前型号 {Caps.ModelName} 无此能力）");
-            return false;
-        }
-        _transport.Send(cmd, payload);
-        return true;
-    }
+    private void SendQuery(ushort cmd, byte[] payload) => _transport.Send(cmd, payload);
 
     private void OnDisconnected()
     {
@@ -190,6 +97,7 @@ public partial class PodManager : IPodManager
             case OppoProtocol.CmdBatchQueryResp: ParseBatchStatus(p, 0, len); break;
             case OppoProtocol.CmdMultiConnectResp: ParseMultiConnect(p, 0, len); break;
             case OppoProtocol.CmdProductIdResp: ParseProductId(p, 0, len); break;
+            case OppoProtocol.CmdCapabilityResp: ParseCapabilities(p, 0, len); break;
             case OppoProtocol.CmdMultiPriorityResp: ParseMultiPriority(p, 0, len); break;
 
             // ===== 新增：固件版本 / 编解码器 响应 =====
@@ -300,7 +208,6 @@ public partial class PodManager : IPodManager
             }
 
             Caps = DeviceCapabilities.Detect(_transport.DeviceName);  // 名称预判（回退）
-            RebuildCapabilitySet();
             State.Connected = true;
             Log.D("RFCOMM", $"ConnectAsync: 连接成功,开始握手序列 (名称预判 Caps={Caps.ModelName})");
 
@@ -310,8 +217,13 @@ public partial class PodManager : IPodManager
             Thread.Sleep(120);
             _transport.Poll(600);   // 先把 productId 响应收进来，让后续查询基于正确能力集
 
+            // Melody 首先读取 0x0100 能力位图；后续协议版本与命令选择均基于设备真实支持集合。
+            _transport.Send(OppoProtocol.CmdQueryCapability, OppoProtocol.PayEmpty);
+            Thread.Sleep(120);
+            _transport.Poll(600);
+
             // ===== 阶段2：批量功能状态（游戏/双设备/空间音效开关）=====
-            _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.PayBatchQuery);
+            _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.BuildFeatureQuery(Caps));
             Thread.Sleep(80);
 
             // ===== 阶段3：能力门控的状态查询（不支持的型号自动跳过）=====
@@ -319,22 +231,17 @@ public partial class PodManager : IPodManager
             Thread.Sleep(80);
             _transport.Send(OppoProtocol.CmdQueryVersion, OppoProtocol.PayEmpty);  // 固件版本（全局）
             Thread.Sleep(80);
-            TrySend(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc);
-            Thread.Sleep(80);
-            if (HasSmartMode()) { TrySend(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent); Thread.Sleep(80); }
-            TrySend(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty);
-            Thread.Sleep(80);
-            _transport.Send(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll);  // 设备端 EQ 名称回读（不受能力门控）
-            Thread.Sleep(80);
-            TrySend(OppoProtocol.CmdQueryCodecType, OppoProtocol.PayEmpty);
-            Thread.Sleep(80);
-            TrySend(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty);  // 游戏音效当前状态
-            Thread.Sleep(80);
+            if (Caps.AncOptions.Count > 0) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc); Thread.Sleep(80); }
+            if (HasSmartMode()) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent); Thread.Sleep(80); }
+            if (Caps.EqPresets.Count > 0) { SendQuery(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty); Thread.Sleep(80); }
+            if (Caps.EqPresets.Count > 0 || Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
+            if (State.SupportedCommands.Contains(OppoProtocol.CmdQueryCodecType)) { SendQuery(OppoProtocol.CmdQueryCodecType, OppoProtocol.PayEmpty); Thread.Sleep(80); }
+            if (Caps.HasGameSound) { SendQuery(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             // 空间音频三模式当前值：仅三模式（headsetSpatialType）机型才有 0x012A，
             // 两模式开关型机型走 feature 0x1B（批量查询）已覆盖，不发以免无谓拦截日志。
             if (Caps.HasSpatialAudio)
             {
-                TrySend(OppoProtocol.CmdQueryHeadsetSpatial, OppoProtocol.PayEmpty);
+                SendQuery(OppoProtocol.CmdQueryHeadsetSpatial, OppoProtocol.PayEmpty);
                 Thread.Sleep(80);
             }
 
@@ -345,8 +252,7 @@ public partial class PodManager : IPodManager
             Thread.Sleep(80);
 
             // ===== 阶段5：多设备列表（仅双设备型号）=====
-            TrySend(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
-            Thread.Sleep(400);
+            if (Caps.HasDualDevice) { SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty); Thread.Sleep(400); }
 
             Log.D("RFCOMM", "ConnectAsync: 握手命令已发完,等待首批响应");
             _transport.Poll(3000);
@@ -357,20 +263,36 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectInfo()
     {
         Log.D("RFCOMM", "SendMultiConnectInfo");
-        TrySend(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
+        if (Caps.HasDualDevice) SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
     }
 
     /// <summary>
-    /// 多设备操作统一入口。用 SendSet（带 ACK 追踪/重试）而非裸 Send：
-    /// - 设备回 0x8429 status=0 → 成功；status!=0 → CommandFailed 提示；超时 → 重试后报超时。
+    /// 多设备操作统一入口。用 PacketDispatcher.SendTracked（带 ACK 追踪/重试/超时）而非裸 Send：
+    /// - 设备回 0x8429 status=0 → 成功 → 刷新列表（SendMultiConnectInfo），让 UI 即时反映变更；
+    /// - status!=0 → CommandFailed 提示；超时 → 重试后报超时。
     /// - 打印完整载荷字节，便于据日志确认设备是"拒绝(NAK)""无响应"还是"格式不符被忽略"。
-    /// 原实现用裸 TrySend(fire-and-forget)，设备丢包或拒绝都无声无息，正是"点断开没反应"的元凶之一。
+    /// 原实现用裸发送，设备丢包或拒绝都无声无息，正是"点断开没反应"的元凶之一。
+    /// 注意：不走 SendSet（它的 callback 在成功时无动作），直接用 _dispatcher 以便在 ACK 成功后刷新列表。
     /// </summary>
     private void SendMultiConnectOp(byte operateType, string targetAddress, string label, bool clearAddress = false)
     {
+        if (!Caps.HasDualDevice) return;
         var payload = OppoProtocol.MultiConnectOpPayload(operateType, targetAddress, clearAddress);
+        var cmd = OppoProtocol.CmdOperateHandheld;
         Log.D("RFCOMM", $"多设备操作: {label} addr={targetAddress} type={operateType} payload=[{BitConverter.ToString(payload)}]");
-        SendSet(OppoProtocol.CmdOperateHandheld, payload, $"多设备{label}");
+        _dispatcher.SendTracked(cmd, payload, (status, _) =>
+        {
+            if (status == CmdStatus.Success)
+            {
+                Log.D("RFCOMM", $"多设备操作: {label} ACK 成功，刷新设备列表");
+                SendMultiConnectInfo();
+            }
+            else
+            {
+                Log.D("RFCOMM", $"多设备操作: {label} 失败 status={(int)status}");
+                CommandFailed?.Invoke($"多设备{label} 失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
+            }
+        });
     }
 
     public void SendMultiConnectConnect(string targetAddress) =>
@@ -380,7 +302,11 @@ public partial class PodManager : IPodManager
         SendMultiConnectOp(OppoProtocol.MultiOpDisconnect, targetAddress, "断开");
 
     public void SendMultiConnectSetPriority(string targetAddress) =>
-        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, targetAddress, "设为优先");
+        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, targetAddress, "设为优先设备");
+
+    /// <summary>恢复自动切换：清除手动优先设备，交回耳机自动决定音频输出（melody e(4,...,true)）。</summary>
+    public void SendMultiConnectAutoSwitch() =>
+        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动切换", clearAddress: true);
 
     public void SendMultiConnectUnpair(string targetAddress) =>
         SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
@@ -394,7 +320,7 @@ public partial class PodManager : IPodManager
     public void SendAnc(string mode)
     {
         Log.D("RFCOMM", $"SendAnc mode={mode}");
-        if (!Supports(OppoProtocol.CmdAnc))
+        if (Caps.AncOptions.Count == 0 && Caps.AncNameToIndex.Count == 0)
         {
             Log.D("RFCOMM", $"SendAnc: 型号 {Caps.ModelName} 无降噪能力，已忽略");
             return;
@@ -425,12 +351,14 @@ public partial class PodManager : IPodManager
 
     public void SendSpatial(bool on)
     {
+        if (!Caps.HasSpatialSound) return;
         Log.D("RFCOMM", $"SendSpatial on={on}");
         SendFeatureSwitch(OppoProtocol.FeatureSpatial, on, "空间音效");
     }
 
     public void SendSpatialAudio(string mode)
     {
+        if (!Caps.HasSpatialAudio) return;
         Log.D("RFCOMM", $"SendSpatialAudio mode={mode}");
         // 空间音频三模式是独立命令 0x0422（非功能开关），保持原路径
         SendSet(OppoProtocol.CmdSpatialAudio, OppoProtocol.SpatialPayload(mode), $"空间音频 {mode}");
@@ -438,6 +366,7 @@ public partial class PodManager : IPodManager
 
     public void SendDualDevice(bool on)
     {
+        if (!Caps.HasDualDevice) return;
         Log.D("RFCOMM", $"SendDualDevice on={on}");
         SendFeatureSwitch(OppoProtocol.FeatureDualDevice, on, "双设备连接");
     }
@@ -448,13 +377,12 @@ public partial class PodManager : IPodManager
         SendSet(OppoProtocol.CmdSetFindMode, OppoProtocol.FindDevicePayload(start), start ? "查找耳机" : "停止查找耳机");
     }
 
-    public void SendGameMode(bool on, bool compatible = false)
+    public void SendGameMode(bool on)
     {
-        Log.D("RFCOMM", $"SendGameMode on={on} compatible={compatible}");
-        SendFeatureSwitch(OppoProtocol.FeatureGameMain, on, "游戏模式");
-        // 兼容实现：部分设备游戏低延迟需额外发 feature 0x06
-        if (compatible)
-            SendFeatureSwitch(OppoProtocol.FeatureGameLL, on, "游戏低延迟");
+        if (!Caps.HasGameMode) return;
+        byte feature = OppoProtocol.GameModeFeature(Caps.HasGameSound);
+        Log.D("RFCOMM", $"SendGameMode on={on} feature=0x{feature:X2}");
+        SendFeatureSwitch(feature, on, "游戏模式");
     }
 
     /// <summary>
@@ -467,6 +395,7 @@ public partial class PodManager : IPodManager
     /// </summary>
     public void SendGameSound(bool on)
     {
+        if (!Caps.HasGameSound) return;
         byte type = on ? Caps.GameSoundType : (byte)0x00;
         Log.D("RFCOMM", $"SendGameSound on={on} type={type}");
         SendSet(OppoProtocol.CmdSetFeatureSwitch,
@@ -524,11 +453,6 @@ public partial class PodManager : IPodManager
 
     public void SendEq(string name)
     {
-        if (!Supports(OppoProtocol.CmdSetEq))
-        {
-            Log.D("RFCOMM", $"SendEq: 型号 {Caps.ModelName} 无 EQ 能力，已忽略");
-            return;
-        }
         // 先查 JSON 内置预设，再查设备端 EQ 条目
         byte eqId;
         if (Caps.EqPresets.TryGetValue(name, out var id))
@@ -565,7 +489,7 @@ public partial class PodManager : IPodManager
     /// 对应 Melody 的 B8.c.i(addr, eqInfo, 1)。发送后查询列表以取得设备分配的新 eqId。</summary>
     public void SendCustomEq(int[] gains, string name)
     {
-        if (!Supports(OppoProtocol.CmdSetEqDetail))
+        if (!Caps.HasCustomEq)
         {
             Log.D("RFCOMM", $"SendCustomEq(name): 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
             return;
@@ -581,7 +505,7 @@ public partial class PodManager : IPodManager
     /// 对应 Melody 的 B8.c.i(addr, eqInfo, 2)：编辑滑块预览与切换选中都走此 action。</summary>
     public void UpdateCustomEq(byte eqId, int[] gains, string name, int minValue = -6, int maxValue = 6)
     {
-        if (!Supports(OppoProtocol.CmdSetEqDetail))
+        if (!Caps.HasCustomEq)
         {
             Log.D("RFCOMM", $"UpdateCustomEq: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
             return;
@@ -604,7 +528,7 @@ public partial class PodManager : IPodManager
     /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。发送删除命令后立即查询全量列表以刷新。</summary>
     public void DeleteEq(int eqId)
     {
-        if (!Supports(OppoProtocol.CmdSetEqDetail))
+        if (!Caps.HasCustomEq)
         {
             Log.D("RFCOMM", $"DeleteEq: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
             return;
@@ -636,12 +560,11 @@ public partial class PodManager : IPodManager
                     // 高频：电池（全局）+ ANC（能力门控）
                     _transport.Send(OppoProtocol.CmdBattery, OppoProtocol.PayEmpty);
                     Thread.Sleep(100);
-                    TrySend(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc);
-                    Thread.Sleep(100);
+                    if (Caps.AncOptions.Count > 0) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc); Thread.Sleep(100); }
                     // 智能切换档位需单独查询（[0x03,0x01]），拿设备实时计算档位
                     if (HasSmartMode())
                     {
-                        TrySend(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent);
+                        SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent);
                         Thread.Sleep(100);
                     }
                     _transport.Poll(500);
@@ -649,8 +572,9 @@ public partial class PodManager : IPodManager
                     tick++;
 
                     // 低频：EQ（能力门控）
-                    if (tick % 6 == 0 && TrySend(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty))
+                    if (tick % 6 == 0 && Caps.EqPresets.Count > 0)
                     {
+                        SendQuery(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty);
                         Thread.Sleep(100);
                         _transport.Poll(400);
                     }
@@ -658,18 +582,20 @@ public partial class PodManager : IPodManager
                     // 低频：功能开关状态 + 重注册通知 + 多设备列表
                     if (tick % 4 == 0)
                     {
-                        _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.PayBatchQuery);
+                        _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.BuildFeatureQuery(Caps));
                         Thread.Sleep(100);
                         _transport.Poll(400);
 
-                        if (TrySend(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty))
+                        if (Caps.HasGameSound)
                         {
+                            SendQuery(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);
                             _transport.Poll(400);
                         }
 
-                        if (Caps.HasSpatialAudio && TrySend(OppoProtocol.CmdQueryHeadsetSpatial, OppoProtocol.PayEmpty))
+                        if (Caps.HasSpatialAudio)
                         {
+                            SendQuery(OppoProtocol.CmdQueryHeadsetSpatial, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);
                             _transport.Poll(400);
                         }
@@ -679,15 +605,17 @@ public partial class PodManager : IPodManager
                         Thread.Sleep(100);
                         _transport.Poll(400);
 
-                        if (TrySend(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty))
+                        if (Caps.HasDualDevice)
                         {
+                            SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);
                             _transport.Poll(400);
                         }
 
                         // 多连接优先设备/自动切换（0x0132）
-                        if (TrySend(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty))
+                        if (Caps.HasMultiConnectManage && State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
                         {
+                            SendQuery(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);
                             _transport.Poll(400);
                         }

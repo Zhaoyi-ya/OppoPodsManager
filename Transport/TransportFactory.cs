@@ -12,13 +12,12 @@ public static class TransportFactory
     /// <summary>可选注入点：测试或自定义实现时设置；为 null 时按平台自动选择。</summary>
     public static Func<IPodTransport>? Override { get; set; }
 
-    /// <summary>不指定目标：连接第一个匹配的耳机（单设备旧行为）。</summary>
+    /// <summary>不指定目标：枚举全部候选并逐台尝试，不再由系统枚举顺序决定目标。</summary>
     public static IPodTransport Create() => Create(0, null);
 
     /// <summary>
     /// 指定目标耳机地址创建传输栈（多耳机切换用）。
-    /// targetAddr==0 时等价于旧的"第一个匹配"行为。
-    /// 非 0 时：RFCOMM StreamSocket 按地址过滤，Spp/Gatt 注入 FixedDeviceLocator 精确指向该设备。
+    /// targetAddr==0 时逐台尝试全部候选；非 0 时只连接指定地址。
     /// </summary>
     public static IPodTransport Create(ulong targetAddr, string? name)
     {
@@ -31,21 +30,11 @@ public static class TransportFactory
 #if WINDOWS
         if (OperatingSystem.IsWindows())
         {
-            // 经典 SPP (RFCOMM) 优先——多数 OPPO 耳机在 Windows 下只暴露经典口。
-            // 依次：WinRT StreamSocket → Winsock P/Invoke 回退 → BLE GATT 回退。
-            Log.D("FACTORY", $"Create: Windows 平台 -> RFCOMM(StreamSocket) 优先, Winsock 次之, GATT 回退 (目标={(targetAddr == 0 ? "任意" : targetAddr.ToString("X12"))})");
+            Log.D("FACTORY", $"Create: Windows 平台 -> 逐设备 Winsock SPP, GATT 回退 (目标={(targetAddr == 0 ? "自动候选" : targetAddr.ToString("X12"))})");
             if (targetAddr == 0)
-            {
-                return new FallbackTransport(
-                    () => new WindowsRfcommStreamTransport(),
-                    () => new SppTransport(),
-                    () => new WindowsGattTransport());
-            }
-            // 定向：三条链路都锁定同一台设备
-            return new FallbackTransport(
-                () => new WindowsRfcommStreamTransport(targetAddr),
-                () => new SppTransport(new FixedDeviceLocator(targetAddr, name)),
-                () => new WindowsGattTransport(new FixedDeviceLocator(targetAddr, name)));
+                return new CandidateTransport(DeviceDiscovery.ListCandidates, CreateWindowsTarget);
+            // 定向：Winsock SPP + GATT 回退，均锁定同一台设备
+            return CreateWindowsTarget(targetAddr, name ?? ("耳机 " + targetAddr.ToString("X12")));
         }
 #endif
 
@@ -71,4 +60,16 @@ public static class TransportFactory
 		throw new PlatformNotSupportedException(
 			"当前平台暂无硬件传输实现。请为该平台实现 IPodTransport（如 macOS IOBluetooth），并在 TransportFactory 中按平台分支返回。");
     }
+
+#if WINDOWS
+    private static IPodTransport CreateWindowsTarget(ulong addr, string name)
+    {
+        var locator = new FixedDeviceLocator(addr, name);
+        // Winsock SPP 直接按地址连接，不依赖易失效的 WinRT RFCOMM 服务代理。
+        // GATT 仅作为同一设备的后备路径，绝不重新选择其它设备。
+        return new FallbackTransport(
+            () => new SppTransport(locator),
+            () => new WindowsGattTransport(locator));
+    }
+#endif
 }

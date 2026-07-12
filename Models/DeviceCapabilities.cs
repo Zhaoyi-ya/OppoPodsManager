@@ -32,6 +32,8 @@ public class DeviceCapabilities
     // ========== 功能标志（当前 UI 已用）==========
     public bool HasSpatialAudio { get; set; }
     public bool HasSpatialSound { get; set; }
+    /// <summary>官方白名单 function.spatialTypes：0=关闭、1=固定、2=头部跟踪。</summary>
+    public List<int> SpatialTypes { get; set; } = new();
     public bool HasDualDevice { get; set; }
     public bool HasAdaptiveAnc { get; set; }
     public bool IsLegacyAnc { get; set; }
@@ -71,6 +73,15 @@ public class DeviceCapabilities
     public bool HasPromptVolume { get; set; }
     public bool HasMultiConnectManage { get; set; }
     public int  MultiDevicesConnect { get; set; }
+
+    /// <summary>按 Melody 的设备能力集合选择旧版 feature 27 或新版 0x0422 空间协议。</summary>
+    public void ResolveSpatialProtocol(IReadOnlySet<ushort> supportedCommands)
+    {
+        bool whitelisted = SpatialTypes.Count > 0;
+        bool supportsV2 = supportedCommands.Contains(OppoProtocol.CmdQueryHeadsetSpatial);
+        HasSpatialAudio = whitelisted && supportsV2;
+        HasSpatialSound = whitelisted && !supportsV2;
+    }
 
     public HashSet<int> GameSoundMutexes { get; set; } = new();
     public bool GameSoundMutexEq => GameSoundMutexes.Contains(1) || GameSoundMutexes.Contains(3);
