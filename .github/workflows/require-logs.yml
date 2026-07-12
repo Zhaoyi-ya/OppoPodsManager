@@ -19,6 +19,12 @@ jobs:
             const issue = context.payload.issue;
             const body = issue.body || '';
 
+            // 功能建议类 Issue 不需要日志文件，直接跳过
+            const isEnhancement = (issue.labels || []).some(label => label.name === 'enhancement');
+            if (isEnhancement) {
+              console.log('enhancement issue, skipping log check');
+              return;
+            }
             const logSectionMatch = body.match(/### 日志文件([\s\S]*?)(?:\n### |$)/);
             const logSection = logSectionMatch ? logSectionMatch[1].trim() : '';
             const hasAttachment = /https:\/\/(?:github\.com\/user-attachments\/files\/|user-images\.githubusercontent\.com\/|private-user-images\.githubusercontent\.com\/)/i.test(logSection);
