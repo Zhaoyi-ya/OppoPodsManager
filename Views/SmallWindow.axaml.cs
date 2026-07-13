@@ -55,10 +55,12 @@ public partial class SmallWindow : SukiWindow
         _onDeactivated = onDeactivated;
         InitializeComponent();
 
+        Log.D("UI", "SmallWindow: 打开");
         _pods.StateChanged += OnStateChanged;
         // 窗口关闭时取消订阅，避免对已关闭窗口的控件操作 + 释放引用
         Closed += (_, _) =>
         {
+            Log.D("UI", "SmallWindow: 关闭");
             _isClosed = true;
             _pods.StateChanged -= OnStateChanged;
         };
@@ -239,7 +241,7 @@ public partial class SmallWindow : SukiWindow
                 Content = child.Label, Tag = child, Width = 60, Height = 26,
                 BorderThickness = new Thickness(0), Padding = new Thickness(0),
                 Background = Brushes.Transparent, Focusable = false,
-                Foreground = BrushGray, FontSize = 11
+                Foreground = BrushGray, FontSize = 13
             };
             btn.Click += AncSub_Click;
             var bg = new Border { CornerRadius = corner, Padding = new Thickness(0),
@@ -324,12 +326,14 @@ public partial class SmallWindow : SukiWindow
             AncSubRow.IsVisible = true;
             var target = opt.Children.Any(c => c.Key == _ancLevel) ? _ancLevel : opt.Children[0].Key;
             _ancLevel = target;
+            Log.D("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 发送子模式 {target}");
             _pods.SendAnc(target);   // 容器型发子键，非父键
         }
         else
         {
             AncSubRow.IsVisible = false;
             _ancLevel = "";
+            Log.D("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}");
             _pods.SendAnc(opt.Key);  // 叶子型直接发
         }
         HighlightAnc();
@@ -340,6 +344,7 @@ public partial class SmallWindow : SukiWindow
         if (!_pods.IsConnected) return;
         _ancLevel = opt.Key;
         _ancUserSetAt = DateTime.Now;
+        Log.D("UI", $"SmallWindow: ANC 子模式 -> {opt.Key}");
         _pods.SendAnc(opt.Key);
         HighlightAnc();
     }

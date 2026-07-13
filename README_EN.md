@@ -20,6 +20,7 @@ Supports **137 devices** across all three brands, with capabilities auto-detecte
 - [Supported Devices](#supported-devices)
 - [FAQ](#faq)
 - [Maintainers](#maintainers)
+- [Font Notice](#font-notice)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
@@ -142,6 +143,18 @@ If "minimize to tray" is enabled, closing the window just hides it to the tray. 
 
 - [@Zhaoyi-ya](https://github.com/Zhaoyi-ya)
 - [@Dszsu](https://github.com/Dszsu)
+
+---
+
+## Font Notice
+
+This software embeds and uses the MiSans font for its user interface. MiSans is provided by Xiaomi. Copyright and licensing information are subject to Xiaomi's official statements and the MiSans Font Intellectual Property License Agreement:
+
+- MiSans official page: https://hyperos.mi.com/font/
+- MiSans FAQ: https://hyperos.mi.com/font/en/faq/
+- MiSans Font Intellectual Property License Agreement: https://hyperos.mi.com/font-download/MiSans字体知识产权许可协议.pdf
+
+According to Xiaomi's official MiSans FAQ, MiSans can be used as an embedded font, but the software should specifically note that MiSans was used. This project does not adapt, redevelop, separately distribute, or sell the MiSans font files or their components.
 
 ---
 

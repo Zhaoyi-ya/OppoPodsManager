@@ -19,6 +19,7 @@
 - [支持的设备](#支持的设备)
 - [常见问题](#常见问题)
 - [维护](#维护)
+- [字体声明](#字体声明)
 - [致谢](#致谢)
 - [开源协议](#开源协议)
 
@@ -141,6 +142,18 @@
 
 - [@Zhaoyi-ya](https://github.com/Zhaoyi-ya)
 - [@Dszsu](https://github.com/Dszsu)
+
+---
+
+## 字体声明
+
+本软件界面内嵌并使用 MiSans 字体。MiSans 由小米提供，版权及授权信息以小米官方说明和 MiSans 字体知识产权许可协议为准：
+
+- MiSans 官方页面：https://hyperos.mi.com/font/
+- MiSans FAQ：https://hyperos.mi.com/font/en/faq/
+- MiSans 字体知识产权许可协议：https://hyperos.mi.com/font-download/MiSans字体知识产权许可协议.pdf
+
+根据 MiSans 官方说明，MiSans 可作为嵌入式字体使用，但应在软件中特别注明使用了 MiSans 字体。本项目未对 MiSans 字体文件或其组件进行改编、二次开发、单独分发或售卖。
 
 ---
 

@@ -8,7 +8,6 @@ static class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .WithInterFont()
             .LogToTrace();
 
     /// <summary>Avalonia 桌面入口点（AOT 兼容）。</summary>

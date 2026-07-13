@@ -7,6 +7,7 @@
    WindowStartupLocation="Manual"
    CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
    ShowInTaskbar="False"
+   FontFamily="{StaticResource AppFont}"
    BackgroundStyle="Flat">
 
  <suki:SukiWindow.Styles>
@@ -34,7 +35,7 @@
    <StackPanel Orientation="Horizontal" Spacing="4">
     <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
      Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="CaseChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -46,7 +47,7 @@
     <Path x:Name="IconLeftLetter" Width="12" Height="12"
      Fill="{DynamicResource SukiText}"/>
     </Grid>
-    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="LeftChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -58,7 +59,7 @@
     <Path x:Name="IconRightLetter" Width="12" Height="12"
      Fill="{DynamicResource SukiText}"/>
     </Grid>
-    <TextBlock x:Name="RightLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="RightLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="RightChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -72,11 +73,11 @@
    Classes="glassCard"
    IsVisible="False">
   <StackPanel Spacing="10">
-   <TextBlock Text="降噪控制" FontSize="14" FontWeight="Medium"
+   <TextBlock Text="降噪控制" FontSize="14"
     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
    <Grid x:Name="AncMainRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
    <Grid x:Name="AncSubRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
-   <TextBlock x:Name="AncRealtimeHint" FontSize="11" Opacity="0.5" IsVisible="False"
+   <TextBlock x:Name="AncRealtimeHint" FontSize="13" Opacity="0.5" IsVisible="False"
     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
   </StackPanel>
   </Border>

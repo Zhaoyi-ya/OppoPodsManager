@@ -84,6 +84,7 @@ public partial class MainWindow : SukiWindow
     private bool _realClose;
     private bool _runtimeUiDisposed;
     private bool _initializingSettings;
+    private string _currentPage = "";
     private string? _bgSelected; // 当前选中的背景: "default" | filepath
     private readonly List<string> _bgHistory = new(); // 历史背景图片路径
     private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _backgroundBitmapCache = new();
@@ -306,8 +307,9 @@ public partial class MainWindow : SukiWindow
 
         CbToastDuration.SelectionChanged += (_, _) =>
         {
-            if (!_initializingSettings)
-                SettingsManager.SetInt("ToastDuration", CbToastDuration.SelectedIndex);
+            if (_initializingSettings) return;
+            SettingsManager.SetInt("ToastDuration", CbToastDuration.SelectedIndex);
+            Log.D("UI", $"设置: Toast 时长索引 -> {CbToastDuration.SelectedIndex}");
         };
 
         // 背景设置
@@ -341,6 +343,7 @@ public partial class MainWindow : SukiWindow
         {
             var on = CbAdvancedRender.IsChecked == true;
             SettingsManager.SetBool("AdvancedRender", on);
+            Log.D("UI", $"设置: 高级渲染 -> {on}");
             if (on) EnableAdvancedRender();
             else DisableAdvancedRender();
         };
@@ -677,19 +680,22 @@ public partial class MainWindow : SukiWindow
     private void CbTray_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (_initializingSettings) return;
-        SettingsManager.SetBool("TrayEnabled", CbTray.IsChecked == true);
+        var on = CbTray.IsChecked == true;
+        SettingsManager.SetBool("TrayEnabled", on);
+        Log.D("UI", $"设置: 关闭到托盘 -> {on}");
     }
 
     private void CbAuto_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (_initializingSettings) return;
+        var on = CbAuto.IsChecked == true;
         try
         {
             using var runKey = Microsoft.Win32.Registry.CurrentUser
                 .OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
             if (runKey is null) return;
 
-            if (CbAuto.IsChecked == true)
+            if (on)
             {
                 SettingsManager.SetBool("AutoStart", true);
                 var exe = Environment.ProcessPath ?? "";
@@ -700,13 +706,16 @@ public partial class MainWindow : SukiWindow
                 SettingsManager.SetBool("AutoStart", false);
                 try { runKey.DeleteValue("OPPOPods", throwOnMissingValue: false); } catch { }
             }
+            Log.D("UI", $"设置: 开机自启 -> {on}");
         }
-        catch { }
+        catch (Exception ex) { Log.Ex("UI", "设置开机自启", ex); }
     }
     private void CbAutoUpdate_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (_initializingSettings) return;
-        SettingsManager.SetString("AutoCheckUpdate", CbAutoUpdate.IsChecked == true ? "true" : "false");
+        var on = CbAutoUpdate.IsChecked == true;
+        SettingsManager.SetString("AutoCheckUpdate", on ? "true" : "false");
+        Log.D("UI", $"设置: 自动检查更新 -> {on}");
     }
 
     /// <summary>按当前型号 caps.AncOptions 动态生成主/子模式圆形图标按钮（型号不变则跳过重建）。</summary>
@@ -1510,6 +1519,11 @@ public partial class MainWindow : SukiWindow
 
     private void ShowPage(string page)
     {
+        if (_currentPage != page)
+        {
+            Log.D("UI", $"页面切换: {_currentPage} -> {page}");
+            _currentPage = page;
+        }
         MainPanel.IsVisible = page == "home";
         EqPanel.IsVisible = page == "eq";
         if (page == "eq" && _pods.IsConnected) _pods.SendQueryEqAll();
@@ -1570,6 +1584,7 @@ public partial class MainWindow : SukiWindow
     private void ToggleAcrylicBlur(bool on)
     {
         SettingsManager.SetBool("AcrylicBlur", on);
+        Log.D("UI", $"设置: Acrylic 模糊 -> {on}");
         if (on)
             SelectBackground("default");
         UpdateBackgroundSettingsAvailability(on);
@@ -1611,11 +1626,23 @@ public partial class MainWindow : SukiWindow
         => BeginMoveDrag(e);
 
     private void CustomMin_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-        => WindowState = WindowState.Minimized;
+    {
+        Log.D("UI", "窗口操作: 最小化");
+        WindowState = WindowState.Minimized;
+    }
+
     private void CustomMax_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-        => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    {
+        var nextState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        Log.D("UI", $"窗口操作: 切换窗口状态 -> {nextState}");
+        WindowState = nextState;
+    }
+
     private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
-        => Close();
+    {
+        Log.D("UI", "窗口操作: 点击关闭按钮");
+        Close();
+    }
 
     // ===== 背景设置 =====
     private void BtnBgLeft_Click(object? s, RoutedEventArgs e)
@@ -1652,6 +1679,7 @@ public partial class MainWindow : SukiWindow
         if (CbAcrylicBlur.IsChecked == true && key != "default")
             return;
 
+        Log.D("UI", key == "default" ? "背景: 选择默认背景" : "背景: 选择自定义背景");
         _bgSelected = key;
         SettingsManager.SetString("BgCurrent", key == "default" ? null : key);
         BgThumbDefault.Classes.Set("selected", key == "default");
@@ -1884,7 +1912,7 @@ public partial class MainWindow : SukiWindow
                 Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
                 Child = new TextBlock
                 {
-                    Text = "✕", FontSize = 10,
+                    Text = "✕", FontSize = 11,
                     Foreground = Avalonia.Media.Brushes.White,
                     HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
@@ -1966,7 +1994,7 @@ public partial class MainWindow : SukiWindow
         _promptTcs = null;
 
         DialogTitle.Text = "提交反馈";
-        DialogMessage.FontSize = 14;
+        DialogMessage.FontSize = 13;
         DialogMessage.Text = "点击「确认」后将会把日志导出到桌面，同时打开浏览器反馈页面，请按要求填写标题、内容并上传日志文件。\n\n如果无法连接至 GitHub，可点击「GitLab」按钮前往 GitLab 进行反馈。";
         DialogInput.IsVisible = false;
         DialogCancelBtn.Content = "取消";
@@ -2536,6 +2564,7 @@ public partial class MainWindow : SukiWindow
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
+        Log.D("UI", $"对话框: 打开输入框 -> {title}");
         DialogInput.Focus();
         DialogInput.SelectAll();
 
@@ -2558,6 +2587,7 @@ public partial class MainWindow : SukiWindow
         DialogConfirmBtn.Background = new SolidColorBrush(Color.Parse("#CCE81123"));
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
+        Log.D("UI", $"对话框: 打开确认框 -> {title}");
 
         return await _confirmTcs.Task;
     }
@@ -2584,6 +2614,7 @@ public partial class MainWindow : SukiWindow
 
     private void DialogCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "对话框: 取消");
         DialogOverlay_Close();
         _promptTcs?.TrySetResult(null);
         _confirmTcs?.TrySetResult(false);
@@ -2591,6 +2622,7 @@ public partial class MainWindow : SukiWindow
 
     private void DialogConfirm_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "对话框: 确认");
         DialogOverlay_Close();
 
         if (_promptTcs != null)
@@ -2833,7 +2865,7 @@ public partial class MainWindow : SukiWindow
             var autoHint = new TextBlock
             {
                 Text = "（自动切换模式）",
-                FontSize = 10,
+                FontSize = 11,
                 Opacity = 0.35,
                 Margin = new Thickness(14, 0, 0, 4),
                 Foreground = BrushLightGreen,
@@ -2852,7 +2884,7 @@ public partial class MainWindow : SukiWindow
             var nameTb = new TextBlock
             {
                 Text = d.DeviceName,
-                FontSize = 12,
+                FontSize = 13,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxWidth = 112,
@@ -2867,7 +2899,7 @@ public partial class MainWindow : SukiWindow
             var audioHint = new TextBlock
             {
                 Text = GetDeviceAudioText(d),
-                FontSize = 11,
+                FontSize = 12,
                 Opacity = d.IsCurrentDevice ? 0.5 : 0.6,
                 Foreground = d.IsCurrentDevice ? BrushLightGreen : BrushGreen,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
@@ -2879,7 +2911,7 @@ public partial class MainWindow : SukiWindow
             var status = new TextBlock
             {
                 Text = GetDeviceConnectionText(d),
-                FontSize = 10,
+                FontSize = 11,
                 Opacity = 0.4,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 IsVisible = d.ConnectionState != 2 && !d.IsCurrentDevice
@@ -3399,12 +3431,12 @@ public partial class MainWindow : SukiWindow
     // ===== 版本更新检查 =====
 
     private const string UPDATE_API = "https://oppopods.zhaoyi.fun/api/update/latest";
-    // private const string UPDATE_API = "http://localhost:57824/api/update/latest";
     private const string DOWNLOAD_URL = "https://github.com/Zhaoyi-ya/OppoPodsManager/releases/latest";
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     private async void BtnCheckUpdate_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "用户操作: 手动检查更新");
         BtnCheckUpdate.IsEnabled = false;
         BtnCheckUpdate.Content = "检查中...";
         try { await DoCheckUpdateAsync(silent: false); }
@@ -3417,6 +3449,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnViewLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "日志面板: 打开");
         RefreshLogView();
         SettingsPanel.IsVisible = false;
         LogPanel.IsVisible = true;
@@ -3459,6 +3492,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnLogBack_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "日志面板: 返回设置");
         _logRefreshTimer?.Stop();
         _logAutoScroll = true;
         LogPanel.IsVisible = false;
@@ -3467,6 +3501,7 @@ public partial class MainWindow : SukiWindow
 
     private async void BtnLogExport_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        Log.D("UI", "日志面板: 导出日志");
         var top = Avalonia.Controls.TopLevel.GetTopLevel(this);
         if (top == null) return;
         var storage = top.StorageProvider;
@@ -3484,6 +3519,7 @@ public partial class MainWindow : SukiWindow
         try
         {
             _logManager.ExportLogsAsZip(file.Path.LocalPath);
+            Log.D("UI", $"日志面板: 导出成功 -> {file.Path.LocalPath}");
             await ShowCheckResultDialog($"日志已导出：{file.Path.LocalPath}", "导出成功");
         }
         catch (Exception ex)
@@ -3496,6 +3532,7 @@ public partial class MainWindow : SukiWindow
     private void BtnLogToggle_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         _logSimplified = !_logSimplified;
+        Log.D("UI", $"日志面板: 切换显示模式 -> {(_logSimplified ? "简化版" : "完整版")}");
         BtnLogToggle.Content = _logSimplified ? "简化版" : "完整版";
         _renderedLogVersion = -1;
         RefreshLogView();
@@ -3704,36 +3741,98 @@ public partial class MainWindow : SukiWindow
     {
         try
         {
+            Log.D("UPDATE", $"开始检查更新，silent={silent}, api={UPDATE_API}");
             var resp = await _http.GetStringAsync(UPDATE_API);
             using var doc = System.Text.Json.JsonDocument.Parse(resp);
             var json = doc.RootElement;
             var serverVersion = json.GetProperty("version").GetString();
             var content = json.TryGetProperty("content", out var c) ? c.GetString() ?? "" : "";
             var downloadUrl = json.TryGetProperty("download_url", out var u) ? u.GetString() ?? DOWNLOAD_URL : DOWNLOAD_URL;
+            Log.D("UPDATE", $"检查更新响应: serverVersion={serverVersion ?? "<null>"}, localVersion={VersionText.Text}");
 
             if (string.IsNullOrEmpty(serverVersion) || !IsNewerThan(serverVersion, VersionText.Text!))
             {
-            if (!silent) await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog($"已是最新版本 ({VersionText.Text})"));
-            return;
+                Log.D("UPDATE", "当前已是最新版本");
+                if (!silent) await Dispatcher.UIThread.InvokeAsync(async () =>
+                    await ShowCheckResultDialog($"已是最新版本 ({VersionText.Text})"));
+                return;
             }
 
             // 自动检查时才跳过已跳过的版本
             if (silent)
             {
                 var skipped = SettingsManager.GetString("SkippedVersion");
-                if (serverVersion == skipped) return;
+                if (serverVersion == skipped)
+                {
+                    Log.D("UPDATE", $"自动检查跳过已忽略版本: {serverVersion}");
+                    return;
+                }
             }
 
-            var go = await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowUpdateDialog(serverVersion, content));
-            if (go)
-                Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
+            Log.D("UPDATE", $"发现新版本: {serverVersion}");
+            if (!silent)
+            {
+                var go = await Dispatcher.UIThread.InvokeAsync(async () =>
+                    await ShowUpdateDialog(serverVersion, content));
+                if (go)
+                    Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
+                return;
+            }
+
+            var shouldUseToast = !IsVisible || WindowState == WindowState.Minimized || !IsActive;
+            if (shouldUseToast)
+            {
+                var action = await Dispatcher.UIThread.InvokeAsync(async () =>
+                    await ToastWindow.ShowUpdateAsync(serverVersion));
+                HandleUpdateToastAction(action, serverVersion, downloadUrl);
+            }
+            else
+            {
+                var go = await Dispatcher.UIThread.InvokeAsync(async () =>
+                    await ShowUpdateDialog(serverVersion, content));
+                if (go)
+                    Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
+            }
         }
-        catch
+        catch (TaskCanceledException ex) when (!silent)
         {
+            Log.Ex("UPDATE", "检查更新请求超时或被取消", ex);
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+                await ShowCheckResultDialog("检查更新超时，请稍后重试或检查网络是否能访问更新服务器。"));
+        }
+        catch (HttpRequestException ex) when (!silent)
+        {
+            Log.Ex("UPDATE", "检查更新网络请求失败", ex);
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+                await ShowCheckResultDialog("检查更新失败，无法连接更新服务器。"));
+        }
+        catch (System.Text.Json.JsonException ex) when (!silent)
+        {
+            Log.Ex("UPDATE", "检查更新响应解析失败", ex);
+            await Dispatcher.UIThread.InvokeAsync(async () =>
+                await ShowCheckResultDialog("检查更新失败，服务器返回的数据格式异常。"));
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UPDATE", "检查更新失败", ex);
             if (!silent) await Dispatcher.UIThread.InvokeAsync(async () =>
                 await ShowCheckResultDialog("检查更新失败，请检查网络连接"));
+        }
+    }
+
+    private static void HandleUpdateToastAction(UpdateToastAction action, string serverVersion, string downloadUrl)
+    {
+        if (action == UpdateToastAction.Skip)
+        {
+            SettingsManager.SetString("SkippedVersion", serverVersion);
+            Log.D("UPDATE", $"用户跳过版本: {serverVersion}");
+            return;
+        }
+
+        if (action == UpdateToastAction.Download)
+        {
+            Log.D("UPDATE", $"用户前往下载: {downloadUrl}");
+            Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
         }
     }
 

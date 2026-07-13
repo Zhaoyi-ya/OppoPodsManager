@@ -2,9 +2,45 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:suki="https://github.com/kikipoulet/SukiUI"
              x:Class="OppoPodsManager.App">
+    <Application.Resources>
+        <FontFamily x:Key="AppFont">avares://OppoPodsManager/Assets/Fonts#MiSans, Microsoft YaHei UI, Microsoft YaHei, Segoe UI</FontFamily>
+    </Application.Resources>
     <Application.Styles>
         <FluentTheme />
         <suki:SukiTheme ThemeColor="Blue" />
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="TemplatedControl">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="SelectableTextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="ComboBoxItem">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
+        <Style Selector="ToolTip">
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+        </Style>
         <!-- 修复 Avalonia 主题模板内 BorderBrush 错绑到 BorderThickness 的 binding error。
              在 Separator / DropDownButton / 其他控件的 PART_RootBorder 上重设 BorderBrush。
              注意：此 bug 存在于编译后的 BAML 资源中，源码不可见；样式覆盖能确保运行时正确取值。 -->
