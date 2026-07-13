@@ -64,6 +64,7 @@ public partial class MainWindow : SukiWindow
     private SmallWindow? _smallWindow;
     private DateTime _smallWindowShownAt = DateTime.MinValue;
     private readonly Util.LogManager _logManager = new();
+    private readonly LogTraceListener _logTraceListener;
     private readonly ObservableCollection<string> _renderedLogEntries = new();
     private int _renderedLogVersion = -1;
     private DispatcherTimer? _trayClickTimer;
@@ -190,7 +191,8 @@ public partial class MainWindow : SukiWindow
 
         // 挂载调试日志监听器，捕获 Log.D/Ex 输出到 UI 日志面板
         _logManager.CleanOldLogs(7);
-        Trace.Listeners.Add(new LogTraceListener(_logManager));
+        _logTraceListener = new LogTraceListener(_logManager);
+        Trace.Listeners.Add(_logTraceListener);
             Log.D("UI", "InitializeComponent OK");
 
         // Wire events programmatically (Avalonia 12 compatibility)
@@ -2489,8 +2491,8 @@ public partial class MainWindow : SukiWindow
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
         DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
 
-        // 耳机操控卡片（开发阶段强制显示）
-        // DiTouchCard.IsVisible = caps.HasKeyFunction;
+        // 耳机操控卡片仍在开发中，当前版本强制隐藏。
+        DiTouchCard.IsVisible = false;
     }
 
     /// <summary>固件版本 CSV → 显示格式：138.138.105。</summary>
@@ -2657,6 +2659,8 @@ public partial class MainWindow : SukiWindow
     {
         _realClose = true;
         _pollCts?.Cancel();
+        _pods.StateChanged -= OnStateChanged;
+        Closing -= OnWindowClosing;
         DisposeRuntimeUiResources();
         _pods.Dispose();
         if (_trayIcon != null) _trayIcon.IsVisible = false;
@@ -2669,9 +2673,12 @@ public partial class MainWindow : SukiWindow
             return;
         _runtimeUiDisposed = true;
 
+        _pods.StateChanged -= OnStateChanged;
+        Closing -= OnWindowClosing;
         _eqDebounceTimer?.Stop();
         _bgApplyDebounceTimer?.Stop();
         _logRefreshTimer?.Stop();
+        Trace.Listeners.Remove(_logTraceListener);
         _logManager.Dispose();
         _trayClickTimer?.Stop();
         if (_trayIcon != null)

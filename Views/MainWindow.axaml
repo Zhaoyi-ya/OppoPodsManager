@@ -721,7 +721,7 @@
      <TextBlock Text="设备详情" FontSize="15" FontWeight="Medium"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
      <!-- 耳机操控 -->
-     <Border x:Name="DiTouchCard" Padding="18,16"
+     <Border x:Name="DiTouchCard" Padding="18,16" IsVisible="False"
        CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
       <StackPanel Spacing="12">
        <Grid ColumnDefinitions="*,Auto">
