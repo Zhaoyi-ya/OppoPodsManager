@@ -150,10 +150,10 @@
 本软件界面内嵌并使用 MiSans 字体。MiSans 由小米提供，版权及授权信息以小米官方说明和 MiSans 字体知识产权许可协议为准：
 
 - MiSans 官方页面：https://hyperos.mi.com/font/
-- MiSans FAQ：https://hyperos.mi.com/font/en/faq/
-- MiSans 字体知识产权许可协议：https://hyperos.mi.com/font-download/MiSans字体知识产权许可协议.pdf
+- MiSans FAQ：https://hyperos.mi.com/font/zh/faq/
 
-根据 MiSans 官方说明，MiSans 可作为嵌入式字体使用，但应在软件中特别注明使用了 MiSans 字体。本项目未对 MiSans 字体文件或其组件进行改编、二次开发、单独分发或售卖。
+
+根据 MiSans 官方说明，本项目在软件中特别注明使用了 MiSans 字体并且未对 MiSans 字体文件或其组件进行改编、二次开发、单独分发或售卖。
 
 ---
 
