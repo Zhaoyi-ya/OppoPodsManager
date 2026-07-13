@@ -41,14 +41,6 @@ jobs:
                 if (error.status !== 404) throw error;
               }
 
-              if (issue.state === 'closed') {
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  state: 'open'
-                });
-              }
               return;
             }
 
@@ -77,16 +69,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issue.number,
-                body: `${marker}\n未检测到日志文件附件，请上传日志文件后重新打开 Issue。`
+                body: `${marker}\n未检测到日志文件附件，请补充上传日志文件。`
               });
             }
 
-            if (issue.state !== 'closed') {
-              await github.rest.issues.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                state: 'closed',
-                state_reason: 'not_planned'
-              });
-            }
