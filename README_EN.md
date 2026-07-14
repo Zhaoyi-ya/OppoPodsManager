@@ -159,6 +159,8 @@ According to MiSans’ official statements, this project specifies the use of th
 
 ## Acknowledgements
 
+- [Avalonia UI](https://avaloniaui.net/) — Cross-platform UI framework
+- [SukiUI](https://github.com/kikipoulet/SukiUI) — Avalonia theme & control library
 - [Leaf-lsgtky/OppoPods](https://github.com/Leaf-lsgtky/OppoPods) — OPPO proprietary protocol reverse engineering
 - [1812z/OppoPods](https://github.com/1812z/OppoPods) — Feature implementation reference
 

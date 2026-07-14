@@ -159,6 +159,8 @@
 
 ## 致谢
 
+- [Avalonia UI](https://avaloniaui.net/) — 跨平台 UI 框架
+- [SukiUI](https://github.com/kikipoulet/SukiUI) — Avalonia 主题与控件库
 - [Leaf-lsgtky/OppoPods](https://github.com/Leaf-lsgtky/OppoPods) — OPPO 耳机私有协议逆向
 - [1812z/OppoPods](https://github.com/1812z/OppoPods) — 功能实现参考
 
