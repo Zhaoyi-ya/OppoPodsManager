@@ -166,8 +166,16 @@ public partial class PodManager
                     Log.D("RFCOMM", $"ParseActiveReport: 用户交互 -> {desc ?? "(解析失败)"} raw={BitConverter.ToString(pkt, bodyStart, Math.Min(bodyLen, 12))}");
                 }
                 break;
+            case OppoProtocol.EvtConnectionHistory:
+                Log.D("RFCOMM", $"ParseActiveReport: 连接设备历史 raw={BitConverter.ToString(pkt, bodyStart, bodyLen)}");
+                break;
+            case OppoProtocol.EvtDiagnosisJson:
+                Log.D("RFCOMM", $"ParseActiveReport: 诊断JSON数据 raw={BitConverter.ToString(pkt, bodyStart, bodyLen)}");
+                break;
             default:
-                Log.D("RFCOMM", $"ParseActiveReport: 未识别子类型 0x{subType:X2}");
+                Log.D("RFCOMM", $"ParseActiveReport: 未识别子类型 0x{subType:X2}, " +
+                    $"full={BitConverter.ToString(pkt, start, len)}, " +
+                    $"body={BitConverter.ToString(pkt, bodyStart, bodyLen)}");
                 break;
         }
         StateChanged?.Invoke();

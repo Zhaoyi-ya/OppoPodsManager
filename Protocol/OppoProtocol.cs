@@ -153,6 +153,8 @@ public static partial class OppoProtocol
     public const byte EvtOneshot       = 0x10;  // Oneshot 状态
     public const byte EvtToneChange    = 0x11;  // 耳音调变更
     public const byte EvtUserInteraction = 0xF1;  // 用户交互事件（UserInteractionEventInfo）
+    public const byte EvtConnectionHistory = 0xF2;  // 连接设备历史（ConnectDevicesInfo）
+    public const byte EvtDiagnosisJson     = 0xF4;  // 诊断 JSON 数据（DiagnosisJsonDataInfo）
 
     /// <summary>0x0204 子类型 → 可读名称（用于日志）。</summary>
     public static string ActiveReportName(int subType) => subType switch
@@ -173,6 +175,8 @@ public static partial class OppoProtocol
         EvtOneshot       => "Oneshot",
         EvtToneChange    => "耳音调",
         EvtUserInteraction => "用户交互",
+        EvtConnectionHistory => "连接设备历史",
+        EvtDiagnosisJson => "诊断JSON数据",
         _                => "未知(0x" + subType.ToString("X2") + ")"
     };
 

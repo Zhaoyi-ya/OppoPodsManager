@@ -172,11 +172,10 @@ public partial class PodManager : IPodManager
                     {
                         Log.D("RFCOMM", $"DispatchFrame: 设置成功 cmd=0x{frame.Cmd:X4}");
                         // 0x8418 = CmdSetEqDetail 的响应：删除/保存 EQ 的 ACK。
-                        // 注意：不由这里处理追踪列表和 DeviceEqEntries——交由 ParseEqAll 统一消费。
-                        // 见 Melody APK 的 f5125V 删除追踪列表做法（ParseEqAll 才是单一过滤点）。
+                        // 删除成功后立即从本地设备 EQ 列表移除，不等待设备刷新，避免 UI 继续显示旧条目。
                         if (frame.Cmd == OppoProtocol.CmdSetEqDetail + 0x8000 && _pendingDeleteEqIds.Count > 0)
                         {
-                            Log.D("RFCOMM", $"收到删除 ACK, _pendingDeleteEqIds=[{string.Join(",", _pendingDeleteEqIds.Keys)}] 等待设备刷新");
+                            RemovePendingDeletedEqEntries();
                         }
                     }
                     else
@@ -194,6 +193,26 @@ public partial class PodManager : IPodManager
                 Log.D("RFCOMM", $"DispatchFrame: 未处理 cmd=0x{frame.Cmd:X4} len={len}");
                 break;
         }
+    }
+
+    private void RemovePendingDeletedEqEntries()
+    {
+        var ids = _pendingDeleteEqIds.Keys.ToHashSet();
+        if (ids.Count == 0) return;
+
+        var before = State.DeviceEqEntries.Count;
+        State.DeviceEqEntries = State.DeviceEqEntries
+            .Where(e => !ids.Contains(e.EqId))
+            .ToList();
+
+        foreach (var id in ids)
+        {
+            Caps.DeviceEqNames.Remove(id);
+            _pendingDeleteEqIds.Remove(id);
+        }
+
+        Log.D("RFCOMM", $"收到删除 ACK, 已本地移除 EQ ids=[{string.Join(",", ids)}] ({before}->{State.DeviceEqEntries.Count})");
+        StateChanged?.Invoke();
     }
 
     public async Task ConnectAsync()
@@ -478,7 +497,7 @@ public partial class PodManager : IPodManager
         SendSet(OppoProtocol.CmdSetEqDetail, payload, $"更新 EQ {name}");
     }
 
-    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。发送删除命令后立即查询全量列表以刷新。</summary>
+    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。收到 ACK 后立即从本地列表移除。</summary>
     public void DeleteEq(int eqId)
     {
         if (!Caps.HasCustomEq)
@@ -493,11 +512,6 @@ public partial class PodManager : IPodManager
         Log.D("RFCOMM", $"DeleteEq eqId={eqId} fullEntry={entry != null} payload=[{string.Join(",", payload)}]");
         _pendingDeleteEqIds[(byte)eqId] = DateTime.Now.AddSeconds(1);
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "删除 EQ");
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(1000);
-            SendQueryEqAll();
-        });
     }
 
     public async Task PollAsync(CancellationToken ct)
