@@ -369,11 +369,17 @@ public partial class PodManager
 
     private void ParseBatchStatus(byte[] pkt, int start, int len)
     {
+        var payload = Slice(pkt, start, len);
+        var features = OppoProtocol.ParseFeatureStatuses(payload);
+        Caps.ResolveGameModeProtocol(features);
+        Log.D("RFCOMM", $"功能状态: raw={BitConverter.ToString(payload)}, " +
+            $"游戏协议={(Caps.GameModeFeatureId == 0 ? "无" : $"feature 0x{Caps.GameModeFeatureId:X2}")}");
+
         for (int i = 0; i + 1 < len; i += 2)
         {
             byte feature = pkt[start + i];
             byte value = pkt[start + i + 1];
-            if (feature == OppoProtocol.FeatureGameMain)
+            if (feature == Caps.GameModeFeatureId)
                 State.GameMode = value != 0;
             else if (feature == OppoProtocol.FeatureDualDevice)
                 State.DualDevice = value != 0;

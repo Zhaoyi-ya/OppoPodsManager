@@ -299,17 +299,29 @@ public static partial class OppoProtocol
     {
         var features = new List<byte> { 0x05 };
         if (caps.HasDualDevice) features.Add(0x11);
-        if (caps.HasGameMode) features.Add(0x06);
+        // Windows 无 Android LeAudioRepository：始终只读探测新旧游戏 feature，
+        // 再以 0x810D 实际返回结果决定是否显示及使用哪条协议。
+        features.Add(FeatureGameLL);
+        features.Add(FeatureGameMain);
         if (caps.SpatialTypes.Count > 0) features.Add(0x1B);
         if (caps.HasGameSound)
         {
             features.Add(0x27);
-            features.Add(0x28);
+            if (!features.Contains(FeatureGameMain)) features.Add(FeatureGameMain);
         }
         var payload = new byte[features.Count + 1];
         payload[0] = (byte)features.Count;
         features.CopyTo(payload, 1);
         return payload;
+    }
+
+    /// <summary>解析 0x810D 的 [feature,value] 对；重复 feature 以后值覆盖。</summary>
+    public static Dictionary<byte, byte> ParseFeatureStatuses(byte[] payload)
+    {
+        var result = new Dictionary<byte, byte>();
+        for (int i = 0; i + 1 < payload.Length; i += 2)
+            result[payload[i]] = payload[i + 1];
+        return result;
     }
 
     public static byte[] FeaturePayload(byte feature, bool on)

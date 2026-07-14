@@ -242,6 +242,8 @@ public static class DeviceProfileLoader
         caps.HasPromptVolume       = FlagOn(func, "promptVolume") || func.TryGetProperty("promptVolumeRange", out _);
 
         caps.HasGameMode = FunctionGameModeSupported(func);
+        if (caps.HasGameMode)
+            caps.GameModeFeatureId = OppoProtocol.FeatureGameLL;
 
         if (func.TryGetProperty("gameSoundList", out var gsl) && gsl.ValueKind == JsonValueKind.Array)
         {
@@ -254,6 +256,7 @@ public static class DeviceProfileLoader
                     {
                         caps.HasGameSound = true;
                         caps.HasGameMode = true;
+                        caps.GameModeFeatureId = OppoProtocol.FeatureGameMain;
                         caps.GameSoundType = (byte)tv;
                         break;
                     }
