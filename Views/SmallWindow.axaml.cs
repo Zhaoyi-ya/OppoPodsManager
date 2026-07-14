@@ -25,8 +25,12 @@ public partial class SmallWindow : SukiWindow
 
     private readonly SolidColorBrush _cardBgBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _cardBorderBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _windowBgBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _bgTintBrush = new(Color.FromArgb(0x66, 0x00, 0x00, 0x00));
     private readonly SolidColorBrush _ancInactiveBgBrush = new(Color.FromArgb(0x10, 0x00, 0x00, 0x00));
     private readonly SolidColorBrush _ancSubInactiveBgBrush = new(Color.FromArgb(0x0C, 0x00, 0x00, 0x00));
+    private Avalonia.Media.Imaging.Bitmap? _backgroundBitmap;
+    private string _backgroundCacheKey = "";
 
     // 电量图标 path（从 OPPO 官方 App 提取，复合路径）
     private const string IconLeftData   = "M6,12C9.314,12 12,9.314 12,6C12,2.686 9.314,0 6,0C2.686,0 0,2.686 0,6C0,9.314 2.686,12 6,12Z";
@@ -63,6 +67,7 @@ public partial class SmallWindow : SukiWindow
             Log.D("UI", "SmallWindow: 关闭");
             _isClosed = true;
             _pods.StateChanged -= OnStateChanged;
+            DisposeBackgroundBitmap();
         };
         Deactivated += (_, _) =>
         {
@@ -89,8 +94,64 @@ public partial class SmallWindow : SukiWindow
         }
         catch { }
 
-        ApplyTheme();
+        RefreshAppearance();
         SafeRefresh();
+    }
+
+    public void RefreshAppearance()
+    {
+        if (_isClosed)
+            return;
+        ApplyAcrylicBlur();
+        ApplyWindowChrome();
+        ApplyTheme();
+    }
+
+    private void ApplyAcrylicBlur()
+    {
+        if (!SettingsManager.GetBool("AcrylicBlur", false))
+            return;
+
+        TransparencyLevelHint = new List<WindowTransparencyLevel>
+        {
+            WindowTransparencyLevel.AcrylicBlur,
+            WindowTransparencyLevel.Transparent
+        };
+        Background = Avalonia.Media.Brushes.Transparent;
+        if (OperatingSystem.IsWindows())
+            BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
+        Log.D("UI", "SmallWindow: 应用 Acrylic 模糊");
+    }
+
+    private void ApplyWindowChrome()
+    {
+        if (SettingsManager.GetBool("AdvancedRender", false))
+            EnableAdvancedRenderChrome();
+        else
+            DisableAdvancedRenderChrome();
+    }
+
+    private void EnableAdvancedRenderChrome()
+    {
+        IsTitleBarVisible = false;
+        CustomTitleBar.IsVisible = true;
+        Log.D("UI", "SmallWindow: 关闭 Chrome 标题栏 -> true");
+    }
+
+    private void DisableAdvancedRenderChrome()
+    {
+        IsTitleBarVisible = true;
+        CustomTitleBar.IsVisible = false;
+        Log.D("UI", "SmallWindow: 关闭 Chrome 标题栏 -> false");
+    }
+
+    private void TitleBarDrag_PointerPressed(object? s, Avalonia.Input.PointerPressedEventArgs e)
+        => BeginMoveDrag(e);
+
+    private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "SmallWindow: 点击自定义关闭按钮");
+        Close();
     }
 
     private void ApplyTheme()
@@ -100,23 +161,87 @@ public partial class SmallWindow : SukiWindow
             ? Application.Current?.ActualThemeVariant
             : theme.ActiveBaseTheme;
         var isLight = activeTheme == Avalonia.Styling.ThemeVariant.Light;
+        var transparencyPct = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
+        var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255);
+        var hasCustomBackground = HasCustomBackgroundEnabled();
+
+        var acrylicBlur = SettingsManager.GetBool("AcrylicBlur", false);
+        if (acrylicBlur)
+        {
+            Background = Avalonia.Media.Brushes.Transparent;
+        }
+        else
+        {
+            _windowBgBrush.Color = isLight ? Color.FromRgb(0xE5, 0xE5, 0xEA) : Colors.Transparent;
+            Background = _windowBgBrush;
+        }
 
         if (isLight)
         {
-            _cardBgBrush.Color = Color.FromRgb(0xF5, 0xF5, 0xF5);
+            var cardBase = hasCustomBackground ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0xF5, 0xF5, 0xF5);
+            _cardBgBrush.Color = Color.FromArgb(alpha, cardBase.R, cardBase.G, cardBase.B);
             _cardBorderBrush.Color = Color.FromArgb(0x15, 0x00, 0x00, 0x00);
+            _bgTintBrush.Color = Color.FromArgb(0x36, 0xFF, 0xFF, 0xFF);
             BatteryCard.BorderBrush = _cardBorderBrush;
             AncCard.BorderBrush = _cardBorderBrush;
         }
         else
         {
-            _cardBgBrush.Color = Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF);
+            var glassAlpha = (byte)Math.Clamp(alpha * 0.35, 9, 255);
+            _cardBgBrush.Color = Color.FromArgb(glassAlpha, 0x1C, 0x1C, 0x1E);
+            _bgTintBrush.Color = Color.FromArgb(0x66, 0x00, 0x00, 0x00);
             BatteryCard.BorderBrush = null;
             AncCard.BorderBrush = null;
         }
 
         BatteryCard.Background = _cardBgBrush;
         AncCard.Background = _cardBgBrush;
+        BgTint.Background = _bgTintBrush;
+        ApplySavedBackground();
+    }
+
+    private static bool HasCustomBackgroundEnabled()
+    {
+        var key = SettingsManager.GetString("BgCurrent");
+        return !SettingsManager.GetBool("AcrylicBlur", false)
+               && !string.IsNullOrWhiteSpace(key)
+               && key != "default"
+               && System.IO.File.Exists(key);
+    }
+
+    private void ApplySavedBackground()
+    {
+        var key = SettingsManager.GetString("BgCurrent");
+        if (SettingsManager.GetBool("AcrylicBlur", false) || string.IsNullOrWhiteSpace(key) || key == "default" || !System.IO.File.Exists(key))
+        {
+            Log.D("UI", "SmallWindow: 自定义背景未启用或被 Acrylic 禁用");
+            BgImage.Source = null;
+            BgImage.IsVisible = false;
+            BgTint.IsVisible = false;
+            DisposeBackgroundBitmap();
+            return;
+        }
+
+        var blur = Math.Clamp(SettingsManager.GetInt("BgBlur", 0), 0, 20);
+        var cacheKey = key + "|" + blur;
+        if (_backgroundCacheKey != cacheKey)
+        {
+            DisposeBackgroundBitmap();
+            _backgroundBitmap = MainWindow.LoadSmallSharedBackgroundBitmap(key, 420, blur);
+            _backgroundCacheKey = cacheKey;
+        }
+
+        BgImage.Source = _backgroundBitmap;
+        BgImage.IsVisible = _backgroundBitmap != null;
+        BgTint.IsVisible = _backgroundBitmap != null;
+    }
+
+    private void DisposeBackgroundBitmap()
+    {
+        BgImage.Source = null;
+        _backgroundBitmap?.Dispose();
+        _backgroundBitmap = null;
+        _backgroundCacheKey = "";
     }
 
     public void SafeRefresh()

@@ -83,7 +83,7 @@
                 </StackPanel>
 
                 <Grid ColumnDefinitions="*,8,*,8,*">
-                    <Border Grid.Column="0" Classes="pill">
+                    <Border x:Name="LeftPill" Grid.Column="0" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
                             <TextBlock x:Name="LeftPct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
@@ -95,7 +95,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="2" Classes="pill">
+                    <Border x:Name="CasePill" Grid.Column="2" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
                             <TextBlock x:Name="CasePct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
@@ -107,7 +107,7 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="4" Classes="pill">
+                    <Border x:Name="RightPill" Grid.Column="4" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
                             <TextBlock x:Name="RightPct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
@@ -189,10 +189,11 @@
                 </StackPanel>
                 <TextBlock x:Name="UpdateVersion" Grid.Row="1" Text="版本号：v0.0.0" FontSize="13"
                            Foreground="#BFFFFFFF" HorizontalAlignment="Center" Margin="0,8,6,12"/>
-                <Grid Grid.Row="2" ColumnDefinitions="*,8,*,8,*" Margin="0,0,6,0">
-                    <Button x:Name="UpdateLaterBtn" Grid.Column="0" Content="下次提醒我" Classes="UpdateActionButton"/>
-                    <Button x:Name="UpdateSkipBtn" Grid.Column="2" Content="跳过此版本" Classes="UpdateActionButton"/>
-                    <Button x:Name="UpdateDownloadBtn" Grid.Column="4" Content="前往下载" Classes="UpdateActionButton"/>
+                <Grid Grid.Row="2" RowDefinitions="Auto,6,Auto" ColumnDefinitions="*,8,*" Margin="0,0,6,0">
+                    <Button x:Name="UpdateLaterBtn" Grid.Row="0" Grid.Column="0" Content="下次提醒我" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateSkipBtn" Grid.Row="0" Grid.Column="2" Content="跳过此版本" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateMirrorBtn" Grid.Row="2" Grid.Column="0" Content="国内下载" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateDownloadBtn" Grid.Row="2" Grid.Column="2" Content="GitHub 下载" Classes="UpdateActionButton"/>
                 </Grid>
             </Grid>
         </Grid>

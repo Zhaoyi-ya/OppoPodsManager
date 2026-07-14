@@ -252,6 +252,7 @@ public partial class MainWindow : SukiWindow
             SettingsManager.SetInt("CardOpacity", v);
             if (!_applyingAppearancePreset) CbTransparencyPreset.SelectedIndex = 0;
             RefreshCardOpacity();
+            RefreshSmallWindowAppearance();
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
 
@@ -333,6 +334,7 @@ public partial class MainWindow : SukiWindow
             var timer = EnsureBackgroundApplyDebounceTimer();
             timer.Stop();
             timer.Start();
+            RefreshSmallWindowAppearance();
         };
         BtnResetBgBlur.Click += (_, _) => SlBgBlur.Value = 0;
 
@@ -346,6 +348,7 @@ public partial class MainWindow : SukiWindow
             Log.D("UI", $"设置: 高级渲染 -> {on}");
             if (on) EnableAdvancedRender();
             else DisableAdvancedRender();
+            RefreshSmallWindowAppearance();
         };
 
         // Acrylic 模糊开关
@@ -1010,7 +1013,7 @@ public partial class MainWindow : SukiWindow
 
     private void SpatialAudio_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (s is RadioButton rb && rb.Tag is string mode && _pods.IsConnected)
+        if (s is RadioButton rb && rb.IsChecked == true && rb.Tag is string mode && _pods.IsConnected)
         {
             Log.D("UI", $"用户操作: 空间音频 -> {mode}");
             _pods.SendSpatialAudio(mode);
@@ -1695,6 +1698,7 @@ public partial class MainWindow : SukiWindow
         }
 
         ApplySavedBackground();
+        RefreshSmallWindowAppearance();
     }
 
     private void ApplySavedBackground()
@@ -1772,6 +1776,17 @@ public partial class MainWindow : SukiWindow
     private Avalonia.Media.Imaging.Bitmap LoadBackgroundBitmap(string path, int blur)
     {
         var targetWidth = GetBackgroundTargetWidth();
+        if (blur <= 0)
+        {
+            using var fs = System.IO.File.OpenRead(path);
+            return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(fs, targetWidth, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        }
+
+        return LoadBlurredBackgroundBitmap(path, targetWidth, blur);
+    }
+
+    internal static Avalonia.Media.Imaging.Bitmap LoadSmallSharedBackgroundBitmap(string path, int targetWidth, int blur)
+    {
         if (blur <= 0)
         {
             using var fs = System.IO.File.OpenRead(path);
@@ -2610,6 +2625,15 @@ public partial class MainWindow : SukiWindow
     {
         DialogOverlay.IsVisible = false;
         DialogSkipBtn.IsVisible = false;
+        DialogMirrorBtn.IsVisible = false;
+    }
+
+    private void DialogMirror_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "对话框: 国内下载");
+        DialogOverlay_Close();
+        _confirmTcs?.TrySetResult(false);
+        Process.Start(new ProcessStartInfo(DOWNLOAD_MIRROR_URL) { UseShellExecute = true });
     }
 
     private void DialogCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
@@ -3151,6 +3175,21 @@ public partial class MainWindow : SukiWindow
         }
     }
 
+    /// <summary>大 UI 设置变更时同步刷新已有小窗外观。</summary>
+    private void RefreshSmallWindowAppearance()
+    {
+        if (_smallWindow == null)
+            return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_smallWindow == null)
+                return;
+            try { _smallWindow.RefreshAppearance(); }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        });
+    }
+
     private void ShowSmallWindow()
     {
         _trayClickTimer = null;
@@ -3159,6 +3198,12 @@ public partial class MainWindow : SukiWindow
         {
             _smallWindow.Hide();
             return;
+        }
+
+        if (_smallWindow != null)
+        {
+            // 复用已有小窗时先刷新外观（标题栏、模糊、背景）
+            _smallWindow.RefreshAppearance();
         }
 
         if (_smallWindow == null)
@@ -3432,6 +3477,7 @@ public partial class MainWindow : SukiWindow
 
     private const string UPDATE_API = "https://oppopods.zhaoyi.fun/api/update/latest";
     private const string DOWNLOAD_URL = "https://github.com/Zhaoyi-ya/OppoPodsManager/releases/latest";
+    private const string DOWNLOAD_MIRROR_URL = "https://www.zhaoyi.fun/1783416183336";
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     private async void BtnCheckUpdate_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
@@ -3829,9 +3875,16 @@ public partial class MainWindow : SukiWindow
             return;
         }
 
+        if (action == UpdateToastAction.MirrorDownload)
+        {
+            Log.D("UPDATE", $"用户前往国内下载: {DOWNLOAD_MIRROR_URL}");
+            Process.Start(new ProcessStartInfo(DOWNLOAD_MIRROR_URL) { UseShellExecute = true });
+            return;
+        }
+
         if (action == UpdateToastAction.Download)
         {
-            Log.D("UPDATE", $"用户前往下载: {downloadUrl}");
+            Log.D("UPDATE", $"用户前往 GitHub 下载: {downloadUrl}");
             Process.Start(new ProcessStartInfo(downloadUrl) { UseShellExecute = true });
         }
     }
@@ -3886,7 +3939,10 @@ public partial class MainWindow : SukiWindow
         DialogSkipBtn.Content = "跳过此版本";
         DialogSkipBtn.Background = Brushes.Transparent;
         DialogSkipBtn.IsVisible = true;
-        DialogConfirmBtn.Content = "前往下载";
+        DialogMirrorBtn.Content = "国内下载";
+        DialogMirrorBtn.Background = Brushes.Transparent;
+        DialogMirrorBtn.IsVisible = true;
+        DialogConfirmBtn.Content = "GitHub 下载";
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;

@@ -3,13 +3,14 @@ using System.Threading.Tasks;
 using Avalonia.Media.Transformation;
 using Avalonia.Media;
 using Avalonia.Controls;
+using Avalonia;
 using Avalonia.Threading;
 using SukiUI;
 
 namespace OppoPodsManager;
 
 public enum ToastType { Battery, LowBattery, CriticalBattery, Disconnected }
-public enum UpdateToastAction { Later, Skip, Download }
+public enum UpdateToastAction { Later, Skip, MirrorDownload, Download }
 
 public partial class ToastWindow : Window
 {
@@ -17,6 +18,9 @@ public partial class ToastWindow : Window
     private static readonly TransformOperations ExitTransform = TransformOperations.Parse("translateX(28px)");
     private static readonly SolidColorBrush LightCardBrush = new(Color.FromRgb(0xF5, 0xF5, 0xF5));
     private static readonly SolidColorBrush LightBorderBrush = new(Color.FromArgb(0x15, 0x00, 0x00, 0x00));
+    private static readonly SolidColorBrush LightPillBrush = new(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
+    private static readonly SolidColorBrush DarkCardBrush = new(Color.FromRgb(0x1C, 0x1C, 0x1E));
+    private static readonly SolidColorBrush DarkPillBrush = new(Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF));
     private static readonly SolidColorBrush LightTextBrush = new(Color.FromRgb(0x22, 0x22, 0x22));
     private static readonly SolidColorBrush LightMutedTextBrush = new(Color.FromRgb(0x66, 0x66, 0x66));
     private static readonly SolidColorBrush LightCriticalTextBrush = new(Color.FromRgb(0x99, 0x45, 0x3A));
@@ -28,6 +32,7 @@ public partial class ToastWindow : Window
         UpdateCloseBtn.Click += (_, _) => CompleteUpdateAction(UpdateToastAction.Later);
         UpdateLaterBtn.Click += (_, _) => CompleteUpdateAction(UpdateToastAction.Later);
         UpdateSkipBtn.Click += (_, _) => CompleteUpdateAction(UpdateToastAction.Skip);
+        UpdateMirrorBtn.Click += (_, _) => CompleteUpdateAction(UpdateToastAction.MirrorDownload);
         UpdateDownloadBtn.Click += (_, _) => CompleteUpdateAction(UpdateToastAction.Download);
         // 闪电图标向量（替代 ⚡ 避免 MiSans 缺失显示为方框）
         var boltGeo = StreamGeometry.Parse("M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z");
@@ -37,6 +42,7 @@ public partial class ToastWindow : Window
         LowBolt.Data = boltGeo;
         CritBolt.Data = boltGeo;
     }
+
 
     /// <summary>
     /// 显示 Toast 弹窗。
@@ -230,12 +236,22 @@ public partial class ToastWindow : Window
     private static void ApplyTheme(ToastWindow toast)
     {
         var theme = SukiTheme.GetInstance();
-        var isLight = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Light;
+        var activeTheme = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Default
+            ? Avalonia.Application.Current?.ActualThemeVariant
+            : theme.ActiveBaseTheme;
+        var isLight = activeTheme == Avalonia.Styling.ThemeVariant.Light;
+        var transparencyPct = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
+        var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255);
 
         if (isLight)
         {
+            LightCardBrush.Color = Color.FromArgb(alpha, 0xF5, 0xF5, 0xF5);
+            LightPillBrush.Color = Color.FromArgb(0x0A, 0x00, 0x00, 0x00);
             toast.Card.Background = LightCardBrush;
             toast.Card.BorderBrush = LightBorderBrush;
+            toast.LeftPill.Background = LightPillBrush;
+            toast.CasePill.Background = LightPillBrush;
+            toast.RightPill.Background = LightPillBrush;
             var fg = LightTextBrush;
             var fgMuted = LightMutedTextBrush;
             toast.TitleBlock.Foreground = fg;
@@ -251,10 +267,12 @@ public partial class ToastWindow : Window
             toast.UpdateVersion.Foreground = fgMuted;
             toast.UpdateLaterBtn.Foreground = fg;
             toast.UpdateSkipBtn.Foreground = fg;
+            toast.UpdateMirrorBtn.Foreground = fg;
             toast.UpdateDownloadBtn.Foreground = fg;
             toast.UpdateClosePath.Stroke = fg;
             toast.UpdateLaterBtn.Background = new SolidColorBrush(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
             toast.UpdateSkipBtn.Background = new SolidColorBrush(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
+            toast.UpdateMirrorBtn.Background = new SolidColorBrush(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
             toast.UpdateDownloadBtn.Background = new SolidColorBrush(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
 
             // 遮罩背景：浅色模式用浅灰
@@ -264,6 +282,17 @@ public partial class ToastWindow : Window
             // 遮罩提示文字：浅色模式用深色
             toast.LowHintText.Foreground = fgMuted;
             toast.CritHintText.Foreground = LightCriticalTextBrush;
+        }
+        else
+        {
+            var glassAlpha = (byte)Math.Clamp(alpha * 0.35, 9, 255);
+            DarkCardBrush.Color = Color.FromArgb(glassAlpha, 0x1C, 0x1C, 0x1E);
+            DarkPillBrush.Color = Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF);
+            toast.Card.Background = DarkCardBrush;
+            toast.Card.BorderBrush = new SolidColorBrush(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF));
+            toast.LeftPill.Background = DarkPillBrush;
+            toast.CasePill.Background = DarkPillBrush;
+            toast.RightPill.Background = DarkPillBrush;
         }
     }
 }

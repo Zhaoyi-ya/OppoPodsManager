@@ -14,15 +14,42 @@
  <Style Selector="suki|SukiWindow /template/ Button#PART_CloseButton:pointerover">
   <Setter Property="Background" Value="#E81123"/>
  </Style>
+ <Style Selector="Button.CustomCloseButton">
+  <Setter Property="Width" Value="24"/>
+  <Setter Property="Height" Value="18"/>
+  <Setter Property="Padding" Value="0"/>
+  <Setter Property="Margin" Value="0"/>
+  <Setter Property="Background" Value="Transparent"/>
+  <Setter Property="Foreground" Value="{DynamicResource SukiText}"/>
+  <Setter Property="BorderThickness" Value="0"/>
+  <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  <Setter Property="VerticalContentAlignment" Value="Center"/>
+ </Style>
+ <Style Selector="Button.CustomCloseButton:pointerover">
+  <Setter Property="Background" Value="#E81123"/>
+ </Style>
+ <Style Selector="Button.CustomCloseButton:pressed">
+  <Setter Property="Background" Value="#C50F1F"/>
+ </Style>
  <Style Selector="Border.glassCard">
   <Setter Property="CornerRadius" Value="14"/>
   <Setter Property="BoxShadow" Value="0 1 4 0 #14000000"/>
  </Style>
  </suki:SukiWindow.Styles>
 
- <Grid RowDefinitions="*">
- <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Hidden">
- <StackPanel Margin="14,10,14,14" Spacing="12">
+ <Grid RowDefinitions="Auto,*">
+ <Image x:Name="BgImage" Grid.RowSpan="2" Stretch="UniformToFill" IsVisible="False" Opacity="0.82"/>
+ <Border x:Name="BgTint" Grid.RowSpan="2" IsVisible="False" Background="#66000000"/>
+ <Border x:Name="CustomTitleBar" Grid.Row="0" Height="32" IsVisible="False"
+  Background="Transparent" PointerPressed="TitleBarDrag_PointerPressed">
+  <Button Classes="CustomCloseButton" HorizontalAlignment="Right" VerticalAlignment="Center"
+   Margin="0,0,6,0" Click="CustomClose_Click" Cursor="Hand">
+   <Path Data="M1.5,2 L9,9.5 M9,2 L1.5,9.5" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"
+    HorizontalAlignment="Center" VerticalAlignment="Center" Width="10" Height="10"/>
+  </Button>
+ </Border>
+ <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
+ <StackPanel x:Name="ContentStack" Margin="14,10,14,14" Spacing="12">
 
   <!-- 电量 -->
   <Border x:Name="BatteryCard" Padding="16,14"
