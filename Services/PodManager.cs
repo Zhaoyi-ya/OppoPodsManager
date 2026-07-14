@@ -253,7 +253,7 @@ public partial class PodManager : IPodManager
             if (Caps.AncOptions.Count > 0) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc); Thread.Sleep(80); }
             if (HasSmartMode()) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent); Thread.Sleep(80); }
             if (Caps.EqPresets.Count > 0) { SendQuery(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty); Thread.Sleep(80); }
-            if (Caps.EqPresets.Count > 0 || Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
+            if (Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
             if (State.SupportedCommands.Contains(OppoProtocol.CmdQueryCodecType)) { SendQuery(OppoProtocol.CmdQueryCodecType, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             if (Caps.HasGameSound) { SendQuery(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             // 空间音频三模式当前值：仅三模式（headsetSpatialType）机型才有 0x012A，
@@ -327,8 +327,52 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectAutoSwitch() =>
         SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动切换", clearAddress: true);
 
-    public void SendMultiConnectUnpair(string targetAddress) =>
-        SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
+    public void SendMultiConnectUnpair(string targetAddress)
+    {
+        if (State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld))
+        {
+            SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
+            return;
+        }
+
+        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo))
+        {
+            Log.D("RFCOMM", $"取消配对: 设备未声明 0x0429 或 0x0408，已忽略 addr={targetAddress}");
+            CommandFailed?.Invoke("该设备不支持取消配对");
+            return;
+        }
+
+        var host = State.ConnectedDevices.FirstOrDefault(d => d.IsCurrentDevice);
+        if (host == null)
+        {
+            Log.D("RFCOMM", $"取消配对(旧版0x0408): 未找到当前主机，无法重建关联列表 addr={targetAddress}");
+            CommandFailed?.Invoke("取消配对失败（缺少当前设备信息）");
+            return;
+        }
+
+        var remaining = State.ConnectedDevices.Where(d =>
+            !d.IsCurrentDevice &&
+            !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase));
+        var payload = OppoProtocol.RelatedDeviceInfoPayload(host.Address, host.ElemByte6, remaining);
+        Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) addr={targetAddress} payload=[{BitConverter.ToString(payload)}]");
+        _dispatcher.SendTracked(OppoProtocol.CmdSetRelatedDeviceInfo, payload, (status, _) =>
+        {
+            if (status == CmdStatus.Success)
+            {
+                State.ConnectedDevices = State.ConnectedDevices
+                    .Where(d => !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) ACK 成功，已移除 {targetAddress}");
+                StateChanged?.Invoke();
+                SendMultiConnectInfo();
+            }
+            else
+            {
+                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) 失败 status={(int)status}");
+                CommandFailed?.Invoke("多设备取消配对失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
+            }
+        });
+    }
 
     public void SendOperateHandheld(string targetAddress, bool connect = true)
     {
@@ -447,6 +491,11 @@ public partial class PodManager : IPodManager
     /// <summary>查询设备端全部 EQ 信息（cmd 0x0122）。结果解析为 <see cref="PodState.DeviceEqEntries"/> + 名称回填 <see cref="DeviceCapabilities.DeviceEqNames"/>。</summary>
     public void SendQueryEqAll()
     {
+        if (!Caps.HasCustomEq)
+        {
+            Log.D("RFCOMM", $"SendQueryEqAll: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
+            return;
+        }
         Log.D("RFCOMM", "SendQueryEqAll");
         _transport.Send(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll);
     }

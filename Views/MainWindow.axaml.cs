@@ -2253,9 +2253,14 @@ public partial class MainWindow : SukiWindow
             if (entry != null) _eqCurrentId = entry.EqId;
         }
 
-        // 自定义预设未满才显示新建按钮
+        // 仅设备明确支持自定义 EQ 时显示新建入口；避免仅支持内置 EQ 的设备进入伪保存流程。
         var maxCustom = caps.CustomEqMaxPresets > 0 ? caps.CustomEqMaxPresets : 3;
-        BtnEqNew.IsVisible = _pods.State.DeviceEqEntries.Count < maxCustom;
+        BtnEqNew.IsVisible = caps.HasCustomEq && _pods.State.DeviceEqEntries.Count < maxCustom;
+        if (!caps.HasCustomEq)
+        {
+            EqSliderCard.IsVisible = false;
+            BtnEqSave.IsEnabled = false;
+        }
     }
 
     // 兼容旧方法（均转接到统一入口）
@@ -2439,6 +2444,8 @@ public partial class MainWindow : SukiWindow
 
     private async void BtnEqNew_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (!_pods.Caps.HasCustomEq) return;
+
         string? name;
         do
         {
@@ -2463,6 +2470,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnEqSave_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
+        if (!_pods.Caps.HasCustomEq) return;
         if (string.IsNullOrEmpty(_eqCurrentPreset)) return;
         if (!IsValidEqName(_eqCurrentPreset))
         {
@@ -2497,7 +2505,7 @@ public partial class MainWindow : SukiWindow
         if (devEntry != null)
         {
             _pods.DeleteEq(devEntry.EqId);
-            // DeleteEq 内部会调 SendQueryEqAll，OnStateChanged 会自动刷新列表
+            // 删除 ACK 成功后 PodManager 会立即更新本地列表并触发 OnStateChanged。
         }
         else
         {
@@ -2848,6 +2856,8 @@ public partial class MainWindow : SukiWindow
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
         var canManage = caps.HasMultiConnectManage;
+        var canUnpair = _pods.State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld)
+            || _pods.State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo);
 
         // 无设备且已连接时，用型号名填充
         if (all.Count == 0 && _pods.State.Connected)
@@ -2864,7 +2874,7 @@ public partial class MainWindow : SukiWindow
         // 计算列表签名。只包含影响行数量/菜单可用性的结构字段，避免音频活动等高频状态导致整棵 UI 树反复 Clear+new。
         var sig = string.Join("|", all.Select(d =>
             $"{d.Address};{d.DeviceName};{d.ConnectionState};{d.IsCurrentDevice}"))
-            + $"##manage={canManage};auto={_pods.State.MultiConnectAutoMode};conn={_pods.State.Connected}";
+            + $"##manage={canManage};unpair={canUnpair};auto={_pods.State.MultiConnectAutoMode};conn={_pods.State.Connected}";
         if (sig == _deviceListSignature && DeviceList.Items.Count > 0)
         {
             UpdateDeviceListRows(all);
@@ -2990,11 +3000,14 @@ public partial class MainWindow : SukiWindow
                     disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
                     menu.Items.Add(disconnect);
                 }
-                // 取消配对（所有非当前设备）
-                menu.Items.Add(new Separator());
-                var unpair = new MenuItem { Header = "取消配对" };
-                unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
-                menu.Items.Add(unpair);
+                if (canUnpair)
+                {
+                    // 根据运行时能力由 PodManager 选择新版 0x0429 或旧版 0x0408。
+                    menu.Items.Add(new Separator());
+                    var unpair = new MenuItem { Header = "取消配对" };
+                    unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
+                    menu.Items.Add(unpair);
+                }
             }
             else if (isReal && d.IsCurrentDevice)
             {

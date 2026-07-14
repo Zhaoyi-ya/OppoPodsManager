@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace OppoPodsManager;
@@ -40,7 +41,7 @@ public sealed class PacketDispatcher : IPodTransport
 
     private readonly IPodTransport _inner;              // 被装饰的底层传输
     private readonly object _lock = new();               // _pending 保护锁
-    private readonly Dictionary<ushort, Pending> _pending = new();  // 基础 cmd → 待完成项
+    private readonly Dictionary<ushort, Queue<Pending>> _pending = new(); // 基础 cmd → FIFO（队首为在途项）
     private Timer? _sweeper;                             // 超时扫描定时器
     private bool _disposed;
 
@@ -88,20 +89,29 @@ public sealed class PacketDispatcher : IPodTransport
                             int retries = 1, int timeoutMs = DefaultTimeoutMs)
     {
         var baseCmd = (ushort)(cmd & 0x7FFF);
+        bool sendNow;
+        var pending = new Pending
+        {
+            Cmd = baseCmd,
+            Payload = payload,
+            OnResult = onResult,
+            RetriesLeft = retries,
+            TimeoutMs = timeoutMs,
+        };
         lock (_lock)
         {
-            _pending[baseCmd] = new Pending
+            if (!_pending.TryGetValue(baseCmd, out var queue))
             {
-                Cmd = baseCmd,
-                Payload = payload,
-                OnResult = onResult,
-                DeadlineTicks = Environment.TickCount64 + timeoutMs,
-                RetriesLeft = retries,
-                TimeoutMs = timeoutMs,
-            };
+                queue = new Queue<Pending>();
+                _pending[baseCmd] = queue;
+            }
+            sendNow = queue.Count == 0;
+            queue.Enqueue(pending);
+            if (sendNow)
+                pending.DeadlineTicks = Environment.TickCount64 + timeoutMs;
         }
         EnsureSweeper();
-        _inner.Send(cmd, payload);
+        if (sendNow) _inner.Send(cmd, payload);
     }
 
     private void OnInnerFrame(PodFrame frame)
@@ -111,9 +121,20 @@ public sealed class PacketDispatcher : IPodTransport
         {
             var baseCmd = (ushort)(frame.Cmd & 0x7FFF);
             Pending? p = null;
+            Pending? next = null;
             lock (_lock)
             {
-                if (_pending.TryGetValue(baseCmd, out p)) _pending.Remove(baseCmd);
+                if (_pending.TryGetValue(baseCmd, out var queue) && queue.Count > 0)
+                {
+                    p = queue.Dequeue();
+                    if (queue.Count == 0)
+                        _pending.Remove(baseCmd);
+                    else
+                    {
+                        next = queue.Peek();
+                        next.DeadlineTicks = Environment.TickCount64 + next.TimeoutMs;
+                    }
+                }
             }
             if (p != null)
             {
@@ -122,6 +143,12 @@ public sealed class PacketDispatcher : IPodTransport
                     ? (CmdStatus)frame.Payload[0] : CmdStatus.Success;
                 try { p.OnResult?.Invoke(status == 0 ? CmdStatus.Success : status, frame); }
                 catch (Exception ex) { Log.Ex("DISPATCH", "OnResult", ex); }
+            }
+            if (next != null)
+            {
+                Log.D("DISPATCH", $"发送队列中的下一条命令 cmd=0x{next.Cmd:X4}");
+                try { _inner.Send(next.Cmd, next.Payload); }
+                catch (Exception ex) { Log.Ex("DISPATCH", "发送队列下一条", ex); }
             }
         }
         // 无论是否配对，都把帧继续交给上层解析（DispatchFrame）
@@ -150,9 +177,11 @@ public sealed class PacketDispatcher : IPodTransport
         lock (_lock)
         {
             if (_pending.Count == 0) return;
-            foreach (var kv in new List<KeyValuePair<ushort, Pending>>(_pending))
+            foreach (var kv in new List<KeyValuePair<ushort, Queue<Pending>>>(_pending))
             {
-                var p = kv.Value;
+                var queue = kv.Value;
+                if (queue.Count == 0) continue;
+                var p = queue.Peek();
                 if (now < p.DeadlineTicks) continue;
                 if (p.RetriesLeft > 0)
                 {
@@ -162,8 +191,16 @@ public sealed class PacketDispatcher : IPodTransport
                 }
                 else
                 {
-                    _pending.Remove(kv.Key);
+                    queue.Dequeue();
                     (timeouts ??= new()).Add(p);
+                    if (queue.Count == 0)
+                        _pending.Remove(kv.Key);
+                    else
+                    {
+                        var next = queue.Peek();
+                        next.DeadlineTicks = now + next.TimeoutMs;
+                        (retries ??= new()).Add(next);
+                    }
                 }
             }
         }
@@ -171,7 +208,7 @@ public sealed class PacketDispatcher : IPodTransport
         if (retries != null)
             foreach (var p in retries)
             {
-                Log.D("DISPATCH", $"重发超时命令 cmd=0x{p.Cmd:X4}（剩余重试 {p.RetriesLeft}）");
+                Log.D("DISPATCH", $"发送/重发命令 cmd=0x{p.Cmd:X4}（剩余重试 {p.RetriesLeft}）");
                 try { _inner.Send(p.Cmd, p.Payload); } catch (Exception ex) { Log.Ex("DISPATCH", "重发", ex); }
             }
 
@@ -190,7 +227,7 @@ public sealed class PacketDispatcher : IPodTransport
         lock (_lock)
         {
             if (_pending.Count == 0) return;
-            all = new List<Pending>(_pending.Values);
+            all = _pending.Values.SelectMany(queue => queue).ToList();
             _pending.Clear();
         }
         foreach (var p in all)
