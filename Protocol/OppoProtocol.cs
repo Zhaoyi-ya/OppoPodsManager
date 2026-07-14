@@ -365,11 +365,13 @@ public static partial class OppoProtocol
     public static int ParseCodecType(byte[] payload)
     {
         int raw;
+        string format;
 
         // SPP 短格式: [status(1), codecType(1)]
         if (payload != null && payload.Length == 2 && payload[0] == 0)
         {
             raw = payload[1];
+            format = "SPP";
         }
         // GATT 长格式: [status(1), count(1), id(1), val(1), ...]
         else if (payload != null && payload.Length >= 4 && payload[0] == 0)
@@ -382,11 +384,13 @@ public static partial class OppoProtocol
                 if (payload[3 + i * 2] != 0) { raw = payload[2 + i * 2]; break; }
             }
             if (raw < 0) return -1;
+            format = "GATT";
         }
         else return -1;
 
-        // 归一化: OPPO 私有编号 → A2DP 标准（SPP 和 GATT 都使用 OPPO 编号，1↔2 互换）
-        raw = raw switch { 1 => 2, 2 => 1, _ => raw };
+        // 直接使用 OPPO 私有编号（1=LDAC 2=AAC），不再做 A2DP 归一化 swap，
+        // 避免部分机型编码不一致导致 swap 反向。
+        Log.D("CODEC", $"ParseCodecType({format}): raw={raw} -> {CodecName(raw)}");
         return raw;
     }
 
@@ -410,13 +414,13 @@ public static partial class OppoProtocol
     }
 
     /// <summary>
-    /// 编解码器 ID（已归一化为 A2DP 标准）→ 可读名称。
+    /// 编解码器 ID（OPPO 私有编号）→ 可读名称。
     /// </summary>
     public static string CodecName(int id) => id switch
     {
         0 => "SBC",
-        1 => "AAC",
-        2 => "LDAC",
+        1 => "LDAC",
+        2 => "AAC",
         3 => "LHDC",
         4 => "LC3",
         5 => "aptX",
