@@ -173,11 +173,10 @@ public partial class PodManager : IPodManager
                     {
                         Log.D("RFCOMM", $"DispatchFrame: 设置成功 cmd=0x{frame.Cmd:X4}");
                         // 0x8418 = CmdSetEqDetail 的响应：删除/保存 EQ 的 ACK。
-                        // 注意：不由这里处理追踪列表和 DeviceEqEntries——交由 ParseEqAll 统一消费。
-                        // 见 Melody APK 的 f5125V 删除追踪列表做法（ParseEqAll 才是单一过滤点）。
+                        // 删除成功后立即从本地设备 EQ 列表移除，不等待设备刷新，避免 UI 继续显示旧条目。
                         if (frame.Cmd == OppoProtocol.CmdSetEqDetail + 0x8000 && _pendingDeleteEqIds.Count > 0)
                         {
-                            Log.D("RFCOMM", $"收到删除 ACK, _pendingDeleteEqIds=[{string.Join(",", _pendingDeleteEqIds.Keys)}] 等待设备刷新");
+                            RemovePendingDeletedEqEntries();
                         }
                     }
                     else
@@ -195,6 +194,26 @@ public partial class PodManager : IPodManager
                 Log.D("RFCOMM", $"DispatchFrame: 未处理 cmd=0x{frame.Cmd:X4} len={len}");
                 break;
         }
+    }
+
+    private void RemovePendingDeletedEqEntries()
+    {
+        var ids = _pendingDeleteEqIds.Keys.ToHashSet();
+        if (ids.Count == 0) return;
+
+        var before = State.DeviceEqEntries.Count;
+        State.DeviceEqEntries = State.DeviceEqEntries
+            .Where(e => !ids.Contains(e.EqId))
+            .ToList();
+
+        foreach (var id in ids)
+        {
+            Caps.DeviceEqNames.Remove(id);
+            _pendingDeleteEqIds.Remove(id);
+        }
+
+        Log.D("RFCOMM", $"收到删除 ACK, 已本地移除 EQ ids=[{string.Join(",", ids)}] ({before}->{State.DeviceEqEntries.Count})");
+        StateChanged?.Invoke();
     }
 
     public async Task ConnectAsync()
@@ -235,7 +254,7 @@ public partial class PodManager : IPodManager
             if (Caps.AncOptions.Count > 0) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAnc); Thread.Sleep(80); }
             if (HasSmartMode()) { SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryAncIntelligent); Thread.Sleep(80); }
             if (Caps.EqPresets.Count > 0) { SendQuery(OppoProtocol.CmdQueryEq, OppoProtocol.PayEmpty); Thread.Sleep(80); }
-            if (Caps.EqPresets.Count > 0 || Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
+            if (Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
             if (State.SupportedCommands.Contains(OppoProtocol.CmdQueryCodecType)) { SendQuery(OppoProtocol.CmdQueryCodecType, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             if (Caps.HasGameSound) { SendQuery(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             // 空间音频三模式当前值：仅三模式（headsetSpatialType）机型才有 0x012A，
@@ -309,8 +328,52 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectAutoSwitch() =>
         SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动切换", clearAddress: true);
 
-    public void SendMultiConnectUnpair(string targetAddress) =>
-        SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
+    public void SendMultiConnectUnpair(string targetAddress)
+    {
+        if (State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld))
+        {
+            SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
+            return;
+        }
+
+        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo))
+        {
+            Log.D("RFCOMM", $"取消配对: 设备未声明 0x0429 或 0x0408，已忽略 addr={targetAddress}");
+            CommandFailed?.Invoke("该设备不支持取消配对");
+            return;
+        }
+
+        var host = State.ConnectedDevices.FirstOrDefault(d => d.IsCurrentDevice);
+        if (host == null)
+        {
+            Log.D("RFCOMM", $"取消配对(旧版0x0408): 未找到当前主机，无法重建关联列表 addr={targetAddress}");
+            CommandFailed?.Invoke("取消配对失败（缺少当前设备信息）");
+            return;
+        }
+
+        var remaining = State.ConnectedDevices.Where(d =>
+            !d.IsCurrentDevice &&
+            !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase));
+        var payload = OppoProtocol.RelatedDeviceInfoPayload(host.Address, host.ElemByte6, remaining);
+        Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) addr={targetAddress} payload=[{BitConverter.ToString(payload)}]");
+        _dispatcher.SendTracked(OppoProtocol.CmdSetRelatedDeviceInfo, payload, (status, _) =>
+        {
+            if (status == CmdStatus.Success)
+            {
+                State.ConnectedDevices = State.ConnectedDevices
+                    .Where(d => !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) ACK 成功，已移除 {targetAddress}");
+                StateChanged?.Invoke();
+                SendMultiConnectInfo();
+            }
+            else
+            {
+                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) 失败 status={(int)status}");
+                CommandFailed?.Invoke("多设备取消配对失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
+            }
+        });
+    }
 
     public void SendOperateHandheld(string targetAddress, bool connect = true)
     {
@@ -429,6 +492,11 @@ public partial class PodManager : IPodManager
     /// <summary>查询设备端全部 EQ 信息（cmd 0x0122）。结果解析为 <see cref="PodState.DeviceEqEntries"/> + 名称回填 <see cref="DeviceCapabilities.DeviceEqNames"/>。</summary>
     public void SendQueryEqAll()
     {
+        if (!Caps.HasCustomEq)
+        {
+            Log.D("RFCOMM", $"SendQueryEqAll: 型号 {Caps.ModelName} 无自定义 EQ 能力，已忽略");
+            return;
+        }
         Log.D("RFCOMM", "SendQueryEqAll");
         _transport.Send(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll);
     }
@@ -479,7 +547,7 @@ public partial class PodManager : IPodManager
         SendSet(OppoProtocol.CmdSetEqDetail, payload, $"更新 EQ {name}");
     }
 
-    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。发送删除命令后立即查询全量列表以刷新。</summary>
+    /// <summary>删除设备端 EQ 预设（cmd 0x0418, actionType=3）。收到 ACK 后立即从本地列表移除。</summary>
     public void DeleteEq(int eqId)
     {
         if (!Caps.HasCustomEq)
@@ -494,11 +562,6 @@ public partial class PodManager : IPodManager
         Log.D("RFCOMM", $"DeleteEq eqId={eqId} fullEntry={entry != null} payload=[{string.Join(",", payload)}]");
         _pendingDeleteEqIds[(byte)eqId] = DateTime.Now.AddSeconds(1);
         SendSet(OppoProtocol.CmdSetEqDetail, payload, "删除 EQ");
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(1000);
-            SendQueryEqAll();
-        });
     }
 
     public async Task PollAsync(CancellationToken ct)

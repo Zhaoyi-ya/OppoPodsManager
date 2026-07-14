@@ -13,7 +13,7 @@ Tests/
 *.sln.docstates
 *.userprefs
 .vscode/
-.codegrapgh/
+.codegraph/
 
 ## OS
 .DS_Store

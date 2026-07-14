@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace OppoPodsManager;
 
@@ -50,6 +52,33 @@ public static partial class OppoProtocol
     /// <summary>兼容旧签名：connect=true→连接，false→断开。</summary>
     public static byte[] OperateHandheldPayload(string targetAddress, bool connect) =>
         MultiConnectOpPayload(connect ? MultiOpConnect : MultiOpDisconnect, targetAddress);
+
+    /// <summary>
+    /// 构造旧版 setRelatedDeviceInfo（0x0408）载荷。
+    /// 官方 RelatedDeviceInfo 布局：host MAC(6) + host type(1) + related count(1)，
+    /// 随后每项 RelatedDevice 为 MAC(6) + type(1) + state(1)。地址均按显示顺序写入。
+    /// </summary>
+    public static byte[] RelatedDeviceInfoPayload(
+        string hostAddress,
+        byte hostType,
+        IEnumerable<ConnectedDeviceInfo> relatedDevices)
+    {
+        var related = relatedDevices.Take(6).ToList();
+        var payload = new byte[8 + related.Count * 8];
+        Buffer.BlockCopy(ParseMac(hostAddress), 0, payload, 0, 6);
+        payload[6] = hostType;
+        payload[7] = (byte)related.Count;
+
+        int pos = 8;
+        foreach (var device in related)
+        {
+            Buffer.BlockCopy(ParseMac(device.Address), 0, payload, pos, 6);
+            payload[pos + 6] = device.ElemByte6;
+            payload[pos + 7] = (byte)device.ConnectionState;
+            pos += 8;
+        }
+        return payload;
+    }
 
     /// <summary>把 "AA:BB:CC:DD:EE:FF" 解析为 6 字节 MAC（正序，等价于 I4.g.V()）。</summary>
     internal static byte[] ParseMac(string address)
