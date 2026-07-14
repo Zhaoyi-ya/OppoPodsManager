@@ -80,6 +80,7 @@ public partial class PodManager : IPodManager
     {
         Log.D("RFCOMM", "OnDisconnected: 传输层报告断开");
         State.Connected = false;
+        State.Battery.Clear();
         StateChanged?.Invoke();
     }
 
