@@ -18,7 +18,7 @@ internal sealed class LogManager : IDisposable
     private int _version;
     private Timer? _flushTimer;
 
-    private const int FlushThreshold = 1000;
+    private const int FlushThreshold = 2000;
     private const int FlushIntervalMs = 300_000;
     private const int MemoryKeep = 500;
 

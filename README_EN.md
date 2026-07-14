@@ -20,6 +20,7 @@ Supports **137 devices** across all three brands, with capabilities auto-detecte
 - [Supported Devices](#supported-devices)
 - [FAQ](#faq)
 - [Maintainers](#maintainers)
+- [Font Notice](#font-notice)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
@@ -145,8 +146,21 @@ If "minimize to tray" is enabled, closing the window just hides it to the tray. 
 
 ---
 
+## Font Notice
+
+This software embeds and uses the MiSans font for its user interface. MiSans is provided by Xiaomi. Copyright and licensing information are subject to Xiaomi's official statements and the MiSans Font Intellectual Property License Agreement:
+
+- MiSans official page: https://hyperos.mi.com/font/
+- MiSans FAQ: https://hyperos.mi.com/font/en/faq/
+
+According to MiSans’ official statements, this project specifies the use of the MiSans font in the software, and it does not involve any modification, further development, separate distribution, or sale of the MiSans font files or their components.
+
+---
+
 ## Acknowledgements
 
+- [Avalonia UI](https://avaloniaui.net/) — Cross-platform UI framework
+- [SukiUI](https://github.com/kikipoulet/SukiUI) — Avalonia theme & control library
 - [Leaf-lsgtky/OppoPods](https://github.com/Leaf-lsgtky/OppoPods) — OPPO proprietary protocol reverse engineering
 - [1812z/OppoPods](https://github.com/1812z/OppoPods) — Feature implementation reference
 

@@ -404,55 +404,6 @@ public partial class PodManager : IPodManager
                 OppoProtocol.FeatureSwitchPayload(type, true), "游戏音效");
     }
 
-    /// <summary>
-    /// 音效增强互斥组当前生效项（游戏音效 ↔ 调音 ↔ 空间音效互斥）。
-    /// 从设备回读状态推导；无互斥组或都关时为 None。
-    /// </summary>
-    public AudioEnhancement CurrentEnhancement()
-    {
-        if (State.GameSound) return AudioEnhancement.GameSound;
-        if (Caps.GameSoundMutexSpatial && State.SpatialSound) return AudioEnhancement.SpatialSound;
-        // EQ 视为"调音"生效：有非默认预设即算（EQ 总有值，故仅在与游戏音效互斥的型号上作为一员）
-        if (Caps.GameSoundMutexEq && State.EqPreset is { } preset
-            && preset != "?" && preset != Caps.DefaultEqPreset)
-            return AudioEnhancement.Eq;
-        return AudioEnhancement.None;
-    }
-
-    /// <summary>
-    /// 设置音效增强（互斥组单选，静默切换）。选一项 → 只发该项 enable，
-    /// 设备固件自动关掉互斥的其它项（不重复下发关闭命令）。
-    /// mode=None 时关闭游戏音效（其它项本就是"开一个关其它"，无独立关闭语义）。
-    /// </summary>
-    public void SetAudioEnhancement(AudioEnhancement mode, string? eqName = null)
-    {
-        Log.D("RFCOMM", $"SetAudioEnhancement -> {mode} eq={eqName}");
-        _featureUserSetAtProxy();
-        switch (mode)
-        {
-            case AudioEnhancement.GameSound:
-                SendGameSound(true);
-                break;
-            case AudioEnhancement.SpatialSound:
-                // 开空间音效开关；设备会关游戏音效（互斥）
-                SendSpatial(true);
-                break;
-            case AudioEnhancement.Eq:
-                // 选调音 = 应用某个 EQ 预设；设备会关游戏音效（互斥）
-                if (!string.IsNullOrEmpty(eqName)) SendEq(eqName!);
-                break;
-            case AudioEnhancement.None:
-                // 关闭：显式关游戏音效（EQ/空间音效无"全关"单命令，交给各自控件）
-                if (State.GameSound) SendGameSound(false);
-                break;
-        }
-    }
-
-    // 供 SetAudioEnhancement 复用 UI 的"用户刚操作"时间戳抑制回读覆盖（由构造注入或空实现）
-    private Action _featureUserSetAtProxy = () => { };
-    /// <summary>UI 可注入：标记"刚由用户设置"，避免轮询回读在短时间内覆盖选择。</summary>
-    public void SetFeatureUserSetHook(Action hook) => _featureUserSetAtProxy = hook ?? (() => { });
-
     public void SendEq(string name)
     {
         // 先查 JSON 内置预设，再查设备端 EQ 条目

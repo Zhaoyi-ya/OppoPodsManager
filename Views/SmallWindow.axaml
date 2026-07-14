@@ -7,11 +7,29 @@
    WindowStartupLocation="Manual"
    CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
    ShowInTaskbar="False"
+   FontFamily="{StaticResource AppFont}"
    BackgroundStyle="Flat">
 
  <suki:SukiWindow.Styles>
  <Style Selector="suki|SukiWindow /template/ Button#PART_CloseButton:pointerover">
   <Setter Property="Background" Value="#E81123"/>
+ </Style>
+ <Style Selector="Button.CustomCloseButton">
+  <Setter Property="Width" Value="24"/>
+  <Setter Property="Height" Value="18"/>
+  <Setter Property="Padding" Value="0"/>
+  <Setter Property="Margin" Value="0"/>
+  <Setter Property="Background" Value="Transparent"/>
+  <Setter Property="Foreground" Value="{DynamicResource SukiText}"/>
+  <Setter Property="BorderThickness" Value="0"/>
+  <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  <Setter Property="VerticalContentAlignment" Value="Center"/>
+ </Style>
+ <Style Selector="Button.CustomCloseButton:pointerover">
+  <Setter Property="Background" Value="#E81123"/>
+ </Style>
+ <Style Selector="Button.CustomCloseButton:pressed">
+  <Setter Property="Background" Value="#C50F1F"/>
  </Style>
  <Style Selector="Border.glassCard">
   <Setter Property="CornerRadius" Value="14"/>
@@ -19,9 +37,19 @@
  </Style>
  </suki:SukiWindow.Styles>
 
- <Grid RowDefinitions="*">
- <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Hidden">
- <StackPanel Margin="14,10,14,14" Spacing="12">
+ <Grid RowDefinitions="Auto,*">
+ <Image x:Name="BgImage" Grid.RowSpan="2" Stretch="UniformToFill" IsVisible="False" Opacity="0.82"/>
+ <Border x:Name="BgTint" Grid.RowSpan="2" IsVisible="False" Background="#66000000"/>
+ <Border x:Name="CustomTitleBar" Grid.Row="0" Height="32" IsVisible="False"
+  Background="Transparent" PointerPressed="TitleBarDrag_PointerPressed">
+  <Button Classes="CustomCloseButton" HorizontalAlignment="Right" VerticalAlignment="Center"
+   Margin="0,0,6,0" Click="CustomClose_Click" Cursor="Hand">
+   <Path Data="M1.5,2 L9,9.5 M9,2 L1.5,9.5" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"
+    HorizontalAlignment="Center" VerticalAlignment="Center" Width="10" Height="10"/>
+  </Button>
+ </Border>
+ <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
+ <StackPanel x:Name="ContentStack" Margin="14,10,14,14" Spacing="12">
 
   <!-- 电量 -->
   <Border x:Name="BatteryCard" Padding="16,14"
@@ -34,7 +62,7 @@
    <StackPanel Orientation="Horizontal" Spacing="4">
     <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
      Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="CaseChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -46,7 +74,7 @@
     <Path x:Name="IconLeftLetter" Width="12" Height="12"
      Fill="{DynamicResource SukiText}"/>
     </Grid>
-    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="LeftChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -58,7 +86,7 @@
     <Path x:Name="IconRightLetter" Width="12" Height="12"
      Fill="{DynamicResource SukiText}"/>
     </Grid>
-    <TextBlock x:Name="RightLabel" Text="-%" FontSize="11"
+    <TextBlock x:Name="RightLabel" Text="-%" FontSize="13"
      Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
     <Path x:Name="RightChargeBolt" Width="9" Height="9" Stretch="Uniform"
      Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
@@ -72,11 +100,11 @@
    Classes="glassCard"
    IsVisible="False">
   <StackPanel Spacing="10">
-   <TextBlock Text="降噪控制" FontSize="14" FontWeight="Medium"
+   <TextBlock Text="降噪控制" FontSize="14"
     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
    <Grid x:Name="AncMainRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
    <Grid x:Name="AncSubRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
-   <TextBlock x:Name="AncRealtimeHint" FontSize="11" Opacity="0.5" IsVisible="False"
+   <TextBlock x:Name="AncRealtimeHint" FontSize="13" Opacity="0.5" IsVisible="False"
     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
   </StackPanel>
   </Border>

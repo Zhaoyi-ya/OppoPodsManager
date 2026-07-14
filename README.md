@@ -19,6 +19,7 @@
 - [支持的设备](#支持的设备)
 - [常见问题](#常见问题)
 - [维护](#维护)
+- [字体声明](#字体声明)
 - [致谢](#致谢)
 - [开源协议](#开源协议)
 
@@ -144,8 +145,22 @@
 
 ---
 
+## 字体声明
+
+本软件界面内嵌并使用 MiSans 字体。MiSans 由小米提供，版权及授权信息以小米官方说明和 MiSans 字体知识产权许可协议为准：
+
+- MiSans 官方页面：https://hyperos.mi.com/font/
+- MiSans FAQ：https://hyperos.mi.com/font/zh/faq/
+
+
+根据 MiSans 官方说明，本项目在软件中特别注明使用了 MiSans 字体并且未对 MiSans 字体文件或其组件进行改编、二次开发、单独分发或售卖。
+
+---
+
 ## 致谢
 
+- [Avalonia UI](https://avaloniaui.net/) — 跨平台 UI 框架
+- [SukiUI](https://github.com/kikipoulet/SukiUI) — Avalonia 主题与控件库
 - [Leaf-lsgtky/OppoPods](https://github.com/Leaf-lsgtky/OppoPods) — OPPO 耳机私有协议逆向
 - [1812z/OppoPods](https://github.com/1812z/OppoPods) — 功能实现参考
 

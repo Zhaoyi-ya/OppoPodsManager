@@ -409,8 +409,16 @@ public static class DeviceProfileLoader
             if (childOpts.Count == 1 && childOpts[0].Key == key)
             {
                 var only = childOpts[0];
-                RegisterFlat(idxToName, nameToIdx, only.ProtocolIndex, key);
-                options.Add(new AncOption { Key = key, Label = AncLabel(key), ProtocolIndex = only.ProtocolIndex, Sendable = true });
+                // 位图事件上报和 ANC 发送均使用 parent 的 protocolIndex
+                // （v1.0.4 硬编码值验证），child 的仅作为兜底位图查找。
+                // RegisterFlat 不会覆盖已存在的 nameToIdx（line 401 已由 child 循环写入），
+                // 因此显式覆盖确保发送侧使用 parent 的 index。
+                RegisterFlat(idxToName, nameToIdx, ownIdx, key);
+                nameToIdx[key] = ownIdx;
+                if (only.ProtocolIndex != ownIdx)
+                    idxToName[only.ProtocolIndex] = key;
+                    idxToName[only.ProtocolIndex] = key;  // 仅前向映射，发送侧不用
+                options.Add(new AncOption { Key = key, Label = AncLabel(key), ProtocolIndex = ownIdx, Sendable = true });
                 continue;
             }
 

@@ -4,15 +4,52 @@
         WindowDecorations="None" ShowInTaskbar="False"
         Topmost="True" CanResize="False"
         ShowActivated="False"
-        SizeToContent="Height" Width="320"
+        SizeToContent="Height" Width="360"
         Background="Transparent"
         TransparencyLevelHint="Transparent"
+        FontFamily="{StaticResource AppFont}"
         Opacity="0">
     <Window.Transitions>
         <Transitions>
             <DoubleTransition Property="Opacity" Duration="0:0:0.4" Easing="CubicEaseOut"/>
         </Transitions>
     </Window.Transitions>
+    <Window.Styles>
+        <Style Selector="Button.UpdateActionButton">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Padding" Value="4,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="#1FFFFFFF"/>
+            <Setter Property="Foreground" Value="#F5FFFFFF"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.UpdateActionButton:pointerover">
+            <Setter Property="Background" Value="#2AFFFFFF"/>
+        </Style>
+        <Style Selector="Button.UpdateActionButton:pressed">
+            <Setter Property="Background" Value="#35FFFFFF"/>
+        </Style>
+        <Style Selector="Button.ToastCloseButton">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="18"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.ToastCloseButton:pointerover">
+            <Setter Property="Background" Value="#E81123"/>
+        </Style>
+        <Style Selector="Button.ToastCloseButton:pressed">
+            <Setter Property="Background" Value="#C50F1F"/>
+        </Style>
+    </Window.Styles>
 
     <Border x:Name="Card" Margin="6" CornerRadius="14"
             Background="#FF1C1C1E"
@@ -41,43 +78,43 @@
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                     <Ellipse Width="8" Height="8" Fill="#4CD964" VerticalAlignment="Center"/>
                     <TextBlock x:Name="TitleBlock" Text="OPPO Pods"
-                               FontSize="14" FontWeight="SemiBold"
+                               FontSize="15"
                                Foreground="#F5FFFFFF" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <Grid ColumnDefinitions="*,8,*,8,*">
-                    <Border Grid.Column="0" Classes="pill">
+                    <Border x:Name="LeftPill" Grid.Column="0" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
-                            <TextBlock x:Name="LeftPct" Text="- %" FontSize="22" FontWeight="Bold"
+                            <TextBlock x:Name="LeftPct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="LeftBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="11"
+                                <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="2" Classes="pill">
+                    <Border x:Name="CasePill" Grid.Column="2" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
-                            <TextBlock x:Name="CasePct" Text="- %" FontSize="22" FontWeight="Bold"
+                            <TextBlock x:Name="CasePct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="CaseBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="11"
+                                <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <Border Grid.Column="4" Classes="pill">
+                    <Border x:Name="RightPill" Grid.Column="4" Classes="pill">
                         <StackPanel HorizontalAlignment="Center" Spacing="3">
-                            <TextBlock x:Name="RightPct" Text="- %" FontSize="22" FontWeight="Bold"
+                            <TextBlock x:Name="RightPct" Text="- %" FontSize="23"
                                        Foreground="#F5FFFFFF" HorizontalAlignment="Center"/>
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="RightBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="RightLabel" Text="右耳" FontSize="11"
+                                <TextBlock x:Name="RightLabel" Text="右耳" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
@@ -98,10 +135,10 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="LowBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FFB020"
                               VerticalAlignment="Center"/>
-                        <TextBlock Text="低电量" FontSize="22" FontWeight="Bold"
+                        <TextBlock Text="低电量" FontSize="23"
                                    Foreground="#FFB020" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock x:Name="LowHintText" Text="建议尽快充电" FontSize="12"
+                    <TextBlock x:Name="LowHintText" Text="建议尽快充电" FontSize="13"
                                Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
@@ -119,10 +156,10 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="CritBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FF453A"
                               VerticalAlignment="Center"/>
-                        <TextBlock Text="电量极低" FontSize="22" FontWeight="Bold"
+                        <TextBlock Text="电量极低" FontSize="23"
                                    Foreground="#FF453A" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock x:Name="CritHintText" Text="请立即充电" FontSize="12"
+                    <TextBlock x:Name="CritHintText" Text="请立即充电" FontSize="13"
                                Foreground="#FF8078" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
@@ -131,12 +168,34 @@
             <StackPanel x:Name="DisconnectPanel" IsVisible="False" Margin="18,18" Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                     <Ellipse Width="8" Height="8" Fill="#FF453A" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="DisconnectTitle" Text="" FontSize="14" FontWeight="SemiBold"
+                    <TextBlock x:Name="DisconnectTitle" Text="" FontSize="15"
                                Foreground="#F5FFFFFF" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock Text="连接已断开" FontSize="16" FontWeight="Bold"
+                <TextBlock Text="连接已断开" FontSize="17"
                            Foreground="#FF8078" HorizontalAlignment="Center"/>
             </StackPanel>
+
+            <!-- ========== 更新提示面板 ========== -->
+            <Grid x:Name="UpdatePanel" IsVisible="False" Margin="18,14,12,16" RowDefinitions="Auto,Auto,Auto">
+                <Button x:Name="UpdateCloseBtn" Grid.Row="0" Classes="ToastCloseButton"
+                        HorizontalAlignment="Right" VerticalAlignment="Top">
+                    <Path x:Name="UpdateClosePath" Data="M1.5,2 L9,9.5 M9,2 L1.5,9.5" Stroke="#F5FFFFFF" StrokeThickness="1.2"
+                          HorizontalAlignment="Center" VerticalAlignment="Center" Width="10" Height="10"/>
+                </Button>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="28,1,28,0">
+                    <Ellipse Width="8" Height="8" Fill="#4CD964" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="UpdateTitle" Text="发现新版本" FontSize="17"
+                               Foreground="#F5FFFFFF" VerticalAlignment="Center"/>
+                </StackPanel>
+                <TextBlock x:Name="UpdateVersion" Grid.Row="1" Text="版本号：v0.0.0" FontSize="13"
+                           Foreground="#BFFFFFFF" HorizontalAlignment="Center" Margin="0,8,6,12"/>
+                <Grid Grid.Row="2" RowDefinitions="Auto,6,Auto" ColumnDefinitions="*,8,*" Margin="0,0,6,0">
+                    <Button x:Name="UpdateLaterBtn" Grid.Row="0" Grid.Column="0" Content="下次提醒我" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateSkipBtn" Grid.Row="0" Grid.Column="2" Content="跳过此版本" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateMirrorBtn" Grid.Row="2" Grid.Column="0" Content="国内下载" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateDownloadBtn" Grid.Row="2" Grid.Column="2" Content="GitHub 下载" Classes="UpdateActionButton"/>
+                </Grid>
+            </Grid>
         </Grid>
     </Border>
 </Window>
