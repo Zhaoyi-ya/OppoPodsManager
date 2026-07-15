@@ -17,15 +17,15 @@ namespace OppoPodsManager;
 public sealed class SppTransport : IPodTransport
 {
     private IntPtr _socket = IntPtr.Zero;
+    private IntPtr _connectingSocket = IntPtr.Zero;
     private readonly object _lock = new();
     private readonly byte[] _recvBuf = new byte[512];
     private readonly List<byte> _framer = new();
     private readonly IFrameCodec _codec = new SppFrameCodec();
     private readonly IDeviceLocator _locator;
+    private int _connectGeneration;
 
-    /// <summary>默认用 WinRT 发现（WindowsRfcommLocator，内部回退注册表）；可注入其它 IDeviceLocator。</summary>
-    /// <summary>默认使用 WinRT RFCOMM 发现器（RfcommServiceFinder）；可注入其它 IDeviceLocator。</summary>
-    public SppTransport() : this(new WindowsRfcommLocator()) { }
+    /// <summary>WindowsConnectionTransport 始终注入已锁定目标地址的定位器。</summary>
     public SppTransport(IDeviceLocator locator) { _locator = locator; }
     private bool _disposed;
 
@@ -87,7 +87,7 @@ public sealed class SppTransport : IPodTransport
     private const int WSAETIMEDOUT = 10060;
     private const int FIONBIO = unchecked((int)0x8004667E);
     private const int RecvTimeoutMs = 400;      // recv 单次阻塞上限，保证 ReadResponses 超时生效
-    private const int ConnectTimeoutMs = 4000;  // 单次 connect 尝试上限
+    private const int ConnectTimeoutMs = 1500;  // SDP 主路径失败后的单次回退预算
 
     [StructLayout(LayoutKind.Sequential)]
     private struct TimeVal
@@ -126,23 +126,35 @@ public sealed class SppTransport : IPodTransport
     }
 
     // WSAStartup 全进程只需一次；用静态标志保证幂等，避免重连时反复启动/引用计数失衡
+    private static readonly object WsaStartLock = new();
     private static int _wsaStarted;
     private static void EnsureWsaStarted()
     {
-        if (Interlocked.CompareExchange(ref _wsaStarted, 1, 0) != 0) return;
-        var wsaPtr = Marshal.AllocHGlobal(512);
-        try { WSAStartup(0x0202, wsaPtr); }
-        finally { Marshal.FreeHGlobal(wsaPtr); }
+        if (Volatile.Read(ref _wsaStarted) != 0) return;
+        lock (WsaStartLock)
+        {
+            if (_wsaStarted != 0) return;
+            var wsaPtr = Marshal.AllocHGlobal(512);
+            try
+            {
+                int result = WSAStartup(0x0202, wsaPtr);
+                if (result != 0)
+                    throw new InvalidOperationException($"WSAStartup 失败: {Wsa(result)}");
+                Volatile.Write(ref _wsaStarted, 1);
+            }
+            finally { Marshal.FreeHGlobal(wsaPtr); }
+        }
     }
 
     /// <summary>发现设备 → 创建 BTH socket → 带超时非阻塞 connect → 恢复阻塞模式读取。</summary>
     public bool Connect()
     {
+        int generation = Interlocked.Increment(ref _connectGeneration);
         try
         {
             Log.D("BT", "Connect: 开始 (Winsock SPP 回退层)");
             EnsureWsaStarted();
-            CloseSocket();
+            CloseSockets(invalidateAttempt: false);
 
             var swLoc = System.Diagnostics.Stopwatch.StartNew();
             var (addr, name) = _locator.Locate();
@@ -160,14 +172,15 @@ public sealed class SppTransport : IPodTransport
             // 每种方式在 TryConnect 内部各自创建全新 socket：Winsock 对一个已发起过
             // connect 并失败/超时的 socket 再次 connect 会返回 WSAEALREADY(10037)，
             // 故必须“一次尝试一 socket”，失败即关闭重建，否则后续尝试全部无效。
-            bool ok = TryConnect(addr, OppoProtocol.OppoSppUuid, 0)
-                   || TryConnect(addr, OppoProtocol.OppoSppUuid, 15)
-                   || TryConnect(addr, Guid.Empty, 15)
-                   || TryConnect(addr, Guid.Empty, 1);
+            bool ok = TryConnect(generation, addr, OppoProtocol.OppoSppUuid, 0)
+                   || TryConnect(generation, addr, Guid.Empty, 15)
+                   || TryConnect(generation, addr, Guid.Empty, 1);
             if (!ok)
             {
-                CloseSocket();
-                LastError = "无法连接耳机（已尝试 4 种连接方式，各方式失败原因见上方 TryConnect 日志）";
+                CloseSockets(invalidateAttempt: false);
+                LastError = generation == Volatile.Read(ref _connectGeneration)
+                    ? "Winsock RFCOMM 回退失败（已尝试 UUID SDP、通道 15 和通道 1）"
+                    : "Winsock RFCOMM 连接已取消";
                 Log.Result("BT", "Connect", false, LastError);
                 return false;
             }
@@ -191,14 +204,20 @@ public sealed class SppTransport : IPodTransport
     }
 
     /// <summary>关闭当前 socket 并清零句柄（幂等）</summary>
-    private void CloseSocket()
+    private void CloseSockets(bool invalidateAttempt = true)
     {
+        if (invalidateAttempt) Interlocked.Increment(ref _connectGeneration);
         lock (_lock)
         {
             if (_socket != IntPtr.Zero)
             {
                 closesocket(_socket);
                 _socket = IntPtr.Zero;
+            }
+            if (_connectingSocket != IntPtr.Zero)
+            {
+                closesocket(_connectingSocket);
+                _connectingSocket = IntPtr.Zero;
             }
         }
     }
@@ -208,8 +227,9 @@ public sealed class SppTransport : IPodTransport
     /// 每次调用创建全新 socket，成功则赋给 _socket 并返回 true；失败则立即关闭该 socket，
     /// 保证下一种连接方式从干净状态发起（否则复用已失败 socket 会得到 WSAEALREADY=10037）。
     /// </summary>
-    private bool TryConnect(ulong btAddr, Guid serviceUuid, uint port)
+    private bool TryConnect(int generation, ulong btAddr, Guid serviceUuid, uint port)
     {
+        if (generation != Volatile.Read(ref _connectGeneration)) return false;
         // 每种尝试用统一标签，便于在日志里对齐“同一次尝试”的各行输出
         string uuidTag = serviceUuid == Guid.Empty ? "empty" : serviceUuid.ToString("D").Substring(0, 8);
         string label = $"TryConnect(addr={btAddr:X12}, uuid={uuidTag}, port={port})";
@@ -222,6 +242,15 @@ public sealed class SppTransport : IPodTransport
             int se = WSAGetLastError();
             Log.Result("BT", $"{label} socket()", false, Wsa(se));
             return false;
+        }
+        lock (_lock)
+        {
+            if (generation != _connectGeneration)
+            {
+                closesocket(sock);
+                return false;
+            }
+            _connectingSocket = sock;
         }
         Log.D("BT", $"{label} 新建 socket=0x{sock.ToInt64():X}");
 
@@ -248,66 +277,76 @@ public sealed class SppTransport : IPodTransport
             {
                 Log.Result("BT", label, true, $"立即连通 (耗时{sw.ElapsedMilliseconds}ms)");
                 connected = RestoreBlocking(sock);
-                return connected;
             }
-
-            int err = WSAGetLastError();
-            if (err != WSAEWOULDBLOCK)
+            else
             {
-                // 非 WOULDBLOCK 即真正的 connect 失败（如 10037/10060/10050），直接给出解码
-                Log.Result("BT", label, false, $"connect {Wsa(err)} (耗时{sw.ElapsedMilliseconds}ms)");
-                return false;
-            }
+                int err = WSAGetLastError();
+                if (err != WSAEWOULDBLOCK)
+                {
+                    Log.Result("BT", label, false, $"connect {Wsa(err)} (耗时{sw.ElapsedMilliseconds}ms)");
+                    return false;
+                }
 
-            // 进入等待：非阻塞 connect 已发起，用 select 等 socket 可写
-            var writefds = new FdSet { fd_count = 1, fd_array0 = sock };
-            var exceptfds = new FdSet { fd_count = 1, fd_array0 = sock };
-            var tv = new TimeVal { tv_sec = ConnectTimeoutMs / 1000, tv_usec = (ConnectTimeoutMs % 1000) * 1000 };
+                var writefds = new FdSet { fd_count = 1, fd_array0 = sock };
+                var exceptfds = new FdSet { fd_count = 1, fd_array0 = sock };
+                var tv = new TimeVal { tv_sec = ConnectTimeoutMs / 1000, tv_usec = (ConnectTimeoutMs % 1000) * 1000 };
 
-            int sel = select(0, IntPtr.Zero, ref writefds, ref exceptfds, ref tv);
-            if (sel == 0)
-            {
-                Log.Result("BT", label, false, $"select 超时 (预算{ConnectTimeoutMs}ms, 实耗{sw.ElapsedMilliseconds}ms; 设备无响应/信道忙/被手机占用)");
-                return false;
-            }
-            if (sel < 0)
-            {
-                Log.Result("BT", label, false, $"select 错误 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
-                return false;
-            }
+                int sel = select(0, IntPtr.Zero, ref writefds, ref exceptfds, ref tv);
+                if (generation != Volatile.Read(ref _connectGeneration))
+                {
+                    Log.D("BT", $"{label}: 连接已取消");
+                    return false;
+                }
+                if (sel == 0)
+                {
+                    Log.Result("BT", label, false, $"select 超时 (预算{ConnectTimeoutMs}ms, 实耗{sw.ElapsedMilliseconds}ms; 设备无响应/信道忙/被手机占用)");
+                    return false;
+                }
+                if (sel < 0)
+                {
+                    Log.Result("BT", label, false, $"select 错误 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
+                    return false;
+                }
 
-            // 用 SO_ERROR 确认 connect 结果（select 可写也可能是失败，须复核）
-            int soError = 0, len = sizeof(int);
-            int gso = getsockopt(sock, SOL_SOCKET, SO_ERROR, ref soError, ref len);
-            if (gso != 0)
-            {
-                Log.Result("BT", label, false, $"getsockopt(SO_ERROR) 失败 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
-                return false;
-            }
-            if (soError != 0)
-            {
-                Log.Result("BT", label, false, $"SO_ERROR={Wsa(soError)} (耗时{sw.ElapsedMilliseconds}ms)");
-                return false;
-            }
+                int soError = 0, len = sizeof(int);
+                int gso = getsockopt(sock, SOL_SOCKET, SO_ERROR, ref soError, ref len);
+                if (gso != 0)
+                {
+                    Log.Result("BT", label, false, $"getsockopt(SO_ERROR) 失败 {Wsa(WSAGetLastError())} (耗时{sw.ElapsedMilliseconds}ms)");
+                    return false;
+                }
+                if (soError != 0)
+                {
+                    Log.Result("BT", label, false, $"SO_ERROR={Wsa(soError)} (耗时{sw.ElapsedMilliseconds}ms)");
+                    return false;
+                }
 
-            Log.Result("BT", label, true, $"耗时{sw.ElapsedMilliseconds}ms");
-            connected = RestoreBlocking(sock);
-            return connected;
+                Log.Result("BT", label, true, $"耗时{sw.ElapsedMilliseconds}ms");
+                connected = RestoreBlocking(sock);
+            }
         }
         finally
         {
             Marshal.FreeHGlobal(saPtr);
-            if (connected)
+            bool ownsSocket;
+            lock (_lock)
             {
-                // 成功：本 socket 成为活动连接
-                _socket = sock;
+                ownsSocket = _connectingSocket == sock;
+                if (ownsSocket) _connectingSocket = IntPtr.Zero;
+                if (connected && ownsSocket && generation == _connectGeneration)
+                    _socket = sock;
             }
-            else
+            if (!connected && ownsSocket)
             {
-                // 失败：关闭本次尝试的 socket，避免句柄泄漏与 WSAEALREADY
                 closesocket(sock);
             }
+            else if (connected && (!ownsSocket || generation != Volatile.Read(ref _connectGeneration)))
+            {
+                connected = false;
+                if (ownsSocket) closesocket(sock);
+            }
         }
+        return connected && generation == Volatile.Read(ref _connectGeneration);
     }
 
     /// <summary>把 WSA 错误码格式化为 "WSAErr=码(名称)"，名称来自 Log 的解码表。</summary>
@@ -380,7 +419,7 @@ public sealed class SppTransport : IPodTransport
     {
         Log.D("BT", "OnDisconnected: 链路断开");
         IsConnected = false;
-        CloseSocket();
+        CloseSockets();
         Disconnected?.Invoke();
     }
 
@@ -388,7 +427,7 @@ public sealed class SppTransport : IPodTransport
     public void Close()
     {
         IsConnected = false;
-        CloseSocket();
+        CloseSockets();
     }
 
     /// <summary>释放传输资源（幂等）。</summary>

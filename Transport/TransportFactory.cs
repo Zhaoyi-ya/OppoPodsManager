@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace OppoPodsManager;
 
@@ -30,11 +31,15 @@ public static class TransportFactory
 #if WINDOWS
         if (OperatingSystem.IsWindows())
         {
-            Log.D("FACTORY", $"Create: Windows 平台 -> 逐设备 Winsock SPP, GATT 回退 (目标={(targetAddr == 0 ? "自动候选" : targetAddr.ToString("X12"))})");
+            Log.D("FACTORY", $"Create: Windows 平台 -> WindowsConnectionTransport (目标={(targetAddr == 0 ? "自动候选" : targetAddr.ToString("X12"))})");
             if (targetAddr == 0)
-                return new CandidateTransport(DeviceDiscovery.ListCandidates, CreateWindowsTarget);
-            // 定向：Winsock SPP + GATT 回退，均锁定同一台设备
-            return CreateWindowsTarget(targetAddr, name ?? ("耳机 " + targetAddr.ToString("X12")));
+                return new WindowsConnectionTransport();
+
+            var targetName = name ?? ("耳机 " + targetAddr.ToString("X12"));
+            return new WindowsConnectionTransport(
+                () => [(targetAddr, targetName)],
+                () => [(targetAddr, targetName)],
+                CreateWindowsAttempts);
         }
 #endif
 
@@ -62,14 +67,15 @@ public static class TransportFactory
     }
 
 #if WINDOWS
-    private static IPodTransport CreateWindowsTarget(ulong addr, string name)
+    private static IReadOnlyList<Func<IPodTransport>> CreateWindowsAttempts(ulong addr, string name)
     {
         var locator = new FixedDeviceLocator(addr, name);
-        // Winsock SPP 直接按地址连接，不依赖易失效的 WinRT RFCOMM 服务代理。
-        // GATT 仅作为同一设备的后备路径，绝不重新选择其它设备。
-        return new FallbackTransport(
+        return
+        [
+            () => new WindowsRfcommStreamTransport(addr),
             () => new SppTransport(locator),
-            () => new WindowsGattTransport(locator));
+            () => new WindowsGattTransport(addr, name),
+        ];
     }
 #endif
 }

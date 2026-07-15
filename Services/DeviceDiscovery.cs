@@ -26,7 +26,7 @@ public static class DeviceDiscovery
 
             try
             {
-                foreach (var device in new WindowsBluetoothLocator().ListPaired())
+                foreach (var device in WindowsDeviceDiscovery.ListPaired())
                     if (device.addr != 0 && seen.Add(device.addr)) result.Add(device);
             }
             catch (Exception ex) { Log.Ex("BT", "DeviceDiscovery.RegistryCandidates", ex); }
@@ -68,7 +68,7 @@ public static class DeviceDiscovery
             // 源 2：WinRT（补 Win32 漏掉的；已有的不覆盖名字）
             try
             {
-                foreach (var (addr, name) in WindowsConnectedDeviceFinder.ListConnected())
+                foreach (var (addr, name) in WindowsDeviceDiscovery.ListConnectedViaWinRt())
                     if (addr != 0 && !merged.ContainsKey(addr))
                         merged[addr] = name;
             }

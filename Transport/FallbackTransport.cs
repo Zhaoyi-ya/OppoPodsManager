@@ -10,8 +10,11 @@ namespace OppoPodsManager;
 public sealed class FallbackTransport : IPodTransport
 {
     private readonly Func<IPodTransport>[] _factories;
+    private readonly object _lifecycleLock = new();
     private IPodTransport? _active;
+    private IPodTransport? _connecting;
     private bool _disposed;
+    private int _connectionGeneration;
 
     public event Action<PodFrame>? FrameReceived;
     public event Action? Disconnected;
@@ -30,6 +33,13 @@ public sealed class FallbackTransport : IPodTransport
 
     public bool Connect()
     {
+        int generation;
+        lock (_lifecycleLock)
+        {
+            if (_disposed) return false;
+            generation = _connectionGeneration;
+        }
+
         var swAll = System.Diagnostics.Stopwatch.StartNew();
         for (int i = 0; i < _factories.Length; i++)
         {
@@ -40,14 +50,33 @@ public sealed class FallbackTransport : IPodTransport
             candidate.FrameReceived += ForwardFrame;
             candidate.Disconnected += ForwardDisconnected;
 
+            lock (_lifecycleLock)
+            {
+                if (_disposed || generation != _connectionGeneration)
+                {
+                    candidate.FrameReceived -= ForwardFrame;
+                    candidate.Disconnected -= ForwardDisconnected;
+                    candidate.Dispose();
+                    return false;
+                }
+                _connecting = candidate;
+            }
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
             bool ok;
             try { ok = candidate.Connect(); }
             catch (Exception ex) { Log.Ex("FALLBACK", $"{label}.Connect", ex); ok = false; }
 
-            if (ok)
+            bool cancelled;
+            lock (_lifecycleLock)
             {
-                _active = candidate;
+                if (ReferenceEquals(_connecting, candidate)) _connecting = null;
+                cancelled = _disposed || generation != _connectionGeneration;
+                if (ok && !cancelled) _active = candidate;
+            }
+
+            if (ok && !cancelled)
+            {
                 LastError = null;
                 Log.Result("FALLBACK", "Connect", true, $"活动链路={label} (该链路耗时{sw.ElapsedMilliseconds}ms, 总耗时{swAll.ElapsedMilliseconds}ms)");
                 return true;
@@ -58,6 +87,11 @@ public sealed class FallbackTransport : IPodTransport
             candidate.FrameReceived -= ForwardFrame;
             candidate.Disconnected -= ForwardDisconnected;
             try { candidate.Dispose(); } catch { }
+            if (cancelled)
+            {
+                Log.D("FALLBACK", $"{label} 连接已取消 (耗时{sw.ElapsedMilliseconds}ms)");
+                return false;
+            }
             Log.D("FALLBACK", $"[{i + 1}/{_factories.Length}] {label} 连接失败 (耗时{sw.ElapsedMilliseconds}ms): {candidate.LastError}");
         }
 
@@ -70,7 +104,23 @@ public sealed class FallbackTransport : IPodTransport
 
     public void Send(ushort cmd, byte[] payload) => _active?.Send(cmd, payload);
     public void Poll(int timeoutMs) => _active?.Poll(timeoutMs);
-    public void Close() => _active?.Close();
+    public void Close()
+    {
+        IPodTransport? active;
+        IPodTransport? connecting;
+        lock (_lifecycleLock)
+        {
+            _connectionGeneration++;
+            active = _active;
+            connecting = _connecting;
+        }
+
+        try { connecting?.Close(); } catch { }
+        if (!ReferenceEquals(active, connecting))
+        {
+            try { active?.Close(); } catch { }
+        }
+    }
 
     public void Dispose()
     {

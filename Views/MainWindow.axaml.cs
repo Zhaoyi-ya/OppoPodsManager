@@ -46,6 +46,7 @@ public partial class MainWindow : SukiWindow
     // 前端只依赖 IPodManager 契约；构造点耦合具体类，其余交互全走接口
     private readonly IPodManager _pods = new PodManager();
     private CancellationTokenSource? _pollCts;
+    private readonly SemaphoreSlim _reconnectWake = new(0, 1);
     private string _ancMain = "", _ancLevel = "";
     /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
     private readonly Dictionary<string, string> _ancLastSub = new();
@@ -435,7 +436,13 @@ public partial class MainWindow : SukiWindow
                 Log.D("UI", "ConnectAsync: 连接失败 -> " + (_pods.LastError ?? "unknown"));
             }
             _ = Dispatcher.UIThread.InvokeAsync(() => OnStateChanged());
-            if (!_realClose) { Log.D("UI", "ConnectAsync: 5s 后重试"); await Task.Delay(5000); }
+            if (!_realClose)
+            {
+                Log.D("UI", "ConnectAsync: 等待自动重试或手动重连");
+                await _reconnectWake.WaitAsync(TimeSpan.FromSeconds(5));
+                while (_reconnectWake.CurrentCount > 0)
+                    await _reconnectWake.WaitAsync();
+            }
         }
     }
 
@@ -2671,7 +2678,10 @@ public partial class MainWindow : SukiWindow
     private void Reconnect_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Log.D("UI", "用户操作: 点击重连");
+        _pollCts?.Cancel();
         _pods.Disconnect();
+        if (_reconnectWake.CurrentCount == 0)
+            _reconnectWake.Release();
     }
 
     private void ResetUi()

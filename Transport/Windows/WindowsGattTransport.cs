@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
-using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
 
 namespace OppoPodsManager;
@@ -17,12 +16,8 @@ namespace OppoPodsManager;
 ///   Service 0000079A-…、TX(Write) 0000079B-…、RX(Notify) 0000079C-…、CCCD 2902。
 /// 帧格式用 GattFrameCodec（melody 5 字节头，无 SPP 0xAA 外壳）。
 ///
-/// 设备发现采用 WinRT 枚举（DeviceInformation），按优先级：
-///   1) 按 melody GATT 服务 UUID 枚举（GetDeviceSelectorFromUuid）——最精确；
-///   2) 按已配对 BLE 设备的品牌名匹配（BluetoothLEDevice 选择器）；
-///   3) 最后回退到注册表定位的经典蓝牙地址（IDeviceLocator）——多为 BR/EDR 地址，成功率低。
-/// 作为经典 SPP 失败后的回退连接方式（多数 OPPO 耳机在 Windows 下只暴露经典口，
-/// 仅暴露 BLE 的设备/固件才会走到这里）。
+/// 仅按 WindowsConnectionTransport 已选定的目标地址打开设备，不执行全局名称或服务枚举，
+/// 防止多副同品牌耳机时回退到错误设备。仅作为目标 RFCOMM 路径失败后的最后回退。
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsGattTransport : IPodTransport
@@ -34,20 +29,26 @@ public sealed class WindowsGattTransport : IPodTransport
 
     private const int ConnectTimeoutMs = 8000;
 
-    private readonly IDeviceLocator _locator;
+    private readonly ulong _targetAddress;
+    private readonly string _targetName;
     private readonly IFrameCodec _codec = new GattFrameCodec();
     private readonly List<byte> _framer = new();
     private readonly ConcurrentQueue<PodFrame> _rxQueue = new();
     private readonly object _lock = new();
 
     private BluetoothLEDevice? _device;
+    private GattDeviceService? _service;
     private GattCharacteristic? _txChar;
     private GattCharacteristic? _rxChar;
+    private CancellationTokenSource? _connectCts;
     private bool _disposed;
 
-    /// <summary>默认用注册表回溯发现器；可注入其它 IDeviceLocator。</summary>
-    public WindowsGattTransport() : this(new WindowsBluetoothLocator()) { }
-    public WindowsGattTransport(IDeviceLocator locator) { _locator = locator; }
+    public WindowsGattTransport(ulong targetAddress, string targetName)
+    {
+        if (targetAddress == 0) throw new ArgumentOutOfRangeException(nameof(targetAddress));
+        _targetAddress = targetAddress;
+        _targetName = targetName;
+    }
 
     public string? DeviceName { get; private set; }
     public string? LastError { get; private set; }
@@ -56,24 +57,48 @@ public sealed class WindowsGattTransport : IPodTransport
     public event Action<PodFrame>? FrameReceived;
     public event Action? Disconnected;
 
-    /// <summary>WinRT 枚举发现 BLE 设备 → 取 GATT 服务/特征 → 订阅通知 → 完成连接。</summary>
+    /// <summary>按固定目标地址打开 BLE 设备 → 取 GATT 服务/特征 → 订阅通知。</summary>
     public bool Connect()
     {
+        CancellationTokenSource cts;
+        lock (_lock)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(WindowsGattTransport));
+            _connectCts?.Cancel();
+            _connectCts?.Dispose();
+            _connectCts = cts = new CancellationTokenSource(ConnectTimeoutMs);
+        }
         try
         {
-            Log.D("GATT", "Connect: 开始");
-            if (!RunSync(ConnectAsyncCore, ConnectTimeoutMs))
+            Log.D("GATT", $"Connect: 开始 target={_targetAddress:X12}");
+            if (!ConnectAsyncCore(cts.Token).GetAwaiter().GetResult())
             {
                 Cleanup();
-                if (string.IsNullOrEmpty(LastError)) LastError = "GATT 连接超时";
+                if (string.IsNullOrEmpty(LastError)) LastError = "目标 GATT 连接失败";
                 Log.Result("GATT", "Connect", false, LastError);
                 return false;
             }
 
-            IsConnected = true;
+            lock (_lock)
+            {
+                if (!ReferenceEquals(_connectCts, cts) || cts.IsCancellationRequested)
+                {
+                    LastError = "GATT 连接已取消";
+                    CleanupLocked();
+                    return false;
+                }
+                IsConnected = true;
+            }
             LastError = null;
             Log.Result("GATT", "Connect", true, $"name=\"{DeviceName}\"");
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            LastError = cts.IsCancellationRequested ? "GATT 连接已取消或超时" : "GATT 连接已取消";
+            Cleanup();
+            Log.Result("GATT", "Connect", false, LastError);
+            return false;
         }
         catch (Exception e)
         {
@@ -85,139 +110,80 @@ public sealed class WindowsGattTransport : IPodTransport
     }
 
     /// <summary>实际的异步连接流程：WinRT 枚举发现设备 → 找服务/特征 → 订阅通知。</summary>
-    private async Task<bool> ConnectAsyncCore()
+    private async Task<bool> ConnectAsyncCore(CancellationToken cancellationToken)
     {
-        _device = await DiscoverDeviceAsync();
-        if (_device == null)
-        {
-            if (string.IsNullOrEmpty(LastError)) LastError = "未发现可用的 BLE 设备（WinRT 枚举+注册表回退均失败）";
-            return false;
-        }
-
-        if (!string.IsNullOrEmpty(_device.Name)) DeviceName = _device.Name;
-        Log.D("GATT", $"Connect: 已打开 BLE 设备 name=\"{DeviceName}\" addr={_device.BluetoothAddress:X12} 连接态={_device.ConnectionStatus}");
-
-        // 取私有服务（uncached 强制走链路，避免系统缓存过期句柄）
-        var svcResult = await _device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached);
-        Log.D("GATT", $"Connect: 取 melody 服务 status={svcResult.Status} 服务数={svcResult.Services.Count}");
-        if (svcResult.Status != GattCommunicationStatus.Success || svcResult.Services.Count == 0)
-        {
-            // status=Unreachable 常见于设备只经典配对无 BLE 链路；ProtocolError=GATT 层拒绝
-            LastError = $"未发现 melody GATT 服务 (status={svcResult.Status}; Unreachable 多为设备无 BLE 链路/未在广播)";
-            return false;
-        }
-        var service = svcResult.Services[0];
-
-        var txResult = await service.GetCharacteristicsForUuidAsync(TxCharUuid, BluetoothCacheMode.Uncached);
-        var rxResult = await service.GetCharacteristicsForUuidAsync(RxCharUuid, BluetoothCacheMode.Uncached);
-        if (txResult.Status != GattCommunicationStatus.Success || txResult.Characteristics.Count == 0 ||
-            rxResult.Status != GattCommunicationStatus.Success || rxResult.Characteristics.Count == 0)
-        {
-            LastError = "未发现 TX/RX 特征";
-            return false;
-        }
-        _txChar = txResult.Characteristics[0];
-        _rxChar = rxResult.Characteristics[0];
-
-        // 订阅 RX 通知：先挂事件，再写 CCCD(Notify)
-        _rxChar.ValueChanged += OnRxValueChanged;
-        var cccd = await _rxChar.WriteClientCharacteristicConfigurationDescriptorAsync(
-            GattClientCharacteristicConfigurationDescriptorValue.Notify);
-        if (cccd != GattCommunicationStatus.Success)
-        {
-            LastError = $"写 CCCD 失败 (status={cccd})，通常是未配对/未加密";
-            return false;
-        }
-
-        _device.ConnectionStatusChanged += OnConnectionStatusChanged;
-        _framer.Clear();
-        while (_rxQueue.TryDequeue(out _)) { }
-        Log.D("GATT", "Connect: 服务/特征就绪，通知已开启");
-        return true;
-    }
-
-    /// <summary>
-    /// 设备发现：优先 WinRT 枚举（按服务 UUID → 按配对 BLE 品牌名），
-    /// 最后才回退到注册表定位的经典地址。返回可用的 BluetoothLEDevice，找不到返回 null。
-    /// </summary>
-    private async Task<BluetoothLEDevice?> DiscoverDeviceAsync()
-    {
-        // 1) 按 melody GATT 服务 UUID 枚举（最精确，直接命中暴露该服务的设备）
-        var dev = await FindByServiceUuidAsync();
-        if (dev != null) { Log.D("GATT", "Discover: 命中(服务 UUID 枚举)"); return dev; }
-
-        // 2) 按已配对 BLE 设备的品牌名匹配
-        dev = await FindByPairedNameAsync();
-        if (dev != null) { Log.D("GATT", "Discover: 命中(配对 BLE 名称)"); return dev; }
-
-        // 3) 回退：注册表定位的经典蓝牙地址（多为 BR/EDR，成功率低）
-        var (addr, name) = _locator.Locate();
-        if (addr != 0)
-        {
-            Log.D("GATT", $"Discover: 回退注册表地址 addr={addr:X12} name=\"{name}\"");
-            var byAddr = await BluetoothLEDevice.FromBluetoothAddressAsync(addr);
-            if (byAddr != null) { Log.D("GATT", "Discover: 命中(注册表地址回退)"); return byAddr; }
-            LastError = "注册表地址无法打开为 BLE 设备（可能仅经典配对，非 BLE）";
-        }
-        return null;
-    }
-
-    /// <summary>按 melody 服务 UUID 用 DeviceInformation 枚举，取品牌名优先、否则取第一个。</summary>
-    private async Task<BluetoothLEDevice?> FindByServiceUuidAsync()
-    {
+        BluetoothLEDevice? device = null;
+        GattDeviceService? service = null;
         try
         {
-            string selector = GattDeviceService.GetDeviceSelectorFromUuid(ServiceUuid);
-            var devices = await DeviceInformation.FindAllAsync(selector);
-            Log.D("GATT", $"Discover: 服务 UUID 枚举到 {devices.Count} 个候选");
-            if (devices.Count == 0) return null;
+            device = await BluetoothLEDevice.FromBluetoothAddressAsync(_targetAddress).AsTask(cancellationToken);
+            if (device == null)
+            {
+                LastError = $"目标地址 {_targetAddress:X12} 无法打开为 BLE 设备";
+                return false;
+            }
 
-            // 优先品牌名匹配
-            foreach (var di in devices)
+            if (device.BluetoothAddress != _targetAddress)
             {
-                if (IsSupportedBrand(di.Name))
-                {
-                    var svc = await GattDeviceService.FromIdAsync(di.Id);
-                    if (svc?.Device != null) return svc.Device;
-                }
+                LastError = $"GATT 地址不匹配：目标={_targetAddress:X12} 实际={device.BluetoothAddress:X12}";
+                return false;
             }
-            // 回退取第一个可用
-            foreach (var di in devices)
+
+            var deviceName = !string.IsNullOrEmpty(device.Name) ? device.Name : _targetName;
+            Log.D("GATT", $"Connect: 已打开目标 BLE 设备 name=\"{deviceName}\" addr={device.BluetoothAddress:X12} 连接态={device.ConnectionStatus}");
+
+            var svcResult = await device.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached).AsTask(cancellationToken);
+            Log.D("GATT", $"Connect: 取 melody 服务 status={svcResult.Status} 服务数={svcResult.Services.Count}");
+            if (svcResult.Status != GattCommunicationStatus.Success || svcResult.Services.Count == 0)
             {
-                var svc = await GattDeviceService.FromIdAsync(di.Id);
-                if (svc?.Device != null) return svc.Device;
+                LastError = $"目标设备未发现 melody GATT 服务 (status={svcResult.Status})";
+                return false;
             }
+            service = svcResult.Services[0];
+
+            var txResult = await service.GetCharacteristicsForUuidAsync(TxCharUuid, BluetoothCacheMode.Uncached).AsTask(cancellationToken);
+            var rxResult = await service.GetCharacteristicsForUuidAsync(RxCharUuid, BluetoothCacheMode.Uncached).AsTask(cancellationToken);
+            if (txResult.Status != GattCommunicationStatus.Success || txResult.Characteristics.Count == 0 ||
+                rxResult.Status != GattCommunicationStatus.Success || rxResult.Characteristics.Count == 0)
+            {
+                LastError = "目标设备未发现 TX/RX 特征";
+                return false;
+            }
+            var tx = txResult.Characteristics[0];
+            var rx = rxResult.Characteristics[0];
+
+            var cccd = await rx.WriteClientCharacteristicConfigurationDescriptorAsync(
+                GattClientCharacteristicConfigurationDescriptorValue.Notify).AsTask(cancellationToken);
+            if (cccd != GattCommunicationStatus.Success)
+            {
+                LastError = $"写 CCCD 失败 (status={cccd})，通常是未配对/未加密";
+                return false;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_lock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _device = device;
+                _service = service;
+                _txChar = tx;
+                _rxChar = rx;
+                DeviceName = deviceName;
+                device = null;
+                service = null;
+                _rxChar.ValueChanged += OnRxValueChanged;
+                _device.ConnectionStatusChanged += OnConnectionStatusChanged;
+                _framer.Clear();
+                while (_rxQueue.TryDequeue(out _)) { }
+            }
+            Log.D("GATT", "Connect: 目标服务/特征就绪，通知已开启");
+            return true;
         }
-        catch (Exception ex) { Log.Ex("GATT", "FindByServiceUuidAsync", ex); }
-        return null;
-    }
-
-    /// <summary>枚举已配对 BLE 设备，按品牌名匹配。</summary>
-    private async Task<BluetoothLEDevice?> FindByPairedNameAsync()
-    {
-        try
+        finally
         {
-            string selector = BluetoothLEDevice.GetDeviceSelectorFromPairingState(true);
-            var devices = await DeviceInformation.FindAllAsync(selector);
-            Log.D("GATT", $"Discover: 已配对 BLE 枚举到 {devices.Count} 个");
-            foreach (var di in devices)
-            {
-                if (!IsSupportedBrand(di.Name)) continue;
-                var dev = await BluetoothLEDevice.FromIdAsync(di.Id);
-                if (dev != null) return dev;
-            }
+            try { service?.Dispose(); } catch { }
+            try { device?.Dispose(); } catch { }
         }
-        catch (Exception ex) { Log.Ex("GATT", "FindByPairedNameAsync", ex); }
-        return null;
-    }
-
-    /// <summary>设备名是否匹配受支持品牌（OPPO/OnePlus/realme）。</summary>
-    private static bool IsSupportedBrand(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return false;
-        foreach (var brand in OppoProtocol.SupportedBrands)
-            if (name.Contains(brand, StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
     }
 
     private void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
@@ -307,6 +273,7 @@ public sealed class WindowsGattTransport : IPodTransport
     public void Close()
     {
         IsConnected = false;
+        try { _connectCts?.Cancel(); } catch { }
         Cleanup();
     }
 
@@ -314,14 +281,21 @@ public sealed class WindowsGattTransport : IPodTransport
     private void Cleanup()
     {
         lock (_lock)
-        {
-            try { if (_rxChar != null) _rxChar.ValueChanged -= OnRxValueChanged; } catch { }
-            try { if (_device != null) _device.ConnectionStatusChanged -= OnConnectionStatusChanged; } catch { }
-            _rxChar = null;
-            _txChar = null;
-            try { _device?.Dispose(); } catch { }
-            _device = null;
-        }
+            CleanupLocked();
+    }
+
+    private void CleanupLocked()
+    {
+        try { if (_rxChar != null) _rxChar.ValueChanged -= OnRxValueChanged; } catch { }
+        try { if (_device != null) _device.ConnectionStatusChanged -= OnConnectionStatusChanged; } catch { }
+        _rxChar = null;
+        _txChar = null;
+        try { _service?.Dispose(); } catch { }
+        _service = null;
+        try { _device?.Dispose(); } catch { }
+        _device = null;
+        try { _connectCts?.Dispose(); } catch { }
+        _connectCts = null;
     }
 
     /// <summary>在给定超时内同步等待一个异步操作，超时返回 false。超时与异常分别记日志以便定位。</summary>
