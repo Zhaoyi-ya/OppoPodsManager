@@ -3500,7 +3500,7 @@ public partial class MainWindow : SukiWindow
 
     private const string UPDATE_API = "https://oppopods.zhaoyi.fun/api/update/latest";
     private const string DOWNLOAD_URL = "https://github.com/Zhaoyi-ya/OppoPodsManager/releases/latest";
-    private const string DOWNLOAD_MIRROR_URL = "https://www.zhaoyi.fun/1783416183336";
+    private const string DOWNLOAD_MIRROR_URL = "https://www.zhaoyi.fun/index.php/archives/7/";
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     private async void BtnCheckUpdate_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
