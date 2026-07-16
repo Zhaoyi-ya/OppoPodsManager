@@ -269,10 +269,8 @@ public partial class MainWindow : SukiWindow
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
 
-        // 开机自启静默启动：App.OnFrameworkInitializationCompleted 在 --minimized 时不会调用 Show()。
-        // 这里不要设置 WindowState.Minimized，否则 Windows 会在左下角生成最小化窗口残影。
-        var args = Environment.GetCommandLineArgs();
-        if (args.Contains("--minimized"))
+        // 开机自启静默启动：只保留托盘，不显示主窗口，也不在任务栏生成最小化残影。
+        if (App.IsMinimizedStartup())
             ShowInTaskbar = false;
 
         // 固定在屏幕右下角（已取消，使用默认居中）

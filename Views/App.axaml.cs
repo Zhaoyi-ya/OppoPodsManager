@@ -8,6 +8,18 @@ namespace OppoPodsManager;
 
 public partial class App : Application
 {
+    private MainWindow? _silentMainWindow;
+
+    internal static bool IsMinimizedStartup() =>
+        Array.Exists(Environment.GetCommandLineArgs(), IsMinimizedArgument);
+
+    private static bool IsMinimizedArgument(string arg) =>
+        string.Equals(arg, "--minimized", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(arg, "-minimized", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(arg, "/minimized", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(arg, "--tray", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(arg, "/tray", StringComparison.OrdinalIgnoreCase);
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -17,14 +29,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var args = Environment.GetCommandLineArgs();
-
             var mainWindow = new MainWindow();
-            // 静默启动：设为 MainWindow 但不 Show()，避免任务栏闪现。
-            // MainWindow 构造函数会检测 --minimized 并保持隐藏 + ShowInTaskbar=false。
-            desktop.MainWindow = mainWindow;
-            if (!args.Contains("--minimized"))
+            if (IsMinimizedStartup())
+            {
+                // 静默启动只初始化后台逻辑和托盘，不把窗口交给桌面生命周期自动显示。
+                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                _silentMainWindow = mainWindow;
+            }
+            else
+            {
+                desktop.MainWindow = mainWindow;
                 mainWindow.Show();
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
