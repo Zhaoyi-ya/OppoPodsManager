@@ -109,11 +109,14 @@ public interface IPodManager : IDisposable
     /// <summary>断开指定手持设备。</summary>
     void SendMultiConnectDisconnect(string targetAddress);
 
-    /// <summary>设为优先设备：把音频输出手动指定到该设备（cmd 0x0429 操作 4，melody e(4,...,false)）。</summary>
+    /// <summary>设为优先连接设备：该设备处于可连接范围时优先自动连接（cmd 0x0429 操作 4）。</summary>
     void SendMultiConnectSetPriority(string targetAddress);
 
-    /// <summary>恢复自动切换：清除手动指定，交回耳机自动决定音频输出（cmd 0x0429 操作 4，melody e(4,...,true)）。</summary>
+    /// <summary>清除固定优先连接设备，恢复自动选择（cmd 0x0429 操作 4）。</summary>
     void SendMultiConnectAutoSwitch();
+
+    /// <summary>设置独立的自动切换设备开关（cmd 0x0132：开启=2，关闭=1）。</summary>
+    void SendAutoSwitchLink(bool enabled);
 
     /// <summary>取消配对/解绑指定手持设备。</summary>
     void SendMultiConnectUnpair(string targetAddress);

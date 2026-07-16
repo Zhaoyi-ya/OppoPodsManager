@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Rfcomm;
+using Windows.Devices.Enumeration;
 using Windows.Networking.Sockets;
 using Windows.Storage.Streams;
 
@@ -17,12 +18,12 @@ namespace OppoPodsManager;
 /// 发现走 RfcommServiceFinder（按服务 UUID / 配对名枚举），连接用
 /// StreamSocket.ConnectAsync(service.ConnectionHostName, service.ConnectionServiceName)。
 /// 帧格式与 Winsock SPP 一致（SppFrameCodec，0xAA 外壳）。
-/// 作为首选 SPP 连接方式；失败时由 FallbackTransport 回退到 Winsock SppTransport。
+/// 作为 WindowsConnectionTransport 的首选路径；失败后由总控尝试 Winsock 和目标 GATT。
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsRfcommStreamTransport : IPodTransport
 {
-    private const int ConnectTimeoutMs = 6000;   // StreamSocket.ConnectAsync 超时上限
+    public static readonly int ConnectTimeoutMs = 3000;   // StreamSocket.ConnectAsync 硬超时上限
 
     // 目标设备地址（48 位）。0 = 不限（沿用"品牌名优先/首个"旧行为）；非 0 = 精确连接该耳机。
     private readonly ulong _targetAddr;
@@ -35,12 +36,15 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     private readonly List<byte> _framer = new();         // 帧累积缓冲
     private readonly ConcurrentQueue<PodFrame> _rxQueue = new();  // 已解码队列（Poll 交付）
     private readonly object _sendLock = new();             // 写保护
+    private readonly object _lifecycleLock = new();
 
     private RfcommDeviceService? _service;   // RFCOMM 服务（发现结果）
     private StreamSocket? _socket;           // WinRT TCP 式 socket
     private DataWriter? _writer;             // OutputStream 写器
     private DataReader? _reader;             // InputStream 读器
     private CancellationTokenSource? _readCts;
+    private CancellationTokenSource? _connectCts;
+    private StreamSocket? _connectingSocket;
     private Task? _readLoop;
     private bool _disposed;
 
@@ -55,36 +59,54 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     public bool Connect()
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        CancellationTokenSource cts;
+        lock (_lifecycleLock)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(WindowsRfcommStreamTransport));
+            _connectCts?.Cancel();
+            _connectCts?.Dispose();
+            _connectCts = cts = new CancellationTokenSource(ConnectTimeoutMs);
+        }
         try
         {
             Log.D("RFSOCK", $"Connect: 开始 (超时预算={ConnectTimeoutMs}ms)");
-            var outcome = RunSync(ConnectAsyncCore, ConnectTimeoutMs);
-            if (!outcome.Ok)
+            var connectTask = ConnectAsyncCore(cts.Token);
+            if (!BoundedTaskWait.Wait(connectTask, ConnectTimeoutMs, CancelConnectingSocket, out var connected))
+            {
+                LastError = $"RFCOMM 连接超时 (耗时{sw.ElapsedMilliseconds}ms)";
+                Log.Result("RFSOCK", "Connect", false, LastError);
+                return false;
+            }
+            if (!connected)
             {
                 Cleanup();
-                // 区分“真超时”与“抛异常”——原先一律写“连接超时”会掩盖真正原因
-                if (outcome.TimedOut)
-                {
-                    LastError = $"RFCOMM StreamSocket 连接超时 (>{ConnectTimeoutMs}ms, 实耗{sw.ElapsedMilliseconds}ms; 常见原因: 耳机正被手机占用/信道忙/不在范围)";
-                }
-                else if (outcome.Error != null)
-                {
-                    // 展开 WinRT 异常链，暴露 HRESULT 真正错误码
-                    LastError = $"RFCOMM 连接异常 (耗时{sw.ElapsedMilliseconds}ms): {Log.DescribeException(outcome.Error)}";
-                }
-                else if (string.IsNullOrEmpty(LastError))
-                {
+                if (string.IsNullOrEmpty(LastError))
                     LastError = $"RFCOMM 连接失败 (耗时{sw.ElapsedMilliseconds}ms, ConnectAsyncCore 返回 false)";
-                }
                 Log.Result("RFSOCK", "Connect", false, LastError);
                 return false;
             }
 
-            IsConnected = true;
+            lock (_lifecycleLock)
+            {
+                if (!ReferenceEquals(_connectCts, cts) || cts.IsCancellationRequested)
+                {
+                    LastError = "RFCOMM 连接已取消";
+                    CleanupLocked();
+                    return false;
+                }
+                IsConnected = true;
+                StartReadLoopLocked();
+            }
             LastError = null;
-            StartReadLoop();
             Log.Result("RFSOCK", "Connect", true, $"name=\"{DeviceName}\" 耗时{sw.ElapsedMilliseconds}ms");
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            LastError = $"RFCOMM 连接已取消或超时 (耗时{sw.ElapsedMilliseconds}ms)";
+            Cleanup();
+            Log.Result("RFSOCK", "Connect", false, LastError);
+            return false;
         }
         catch (Exception e)
         {
@@ -96,38 +118,89 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     }
 
     /// <summary>异步连接核心：发现服务 → 打开 StreamSocket → 初始化 Writer/Reader。</summary>
-    private async Task<bool> ConnectAsyncCore()
+    private async Task<bool> ConnectAsyncCore(CancellationToken cancellationToken)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _service = await RfcommServiceFinder.FindServiceAsync(_targetAddr);
-        Log.D("RFSOCK", $"Connect: 服务发现耗时{sw.ElapsedMilliseconds}ms (目标={(_targetAddr == 0 ? "任意" : _targetAddr.ToString("X12"))})");
-        if (_service == null) { LastError = "未发现 OPPO SPP RFCOMM 服务"; return false; }
+        RfcommDeviceService? service = null;
+        StreamSocket? socket = null;
+        DataWriter? writer = null;
+        DataReader? reader = null;
+        try
+        {
+            service = await RfcommServiceFinder.FindServiceAsync(_targetAddr, cancellationToken);
+            Log.D("RFSOCK", $"Connect: Uncached SDP 耗时{sw.ElapsedMilliseconds}ms target={_targetAddr:X12}");
+            if (service?.Device == null || service.Device.BluetoothAddress != _targetAddr)
+            {
+                LastError = service == null
+                    ? $"目标 {_targetAddr:X12} 未发现 OPPO SPP RFCOMM 服务"
+                    : $"RFCOMM 服务地址不匹配：目标={_targetAddr:X12} 实际={service.Device.BluetoothAddress:X12}";
+                return false;
+            }
 
-        var dev = _service.Device;
-        DeviceName = dev?.Name ?? "OPPO 耳机";
-        // 记录设备连接态：BluetoothDevice.ConnectionStatus=Disconnected 常意味着
-        // 经典链路未建立（耳机没在放音/未与本机建立 ACL），是 ConnectAsync 超时的先兆
-        var connStatus = dev?.ConnectionStatus.ToString() ?? "Unknown";
-        Log.D("RFSOCK", $"Connect: 命中服务 name=\"{DeviceName}\" 设备连接态={connStatus} host={_service.ConnectionHostName} svc={_service.ConnectionServiceName}");
+            var dev = service.Device;
+            var deviceName = dev.Name ?? "OPPO 耳机";
+            Log.D("RFSOCK", $"Connect: 命中目标服务 name=\"{deviceName}\" host={service.ConnectionHostName} svc={service.ConnectionServiceName}");
 
-        _socket = new StreamSocket();
-        // 用服务自带的 ConnectionHostName / ConnectionServiceName 连接
-        var swConn = System.Diagnostics.Stopwatch.StartNew();
-        Log.D("RFSOCK", "Connect: StreamSocket.ConnectAsync 开始...");
-        await _socket.ConnectAsync(_service.ConnectionHostName, _service.ConnectionServiceName);
-        Log.D("RFSOCK", $"Connect: StreamSocket.ConnectAsync 完成 耗时{swConn.ElapsedMilliseconds}ms");
+            socket = new StreamSocket();
+            lock (_lifecycleLock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _connectingSocket = socket;
+            }
+            await socket.ConnectAsync(service.ConnectionHostName, service.ConnectionServiceName)
+                .AsTask(cancellationToken);
+            writer = new DataWriter(socket.OutputStream);
+            reader = new DataReader(socket.InputStream) { InputStreamOptions = InputStreamOptions.Partial };
 
-        _writer = new DataWriter(_socket.OutputStream);
-        _reader = new DataReader(_socket.InputStream) { InputStreamOptions = InputStreamOptions.Partial };
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_lifecycleLock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _service = service;
+                _socket = socket;
+                _writer = writer;
+                _reader = reader;
+                if (ReferenceEquals(_connectingSocket, socket))
+                    _connectingSocket = null;
+                DeviceName = deviceName;
+                service = null;
+                socket = null;
+                writer = null;
+                reader = null;
+                _framer.Clear();
+                while (_rxQueue.TryDequeue(out _)) { }
+            }
+            Log.D("RFSOCK", $"Connect: StreamSocket 就绪 (总耗时{sw.ElapsedMilliseconds}ms)");
+            return true;
+        }
+        finally
+        {
+            try { if (writer != null) { writer.DetachStream(); writer.Dispose(); } } catch { }
+            try { if (reader != null) { reader.DetachStream(); reader.Dispose(); } } catch { }
+            try { socket?.Dispose(); } catch { }
+            lock (_lifecycleLock)
+            {
+                if (ReferenceEquals(_connectingSocket, socket))
+                    _connectingSocket = null;
+            }
+            try { service?.Dispose(); } catch { }
+        }
+    }
 
-        _framer.Clear();
-        while (_rxQueue.TryDequeue(out _)) { }
-        Log.D("RFSOCK", $"Connect: StreamSocket 就绪 (总耗时{sw.ElapsedMilliseconds}ms)");
-        return true;
+    private void CancelConnectingSocket()
+    {
+        StreamSocket? connectingSocket;
+        lock (_lifecycleLock)
+        {
+            try { _connectCts?.Cancel(); } catch { }
+            connectingSocket = _connectingSocket;
+            _connectingSocket = null;
+        }
+        try { connectingSocket?.Dispose(); } catch { }
     }
 
     /// <summary>启动后台读循环（Task.Run 在新线程运行 ReadLoopAsync）。</summary>
-    private void StartReadLoop()
+    private void StartReadLoopLocked()
     {
         _readCts = new CancellationTokenSource();
         var ct = _readCts.Token;
@@ -229,22 +302,33 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     public void Close()
     {
         IsConnected = false;
+        try { _connectCts?.Cancel(); } catch { }
+        try { _connectingSocket?.Dispose(); } catch { }
         Cleanup();
     }
 
     /// <summary>逐一释放 Writer/Reader/Socket/Service 并置 null。</summary>
     private void Cleanup()
     {
-        try { _readCts?.Cancel(); } catch { /* CTS 已释放则忽略 */ }
-        // 先 DetachStream 再 Dispose，避免 WinRT 对象释放顺序异常
+        lock (_lifecycleLock)
+            CleanupLocked();
+    }
+
+    private void CleanupLocked()
+    {
+        try { _connectCts?.Cancel(); } catch { }
+        try { _readCts?.Cancel(); } catch { }
         try { if (_writer != null) { _writer.DetachStream(); _writer.Dispose(); } } catch { }
         try { if (_reader != null) { _reader.DetachStream(); _reader.Dispose(); } } catch { }
         try { _socket?.Dispose(); } catch { }
         try { _service?.Dispose(); } catch { }
+        try { _connectCts?.Dispose(); } catch { }
         _writer = null;
+        _connectingSocket = null;
         _reader = null;
         _socket = null;
         _service = null;
+        _connectCts = null;
         _readCts = null;
         _readLoop = null;
     }
@@ -290,5 +374,117 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
         if (_disposed) return;
         Close();
         _disposed = true;
+    }
+}
+
+/// <summary>目标锁定的 OPPO SPP 服务发现；仅由 WindowsRfcommStreamTransport 使用。</summary>
+[SupportedOSPlatform("windows10.0.19041.0")]
+internal static class RfcommServiceFinder
+{
+    public static async Task<RfcommDeviceService?> FindServiceAsync(
+        ulong targetAddr,
+        CancellationToken cancellationToken)
+    {
+        var svc = await FindByServiceUuidAsync(targetAddr, cancellationToken);
+        if (svc != null) { Log.D("BT", "RfcommFinder: 命中(服务 UUID 枚举)"); return svc; }
+
+        svc = await FindByPairedDeviceAsync(targetAddr, cancellationToken);
+        if (svc != null) Log.D("BT", "RfcommFinder: 命中(配对经典设备)");
+        return svc;
+    }
+
+    private static async Task<RfcommDeviceService?> FindByServiceUuidAsync(
+        ulong targetAddr,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var serviceId = RfcommServiceId.FromUuid(OppoProtocol.OppoSppUuid);
+            string selector = RfcommDeviceService.GetDeviceSelector(serviceId);
+            var devices = await DeviceInformation.FindAllAsync(selector).AsTask(cancellationToken);
+            Log.D("BT", $"RfcommFinder: 服务 UUID 枚举到 {devices.Count} 个候选 target={targetAddr:X12}");
+
+            foreach (var di in devices)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var svc = await TryOpenAsync(di.Id, cancellationToken);
+                if (svc?.Device != null && svc.Device.BluetoothAddress == targetAddr)
+                {
+                    Log.D("BT", $"RfcommFinder: 目标地址匹配 name=\"{di.Name}\"");
+                    return await ResolveFreshAsync(svc, cancellationToken);
+                }
+                svc?.Dispose();
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByServiceUuidAsync", ex); }
+        return null;
+    }
+
+    private static async Task<RfcommDeviceService?> FindByPairedDeviceAsync(
+        ulong targetAddr,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            string selector = BluetoothDevice.GetDeviceSelectorFromPairingState(true);
+            var devices = await DeviceInformation.FindAllAsync(selector).AsTask(cancellationToken);
+            var serviceId = RfcommServiceId.FromUuid(OppoProtocol.OppoSppUuid);
+
+            foreach (var di in devices)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var dev = await BluetoothDevice.FromIdAsync(di.Id).AsTask(cancellationToken);
+                if (dev == null || dev.BluetoothAddress != targetAddr) continue;
+
+                var result = await dev.GetRfcommServicesForIdAsync(serviceId, BluetoothCacheMode.Uncached)
+                    .AsTask(cancellationToken);
+                if (result.Services.Count > 0) return result.Services[0];
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByPairedDeviceAsync", ex); }
+        return null;
+    }
+
+    private static async Task<RfcommDeviceService?> ResolveFreshAsync(
+        RfcommDeviceService cached,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var dev = cached.Device;
+            if (dev == null) return cached;
+
+            var serviceId = RfcommServiceId.FromUuid(OppoProtocol.OppoSppUuid);
+            var fresh = await dev.GetRfcommServicesForIdAsync(serviceId, BluetoothCacheMode.Uncached)
+                .AsTask(cancellationToken);
+            if (fresh.Services.Count > 0)
+            {
+                var svc = fresh.Services[0];
+                Log.D("BT", $"RfcommFinder: Uncached SDP svc={svc.ConnectionServiceName}");
+                cached.Dispose();
+                return svc;
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) { Log.Ex("BT", "RfcommFinder.ResolveFreshAsync", ex); }
+        return cached;
+    }
+
+    private static async Task<RfcommDeviceService?> TryOpenAsync(
+        string deviceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await RfcommDeviceService.FromIdAsync(deviceId).AsTask(cancellationToken);
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            Log.Ex("BT", $"RfcommFinder.TryOpenAsync id={deviceId}", ex);
+            return null;
+        }
     }
 }

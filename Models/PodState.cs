@@ -48,15 +48,18 @@ public class PodState
 
     // ===== 多设备优先/自动切换（0x8132 getMultiConnectPriorityDevice 回读）=====
 
+    /// <summary>本会话最近一次成功设置的自动切换设备开关状态。</summary>
+    public bool AutoSwitchLinkEnabled { get; set; }
+
     /// <summary>
     /// 是否处于"自动切换"模式（对应 HandheldDeviceInfo.mIsAutoMode）。
-    /// true = 耳机自动决定音频输出设备；false = 用户手动指定优先设备（见 <see cref="PriorityDeviceAddress"/>）。
+    /// true = 未固定优先连接设备；false = 用户指定优先连接设备（见 <see cref="PriorityDeviceAddress"/>）。
     /// </summary>
     public bool MultiConnectAutoMode { get; set; }
 
     /// <summary>
     /// 手动模式下用户指定的优先设备 MAC（"AA:BB:CC:DD:EE:FF"）；自动模式或未知为空。
-    /// 对应设备切换时优先连接/输出音频的那台。
+    /// 该设备进入可连接范围时，耳机会优先自动连接它。
     /// </summary>
     public string PriorityDeviceAddress { get; set; } = "";
 }

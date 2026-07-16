@@ -20,8 +20,8 @@ public static partial class OppoProtocol
     /// 多设备操作载荷（cmd 0x0429），对应 melody SetCommandManager.operateMultiConnectHandheldDevice：
     ///   operateType 1/2/3：[type(1)][addr(6)]，MAC 按显示顺序正序写入。
     ///   operateType 4（设置音频优先设备）：
-    ///     - clearAddress=true（恢复自动切换）：[04][00]
-    ///     - clearAddress=false（指定某设备为音频输出）：[04][01][addr(6)]
+    ///     - clearAddress=true（恢复自动选择）：[04][00]
+    ///     - clearAddress=false（指定优先自动连接设备）：[04][01][addr(6)]
     ///   （melody p0：z4=true 发 byte[2]；z4=false 发 byte[8] 且 bar[1]=(!z4?1:0)=1）
     /// </summary>
     public static byte[] MultiConnectOpPayload(byte operateType, string targetAddress, bool clearAddress = false)
@@ -55,8 +55,9 @@ public static partial class OppoProtocol
 
     /// <summary>
     /// 构造旧版 setRelatedDeviceInfo（0x0408）载荷。
-    /// 官方 RelatedDeviceInfo 布局：host MAC(6) + host type(1) + related count(1)，
-    /// 随后每项 RelatedDevice 为 MAC(6) + type(1) + state(1)。地址均按显示顺序写入。
+    /// 官方 HeadsetCoreService.U0 / SetCommandManager.setRelatedDeviceInfo 布局：
+    ///   host type(1) + host MAC(6) + related count(1)，
+    ///   每项 RelatedDevice 为 type(1) + MAC(6) + state(1)。地址均按显示顺序写入。
     /// </summary>
     public static byte[] RelatedDeviceInfoPayload(
         string hostAddress,
@@ -65,15 +66,15 @@ public static partial class OppoProtocol
     {
         var related = relatedDevices.Take(6).ToList();
         var payload = new byte[8 + related.Count * 8];
-        Buffer.BlockCopy(ParseMac(hostAddress), 0, payload, 0, 6);
-        payload[6] = hostType;
+        payload[0] = hostType;
+        Buffer.BlockCopy(ParseMac(hostAddress), 0, payload, 1, 6);
         payload[7] = (byte)related.Count;
 
         int pos = 8;
         foreach (var device in related)
         {
-            Buffer.BlockCopy(ParseMac(device.Address), 0, payload, pos, 6);
-            payload[pos + 6] = device.ElemByte6;
+            payload[pos] = device.ElemByte6;
+            Buffer.BlockCopy(ParseMac(device.Address), 0, payload, pos + 1, 6);
             payload[pos + 7] = (byte)device.ConnectionState;
             pos += 8;
         }

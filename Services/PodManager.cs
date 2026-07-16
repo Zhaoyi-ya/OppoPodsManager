@@ -15,6 +15,9 @@ public partial class PodManager : IPodManager
 {
     private readonly IPodTransport _transport;
     private bool _disposed;
+    private readonly object _connectionLifecycleLock = new();
+    private readonly SemaphoreSlim _connectGate = new(1, 1);
+    private int _connectionGeneration;
 
     public PodState State { get; } = new();
     public DeviceCapabilities Caps { get; private set; } = DeviceCapabilities.Detect(null);
@@ -82,6 +85,12 @@ public partial class PodManager : IPodManager
         State.Connected = false;
         State.Battery.Clear();
         StateChanged?.Invoke();
+    }
+
+    private bool IsConnectionGenerationCurrent(int generation)
+    {
+        lock (_connectionLifecycleLock)
+            return generation == _connectionGeneration && State.Connected && _transport.IsConnected;
     }
 
     private void DispatchFrame(PodFrame frame)
@@ -218,29 +227,47 @@ public partial class PodManager : IPodManager
 
     public async Task ConnectAsync()
     {
-        await Task.Run(() =>
+        await _connectGate.WaitAsync();
+        try
         {
-            Log.D("RFCOMM", "ConnectAsync: 开始连接");
-            if (!_transport.Connect())
-            {
-                Log.D("RFCOMM", "ConnectAsync: 传输层连接失败 -> " + (_transport.LastError ?? "unknown"));
-                return;
-            }
+            int generation;
+            lock (_connectionLifecycleLock)
+                generation = ++_connectionGeneration;
 
-            Caps = DeviceCapabilities.Detect(_transport.DeviceName);  // 名称预判（回退）
-            State.Connected = true;
-            Log.D("RFCOMM", $"ConnectAsync: 连接成功,开始握手序列 (名称预判 Caps={Caps.ModelName})");
+            await Task.Run(() =>
+            {
+                Log.D("RFCOMM", $"ConnectAsync: 开始连接 generation={generation}");
+                if (!_transport.Connect())
+                {
+                    Log.D("RFCOMM", "ConnectAsync: 传输层连接失败 -> " + (_transport.LastError ?? "unknown"));
+                    return;
+                }
+
+                lock (_connectionLifecycleLock)
+                {
+                    if (generation != _connectionGeneration)
+                    {
+                        Log.D("RFCOMM", $"ConnectAsync: 丢弃过期连接 generation={generation}, current={_connectionGeneration}");
+                        _transport.Close();
+                        return;
+                    }
+                    Caps = DeviceCapabilities.Detect(_transport.DeviceName);  // 名称预判（回退）
+                    State.Connected = true;
+                }
+                Log.D("RFCOMM", $"ConnectAsync: 连接成功,开始握手序列 (名称预判 Caps={Caps.ModelName})");
 
             // ===== 阶段1：设备识别（先取 productId 精确定位能力）=====
             // productId 属全局通用能力，先发；收到 0x8103 后 ParseProductId 会重建能力集。
             _transport.Send(OppoProtocol.CmdQueryProductId, OppoProtocol.PayEmpty);
             Thread.Sleep(120);
             _transport.Poll(600);   // 先把 productId 响应收进来，让后续查询基于正确能力集
+            if (!IsConnectionGenerationCurrent(generation)) return;
 
             // Melody 首先读取 0x0100 能力位图；后续协议版本与命令选择均基于设备真实支持集合。
             _transport.Send(OppoProtocol.CmdQueryCapability, OppoProtocol.PayEmpty);
             Thread.Sleep(120);
             _transport.Poll(600);
+            if (!IsConnectionGenerationCurrent(generation)) return;
 
             // ===== 阶段2：批量功能状态（游戏/双设备/空间音效开关）=====
             _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.BuildFeatureQuery(Caps));
@@ -273,11 +300,18 @@ public partial class PodManager : IPodManager
 
             // ===== 阶段5：多设备列表（仅双设备型号）=====
             if (Caps.HasDualDevice) { SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty); Thread.Sleep(400); }
+            if (!IsConnectionGenerationCurrent(generation)) return;
 
             Log.D("RFCOMM", "ConnectAsync: 握手命令已发完,等待首批响应");
             _transport.Poll(3000);
+            if (!IsConnectionGenerationCurrent(generation)) return;
             Log.D("RFCOMM", "ConnectAsync: 初始化完成");
-        });
+            });
+        }
+        finally
+        {
+            _connectGate.Release();
+        }
     }
 
     public void SendMultiConnectInfo()
@@ -324,55 +358,42 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectSetPriority(string targetAddress) =>
         SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, targetAddress, "设为优先设备");
 
-    /// <summary>恢复自动切换：清除手动优先设备，交回耳机自动决定音频输出（melody e(4,...,true)）。</summary>
+    /// <summary>恢复自动选择：清除固定优先连接设备（Melody operation=4, clearAddress=true）。</summary>
     public void SendMultiConnectAutoSwitch() =>
-        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动切换", clearAddress: true);
+        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动选择", clearAddress: true);
+
+    public void SendAutoSwitchLink(bool enabled)
+    {
+        if (!Caps.HasAutoSwitchLink || !State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
+        {
+            CommandFailed?.Invoke("该设备不支持自动切换设备");
+            return;
+        }
+
+        var payload = new[] { enabled ? (byte)2 : (byte)1 };
+        Log.D("RFCOMM", $"自动切换设备: enabled={enabled} payload=[{BitConverter.ToString(payload)}]");
+        _dispatcher.SendTracked(OppoProtocol.CmdQueryMultiPriority, payload, (status, _) =>
+        {
+            if (status == CmdStatus.Success)
+            {
+                State.AutoSwitchLinkEnabled = enabled;
+                StateChanged?.Invoke();
+            }
+            else
+                CommandFailed?.Invoke("自动切换设备设置失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
+        });
+    }
 
     public void SendMultiConnectUnpair(string targetAddress)
     {
-        if (State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld))
+        if (Caps.CanUnpairMultiConnectDevice(State.SupportedCommands))
         {
             SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
             return;
         }
 
-        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo))
-        {
-            Log.D("RFCOMM", $"取消配对: 设备未声明 0x0429 或 0x0408，已忽略 addr={targetAddress}");
-            CommandFailed?.Invoke("该设备不支持取消配对");
-            return;
-        }
-
-        var host = State.ConnectedDevices.FirstOrDefault(d => d.IsCurrentDevice);
-        if (host == null)
-        {
-            Log.D("RFCOMM", $"取消配对(旧版0x0408): 未找到当前主机，无法重建关联列表 addr={targetAddress}");
-            CommandFailed?.Invoke("取消配对失败（缺少当前设备信息）");
-            return;
-        }
-
-        var remaining = State.ConnectedDevices.Where(d =>
-            !d.IsCurrentDevice &&
-            !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase));
-        var payload = OppoProtocol.RelatedDeviceInfoPayload(host.Address, host.ElemByte6, remaining);
-        Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) addr={targetAddress} payload=[{BitConverter.ToString(payload)}]");
-        _dispatcher.SendTracked(OppoProtocol.CmdSetRelatedDeviceInfo, payload, (status, _) =>
-        {
-            if (status == CmdStatus.Success)
-            {
-                State.ConnectedDevices = State.ConnectedDevices
-                    .Where(d => !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) ACK 成功，已移除 {targetAddress}");
-                StateChanged?.Invoke();
-                SendMultiConnectInfo();
-            }
-            else
-            {
-                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) 失败 status={(int)status}");
-                CommandFailed?.Invoke("多设备取消配对失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
-            }
-        });
+        Log.D("RFCOMM", $"取消配对: V{Caps.MultiDevicesConnect} 设备未开放 0x0429 operation=3，已忽略 addr={targetAddress}");
+        CommandFailed?.Invoke("该设备不支持在多设备列表中取消配对");
     }
 
     public void SendOperateHandheld(string targetAddress, bool connect = true)
@@ -630,7 +651,7 @@ public partial class PodManager : IPodManager
                         }
 
                         // 多连接优先设备/自动切换（0x0132）
-                        if (Caps.HasMultiConnectManage && State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
+                        if ((Caps.HasMultiConnectManage || Caps.HasAutoSwitchLink) && State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
                         {
                             SendQuery(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);
@@ -656,7 +677,11 @@ public partial class PodManager : IPodManager
 
     public void Disconnect()
     {
-        State.Connected = false;
+        lock (_connectionLifecycleLock)
+        {
+            _connectionGeneration++;
+            State.Connected = false;
+        }
         _transport.Close();
     }
 

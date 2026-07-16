@@ -43,9 +43,19 @@ file static class AppConst
 
 public partial class MainWindow : SukiWindow
 {
+    private sealed class PriorityDeviceOption
+    {
+        public string Address { get; init; } = "";
+        public string DisplayName { get; init; } = "";
+        public bool IsAutomatic { get; init; }
+        public override string ToString() => DisplayName;
+    }
+
     // 前端只依赖 IPodManager 契约；构造点耦合具体类，其余交互全走接口
-    private readonly IPodManager _pods = new PodManager();
+    private readonly PodManagerSession _podSession;
+    private IPodManager _pods => _podSession.Current;
     private CancellationTokenSource? _pollCts;
+    private readonly SemaphoreSlim _reconnectWake = new(0, 1);
     private string _ancMain = "", _ancLevel = "";
     /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
     private readonly Dictionary<string, string> _ancLastSub = new();
@@ -72,6 +82,8 @@ public partial class MainWindow : SukiWindow
     private bool _logAutoScroll = true;
     private bool _logScrollPending;
     private ContextMenu? _openMultiDeviceMenu;
+    private bool _syncingConnectionStrategy;
+    private string _priorityOptionsSignature = "";
     /// <summary>日志显示模式：true=简化版（翻译+合并），false=完整版（原始行）。</summary>
     private bool _logSimplified = true;
     private ScrollViewer? _logScrollViewer;
@@ -181,6 +193,7 @@ public partial class MainWindow : SukiWindow
 
     public MainWindow()
     {
+        _podSession = new PodManagerSession(() => new PodManager(), OnStateChanged);
         try
         {
             Log.D("UI", "MainWindow 构造开始");
@@ -191,7 +204,7 @@ public partial class MainWindow : SukiWindow
         LbLog.ItemsSource = _renderedLogEntries;
 
         // 挂载调试日志监听器，捕获 Log.D/Ex 输出到 UI 日志面板
-        _logManager.CleanOldLogs(7);
+        _logManager.CleanOldLogs(2);
         _logTraceListener = new LogTraceListener(_logManager);
         Trace.Listeners.Add(_logTraceListener);
             Log.D("UI", "InitializeComponent OK");
@@ -256,10 +269,8 @@ public partial class MainWindow : SukiWindow
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
 
-        // 开机自启静默启动：App.OnFrameworkInitializationCompleted 在 --minimized 时不会调用 Show()。
-        // 这里不要设置 WindowState.Minimized，否则 Windows 会在左下角生成最小化窗口残影。
-        var args = Environment.GetCommandLineArgs();
-        if (args.Contains("--minimized"))
+        // 开机自启静默启动：只保留托盘，不显示主窗口，也不在任务栏生成最小化残影。
+        if (App.IsMinimizedStartup())
             ShowInTaskbar = false;
 
         // 固定在屏幕右下角（已取消，使用默认居中）
@@ -399,13 +410,12 @@ public partial class MainWindow : SukiWindow
         TbCustomName.Text = customName ?? "";
         UpdateTitle();
 
-        _pods.StateChanged += OnStateChanged;
         Closing += OnWindowClosing;
         Closed += (_, _) =>
         {
             _pollCts?.Cancel();
             DisposeRuntimeUiResources();
-            _pods.Dispose();
+            _podSession.Dispose();
         };
         _ = ConnectAsync();
         _ = CheckForUpdateAsync(); // 后台检查更新
@@ -422,20 +432,31 @@ public partial class MainWindow : SukiWindow
         while (!_realClose)
         {
             Log.D("UI", "ConnectAsync: 尝试连接");
-            await _pods.ConnectAsync();
-            if (_pods.IsConnected)
+            var manager = _podSession.Current;
+            await manager.ConnectAsync();
+            if (!_podSession.IsCurrent(manager))
+            {
+                Log.D("UI", "ConnectAsync: 旧连接会话已被替换，等待重连信号启动新会话");
+            }
+            else if (manager.IsConnected)
             {
                 Log.D("UI", "ConnectAsync: 已连接,进入轮询");
                 _pollCts = new CancellationTokenSource();
-                await _pods.PollAsync(_pollCts.Token);
+                await manager.PollAsync(_pollCts.Token);
                 Log.D("UI", "ConnectAsync: 轮询结束");
             }
             else
             {
-                Log.D("UI", "ConnectAsync: 连接失败 -> " + (_pods.LastError ?? "unknown"));
+                Log.D("UI", "ConnectAsync: 连接失败 -> " + (manager.LastError ?? "unknown"));
             }
             _ = Dispatcher.UIThread.InvokeAsync(() => OnStateChanged());
-            if (!_realClose) { Log.D("UI", "ConnectAsync: 5s 后重试"); await Task.Delay(5000); }
+            if (!_realClose)
+            {
+                Log.D("UI", "ConnectAsync: 等待自动重试或手动重连");
+                await _reconnectWake.WaitAsync(TimeSpan.FromSeconds(5));
+                while (_reconnectWake.CurrentCount > 0)
+                    await _reconnectWake.WaitAsync();
+            }
         }
     }
 
@@ -521,8 +542,7 @@ public partial class MainWindow : SukiWindow
             _connectionStatusStartedAt = DateTime.MinValue;
 
             StatusDot.Fill = BrushRed;
-            var err = _pods.LastError;
-            StatusText.Text = err ?? "未连接";
+            StatusText.Text = "未连接";
             StatusText.Foreground = BrushLightRed;
             StatusDot.IsVisible = true;
             StatusText.IsVisible = true;
@@ -2671,7 +2691,10 @@ public partial class MainWindow : SukiWindow
     private void Reconnect_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         Log.D("UI", "用户操作: 点击重连");
-        _pods.Disconnect();
+        _pollCts?.Cancel();
+        _podSession.Replace();
+        if (_reconnectWake.CurrentCount == 0)
+            _reconnectWake.Release();
     }
 
     private void ResetUi()
@@ -2723,10 +2746,9 @@ public partial class MainWindow : SukiWindow
     {
         _realClose = true;
         _pollCts?.Cancel();
-        _pods.StateChanged -= OnStateChanged;
         Closing -= OnWindowClosing;
         DisposeRuntimeUiResources();
-        _pods.Dispose();
+        _podSession.Dispose();
         if (_trayIcon != null) _trayIcon.IsVisible = false;
         Environment.Exit(0);
     }
@@ -2737,7 +2759,6 @@ public partial class MainWindow : SukiWindow
             return;
         _runtimeUiDisposed = true;
 
-        _pods.StateChanged -= OnStateChanged;
         Closing -= OnWindowClosing;
         _eqDebounceTimer?.Stop();
         _bgApplyDebounceTimer?.Stop();
@@ -2847,34 +2868,33 @@ public partial class MainWindow : SukiWindow
             }
             DeviceList.Items.Clear();
             _deviceListRows.Clear();
+            DeviceListEmptyHint.Text = "连接耳机后显示多设备列表";
+            DeviceListEmptyHint.IsVisible = true;
+            ConnectionStrategyExpander.IsVisible = false;
             UpdateDeviceListStatus(Array.Empty<ConnectedDeviceInfo>());
             return;
         }
 
-        var all = _pods.State.ConnectedDevices.ToList();
+        var hiddenMacs = SettingsManager.GetHiddenMultiDeviceMacs();
+        var all = _pods.State.ConnectedDevices
+            .Where(device => device.IsCurrentDevice || !hiddenMacs.Contains(device.Address))
+            .ToList();
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
             : _pods.Caps;
-        var canManage = caps.HasMultiConnectManage;
-        var canUnpair = _pods.State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld)
-            || _pods.State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo);
-
-        // 无设备且已连接时，用型号名填充
-        if (all.Count == 0 && _pods.State.Connected)
-        {
-            all.Add(new ConnectedDeviceInfo
-            {
-                Address = "current",
-                DeviceName = caps.ModelName,
-                ConnectionState = 2,
-                IsCurrentDevice = true,
-            });
-        }
+        var canManage = caps.IsMultiConnectV2
+            && _pods.State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld);
+        var canUnpair = caps.CanUnpairMultiConnectDevice(_pods.State.SupportedCommands);
+        SyncConnectionStrategy(caps, canManage, all);
+        DeviceListEmptyHint.Text = hiddenMacs.Count > 0
+            ? "暂无可显示的设备，可在设置中恢复已隐藏设备"
+            : "暂无其他设备";
+        DeviceListEmptyHint.IsVisible = all.Count == 0;
 
         // 计算列表签名。只包含影响行数量/菜单可用性的结构字段，避免音频活动等高频状态导致整棵 UI 树反复 Clear+new。
         var sig = string.Join("|", all.Select(d =>
             $"{d.Address};{d.DeviceName};{d.ConnectionState};{d.IsCurrentDevice}"))
-            + $"##manage={canManage};unpair={canUnpair};auto={_pods.State.MultiConnectAutoMode};conn={_pods.State.Connected}";
+            + $"##manage={canManage};unpair={canUnpair};hidden={string.Join(',', hiddenMacs.OrderBy(value => value))};conn={_pods.State.Connected}";
         if (sig == _deviceListSignature && DeviceList.Items.Count > 0)
         {
             UpdateDeviceListRows(all);
@@ -2980,52 +3000,25 @@ public partial class MainWindow : SukiWindow
                 }
                 else
                 {
-                    // 已连接 → 设为优先设备 / 恢复自动切换 / 断开
-                    if (canManage)
-                    {
-                        var setPri = new MenuItem { Header = "设为优先设备" };
-                        setPri.Click += (_, _) => _pods.SendMultiConnectSetPriority(d.Address);
-                        menu.Items.Add(setPri);
-
-                        // 手动指定了优先设备时，提供恢复自动切换（melody 操作 4 + 清除地址）
-                        if (!_pods.State.MultiConnectAutoMode)
-                        {
-                            var autoSwitch = new MenuItem { Header = "恢复自动切换" };
-                            autoSwitch.Click += (_, _) => _pods.SendMultiConnectAutoSwitch();
-                            menu.Items.Add(autoSwitch);
-                        }
-                        menu.Items.Add(new Separator());
-                    }
                     var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
                     disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
                     menu.Items.Add(disconnect);
                 }
                 if (canUnpair)
                 {
-                    // 根据运行时能力由 PodManager 选择新版 0x0429 或旧版 0x0408。
+                    // Melody 仅在 V2 多设备管理页提供解绑，协议为 0x0429 operation=3。
                     menu.Items.Add(new Separator());
                     var unpair = new MenuItem { Header = "取消配对" };
                     unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
                     menu.Items.Add(unpair);
                 }
+                menu.Items.Add(new Separator());
+                var hide = new MenuItem { Header = "隐藏此设备" };
+                hide.Click += (_, _) => HideMultiDevice(d);
+                menu.Items.Add(hide);
             }
             else if (isReal && d.IsCurrentDevice)
             {
-                // 当前设备（本机耳机）：同样可设为优先设备 / 恢复自动切换 / 断开。
-                if (canManage)
-                {
-                    var setPri = new MenuItem { Header = "设为优先设备" };
-                    setPri.Click += (_, _) => _pods.SendMultiConnectSetPriority(d.Address);
-                    menu.Items.Add(setPri);
-
-                    if (!_pods.State.MultiConnectAutoMode)
-                    {
-                        var autoSwitch = new MenuItem { Header = "恢复自动切换" };
-                        autoSwitch.Click += (_, _) => _pods.SendMultiConnectAutoSwitch();
-                        menu.Items.Add(autoSwitch);
-                    }
-                    menu.Items.Add(new Separator());
-                }
                 var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
                 disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
                 menu.Items.Add(disconnect);
@@ -3073,6 +3066,134 @@ public partial class MainWindow : SukiWindow
         }
 
         UpdateDeviceListStatus(all);
+    }
+
+    private void SyncConnectionStrategy(
+        DeviceCapabilities caps,
+        bool canManagePriority,
+        IReadOnlyCollection<ConnectedDeviceInfo> visibleDevices)
+    {
+        var canAutoSwitch = caps.HasAutoSwitchLink
+            && _pods.State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority);
+        ConnectionStrategyExpander.IsVisible = canAutoSwitch || canManagePriority;
+        CbAutoSwitchLink.IsVisible = canAutoSwitch;
+        PriorityDevicePanel.IsVisible = canManagePriority;
+
+        _syncingConnectionStrategy = true;
+        try
+        {
+            CbAutoSwitchLink.IsChecked = _pods.State.AutoSwitchLinkEnabled;
+            if (!canManagePriority)
+            {
+                CbPriorityDevice.Items.Clear();
+                CbPriorityDevice.SelectedItem = null;
+                _priorityOptionsSignature = "";
+                return;
+            }
+
+            var connected = visibleDevices
+                .Where(device => device.ConnectionState == 2
+                    && !string.IsNullOrWhiteSpace(device.Address))
+                .ToList();
+            var optionSignature = string.Join("|", connected.Select(device =>
+                $"{device.Address};{device.DeviceName};{device.IsCurrentDevice}"));
+            if (optionSignature != _priorityOptionsSignature)
+            {
+                _priorityOptionsSignature = optionSignature;
+                CbPriorityDevice.Items.Clear();
+                CbPriorityDevice.Items.Add(new PriorityDeviceOption
+                {
+                    IsAutomatic = true,
+                    DisplayName = "自动选择",
+                });
+
+                foreach (var device in connected)
+                {
+                    var name = string.IsNullOrWhiteSpace(device.DeviceName)
+                        ? "未知设备"
+                        : device.DeviceName;
+                    CbPriorityDevice.Items.Add(new PriorityDeviceOption
+                    {
+                        Address = device.Address,
+                        DisplayName = name,
+                    });
+                }
+            }
+
+            PriorityDeviceOption? selected = null;
+            if (_pods.State.MultiConnectAutoMode)
+            {
+                selected = CbPriorityDevice.Items
+                    .OfType<PriorityDeviceOption>()
+                    .FirstOrDefault(option => option.IsAutomatic);
+                CbPriorityDevice.PlaceholderText = "自动选择";
+            }
+            else
+            {
+                selected = CbPriorityDevice.Items
+                    .OfType<PriorityDeviceOption>()
+                    .FirstOrDefault(option => string.Equals(
+                        option.Address,
+                        _pods.State.PriorityDeviceAddress,
+                        StringComparison.OrdinalIgnoreCase));
+                CbPriorityDevice.PlaceholderText = selected == null
+                    ? "已设置设备当前未连接"
+                    : "选择优先连接设备";
+            }
+            CbPriorityDevice.SelectedItem = selected;
+        }
+        finally
+        {
+            _syncingConnectionStrategy = false;
+        }
+    }
+
+    private void CbAutoSwitchLink_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_syncingConnectionStrategy || !_pods.IsConnected) return;
+        _pods.SendAutoSwitchLink(CbAutoSwitchLink.IsChecked == true);
+    }
+
+    private void CbPriorityDevice_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_syncingConnectionStrategy || !_pods.IsConnected
+            || CbPriorityDevice.SelectedItem is not PriorityDeviceOption option)
+            return;
+
+        if (option.IsAutomatic)
+            _pods.SendMultiConnectAutoSwitch();
+        else
+            _pods.SendMultiConnectSetPriority(option.Address);
+    }
+
+    private void HideMultiDevice(ConnectedDeviceInfo device)
+    {
+        if (device.IsCurrentDevice || string.IsNullOrWhiteSpace(device.Address)) return;
+        SettingsManager.HideMultiDevice(device.Address);
+        _deviceListSignature = "";
+        SyncMultiDeviceList();
+        RefreshRestoreHiddenDevicesButton();
+        Log.D("UI", $"本地隐藏多设备 addr={device.Address}");
+    }
+
+    private void RefreshRestoreHiddenDevicesButton()
+    {
+        var count = SettingsManager.GetHiddenMultiDeviceMacs().Count;
+        BtnRestoreHiddenDevices.IsEnabled = count > 0;
+        BtnRestoreHiddenDevices.Content = count > 0
+            ? $"恢复已隐藏设备（{count}）"
+            : "恢复已隐藏设备";
+    }
+
+    private void BtnRestoreHiddenDevices_Click(object? sender, RoutedEventArgs e)
+    {
+        SettingsManager.ClearHiddenMultiDevices();
+        _deviceListSignature = "";
+        SyncMultiDeviceList();
+        RefreshRestoreHiddenDevicesButton();
+        if (_pods.IsConnected)
+            _pods.SendMultiConnectInfo();
+        Log.D("UI", "已清除本地隐藏设备策略并同步多设备状态");
     }
 
     private static string GetDeviceListRowKey(ConnectedDeviceInfo d)

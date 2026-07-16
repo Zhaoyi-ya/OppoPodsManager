@@ -70,11 +70,14 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
     private readonly ConcurrentQueue<PodFrame> _rxQueue = new();
     private readonly IDeviceLocator _locator;
     private readonly object _sendLock = new();
+    private readonly object _socketLifecycleLock = new();
 
     private int _socketFd = -1;
+    private int _connectingSocketFd = -1;
     private Thread? _readThread;
     private volatile bool _disposed;
     private volatile bool _readLoopActive;
+    private volatile bool _connectCancelled;
     private int _idleCounter;
 
     public LinuxRfcommStreamTransport() : this(new LinuxBluetoothLocator()) { }
@@ -91,7 +94,7 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
         try
         {
             Log.D("LXRFC", "Connect: start");
-            IsConnected = false; LastError = null; _disposed = false;
+            IsConnected = false; LastError = null; _disposed = false; _connectCancelled = false;
 
             var (addr, name) = _locator.Locate();
             if (addr == 0) { LastError = "No paired OPPO device found"; return false; }
@@ -101,14 +104,20 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
             int fd = ScanAndConnect(addr);
             if (fd < 0) { LastError = $"No OPPO RFCOMM channel (1-{MaxRfcommChannel})"; return false; }
 
-            _socketFd = fd;
             _framer.Clear();
             while (_rxQueue.TryDequeue(out _)) { }
 
-            if (fcntl(_socketFd, F_SETFL, fcntl(_socketFd, F_GETFL) | O_NONBLOCK) < 0)
+            if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK) < 0)
                 Log.D("LXRFC", "Connect: fcntl O_NONBLOCK failed");
 
-            IsConnected = true; LastError = null; _idleCounter = 0;
+            lock (_socketLifecycleLock)
+            {
+                if (_connectCancelled || _connectingSocketFd != fd) return false;
+                _connectingSocketFd = -1;
+                _socketFd = fd;
+                IsConnected = true;
+            }
+            LastError = null; _idleCounter = 0;
             StartReadLoop();
             Log.Result("LXRFC", "Connect", true, $"\"{name}\" fd={fd}");
             return true;
@@ -126,8 +135,20 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
 
         for (int ch = 1; ch <= MaxRfcommChannel; ch++)
         {
+            if (_connectCancelled) return -1;
+
             int fd = socket(AF_BLUETOOTH, SOCK_STREAM, BTPROTO_RFCOMM);
             if (fd < 0) { errOther++; continue; }
+
+            lock (_socketLifecycleLock)
+            {
+                if (_connectCancelled)
+                {
+                    close(fd);
+                    return -1;
+                }
+                _connectingSocketFd = fd;
+            }
 
             var sockAddr = BuildSockAddr(addr, ch);
             var tvConn = new TimeVal { tv_sec = 0, tv_usec = 200000 };
@@ -140,11 +161,11 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
                 if (err == 111) errRefused++;
                 else if (err == 110) errTimeout++;
                 else { errOther++; Log.D("LXRFC", $"Scan: ch={ch} connect errno={err}"); }
-                close(fd); continue;
+                CloseConnectingSocket(fd); continue;
             }
 
             IntPtr wrote = write(fd, probeBytes, (IntPtr)probeBytes.Length);
-            if (wrote == (IntPtr)(-1) || wrote == IntPtr.Zero) { close(fd); continue; }
+            if (wrote == (IntPtr)(-1) || wrote == IntPtr.Zero) { CloseConnectingSocket(fd); continue; }
 
             var tvRead = new TimeVal { tv_sec = 0, tv_usec = 200000 };
             setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ref tvRead, 16);
@@ -168,7 +189,7 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
                 string hex = BitConverter.ToString(recvBuf, 0, Math.Min(n, 10));
                 openChannels.Add($"ch={ch}:0x{recvBuf[0]:X2}({hex})");
             }
-            close(fd);
+            CloseConnectingSocket(fd);
         }
 
         Log.D("LXRFC", $"Scan: {MaxRfcommChannel} ch done. refused={errRefused} timeout={errTimeout} other={errOther}");
@@ -277,7 +298,37 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
     }
 
     private void OnDisconnected() { if (!IsConnected) return; IsConnected = false; Disconnected?.Invoke(); }
-    public void Close() { IsConnected = false; _readLoopActive = false; CleanupSocket(); }
-    private void CleanupSocket() { var fd = Interlocked.Exchange(ref _socketFd, -1); if (fd >= 0) close(fd); }
+    public void Close()
+    {
+        IsConnected = false;
+        _readLoopActive = false;
+        _connectCancelled = true;
+        CleanupSocket();
+    }
+
+    private void CloseConnectingSocket(int fd)
+    {
+        lock (_socketLifecycleLock)
+        {
+            if (_connectingSocketFd != fd) return;
+            _connectingSocketFd = -1;
+        }
+        close(fd);
+    }
+
+    private void CleanupSocket()
+    {
+        int active;
+        int connecting;
+        lock (_socketLifecycleLock)
+        {
+            active = _socketFd;
+            connecting = _connectingSocketFd;
+            _socketFd = -1;
+            _connectingSocketFd = -1;
+        }
+        if (connecting >= 0) close(connecting);
+        if (active >= 0 && active != connecting) close(active);
+    }
     public void Dispose() { if (_disposed) return; _disposed = true; Close(); }
 }

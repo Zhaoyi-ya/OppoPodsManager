@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -14,10 +15,12 @@ internal partial class AppSettingsContext : JsonSerializerContext { }
 /// <summary>JSON 文件持久化设置存储。</summary>
 public static class SettingsManager
 {
+    private const string HiddenMultiDeviceMacsKey = "HiddenMultiDeviceMacs";
     private static readonly string RoamingDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
     private static readonly string LocalDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
-    private static readonly string FilePath = Path.Combine(RoamingDir, "OppoPodsManager", "settings.json");
+    public static string AppDataDirectory { get; } = Path.Combine(RoamingDir, "OppoPodsManager");
+    private static readonly string FilePath = Path.Combine(AppDataDirectory, "settings.json");
 
     private static readonly string[] LegacyFilePaths =
     {
@@ -199,5 +202,39 @@ public static class SettingsManager
     {
         var json = JsonSerializer.Serialize(value, AppSettingsContext.Default.ListString);
         SetString(key, json);
+    }
+
+    public static HashSet<string> GetHiddenMultiDeviceMacs()
+    {
+        var values = GetStringList(HiddenMultiDeviceMacsKey) ?? new List<string>();
+        return values
+            .Select(NormalizeMacAddress)
+            .Where(value => value.Length > 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static void HideMultiDevice(string address)
+    {
+        var normalized = NormalizeMacAddress(address);
+        if (normalized.Length == 0) return;
+
+        var hidden = GetHiddenMultiDeviceMacs();
+        if (!hidden.Add(normalized)) return;
+        SetStringList(HiddenMultiDeviceMacsKey, hidden.OrderBy(value => value).ToList());
+    }
+
+    public static bool ClearHiddenMultiDevices()
+    {
+        var hadHiddenDevices = GetHiddenMultiDeviceMacs().Count > 0;
+        SetString(HiddenMultiDeviceMacsKey, null);
+        return hadHiddenDevices;
+    }
+
+    private static string NormalizeMacAddress(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address)) return "";
+        var hex = new string(address.Where(Uri.IsHexDigit).Select(char.ToUpperInvariant).ToArray());
+        if (hex.Length != 12) return "";
+        return string.Join(":", Enumerable.Range(0, 6).Select(index => hex.Substring(index * 2, 2)));
     }
 }
