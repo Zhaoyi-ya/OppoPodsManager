@@ -29,7 +29,6 @@ public partial class PodManager : IPodManager
 
     // 跟踪已发送删除命令但设备可能仍短暂回读旧状态的 EQ ID（Melody 式删除追踪窗口）
     private readonly Dictionary<byte, DateTime> _pendingDeleteEqIds = new();
-    private readonly HashSet<string> _pendingLegacyUnpairAddresses = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>带超时/重试的设置命令：失败或超时时触发 CommandFailed（供 UI 提示）。</summary>
     private void SendSet(ushort cmd, byte[] payload, string label)
@@ -359,59 +358,42 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectSetPriority(string targetAddress) =>
         SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, targetAddress, "设为优先设备");
 
-    /// <summary>恢复自动切换：清除手动优先设备，交回耳机自动决定音频输出（melody e(4,...,true)）。</summary>
+    /// <summary>恢复自动选择：清除固定优先连接设备（Melody operation=4, clearAddress=true）。</summary>
     public void SendMultiConnectAutoSwitch() =>
-        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动切换", clearAddress: true);
+        SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动选择", clearAddress: true);
+
+    public void SendAutoSwitchLink(bool enabled)
+    {
+        if (!Caps.HasAutoSwitchLink || !State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
+        {
+            CommandFailed?.Invoke("该设备不支持自动切换设备");
+            return;
+        }
+
+        var payload = new[] { enabled ? (byte)2 : (byte)1 };
+        Log.D("RFCOMM", $"自动切换设备: enabled={enabled} payload=[{BitConverter.ToString(payload)}]");
+        _dispatcher.SendTracked(OppoProtocol.CmdQueryMultiPriority, payload, (status, _) =>
+        {
+            if (status == CmdStatus.Success)
+            {
+                State.AutoSwitchLinkEnabled = enabled;
+                StateChanged?.Invoke();
+            }
+            else
+                CommandFailed?.Invoke("自动切换设备设置失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
+        });
+    }
 
     public void SendMultiConnectUnpair(string targetAddress)
     {
-        if (State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld))
+        if (Caps.CanUnpairMultiConnectDevice(State.SupportedCommands))
         {
             SendMultiConnectOp(OppoProtocol.MultiOpUnpair, targetAddress, "取消配对");
             return;
         }
 
-        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetRelatedDeviceInfo))
-        {
-            Log.D("RFCOMM", $"取消配对: 设备未声明 0x0429 或 0x0408，已忽略 addr={targetAddress}");
-            CommandFailed?.Invoke("该设备不支持取消配对");
-            return;
-        }
-
-        if (!_pendingLegacyUnpairAddresses.Add(targetAddress))
-        {
-            Log.D("RFCOMM", $"取消配对(旧版0x0408): addr={targetAddress} 已在处理中，已忽略重复请求");
-            return;
-        }
-
-        var host = State.ConnectedDevices.FirstOrDefault(d => d.IsCurrentDevice);
-        if (host == null)
-        {
-            _pendingLegacyUnpairAddresses.Remove(targetAddress);
-            Log.D("RFCOMM", $"取消配对(旧版0x0408): 未找到当前主机，无法重建关联列表 addr={targetAddress}");
-            CommandFailed?.Invoke("取消配对失败（缺少当前设备信息）");
-            return;
-        }
-
-        var remaining = State.ConnectedDevices.Where(d =>
-            !d.IsCurrentDevice &&
-            !string.Equals(d.Address, targetAddress, StringComparison.OrdinalIgnoreCase));
-        var payload = OppoProtocol.RelatedDeviceInfoPayload(host.Address, host.ElemByte6, remaining);
-        Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) addr={targetAddress} payload=[{BitConverter.ToString(payload)}]");
-        _dispatcher.SendTracked(OppoProtocol.CmdSetRelatedDeviceInfo, payload, (status, _) =>
-        {
-            _pendingLegacyUnpairAddresses.Remove(targetAddress);
-            if (status == CmdStatus.Success)
-            {
-                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) ACK 成功，刷新列表确认 {targetAddress}");
-                SendMultiConnectInfo();
-            }
-            else
-            {
-                Log.D("RFCOMM", $"多设备操作: 取消配对(旧版0x0408) 失败 status={(int)status}");
-                CommandFailed?.Invoke("多设备取消配对失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
-            }
-        });
+        Log.D("RFCOMM", $"取消配对: V{Caps.MultiDevicesConnect} 设备未开放 0x0429 operation=3，已忽略 addr={targetAddress}");
+        CommandFailed?.Invoke("该设备不支持在多设备列表中取消配对");
     }
 
     public void SendOperateHandheld(string targetAddress, bool connect = true)
@@ -669,7 +651,7 @@ public partial class PodManager : IPodManager
                         }
 
                         // 多连接优先设备/自动切换（0x0132）
-                        if (Caps.HasMultiConnectManage && State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
+                        if ((Caps.HasMultiConnectManage || Caps.HasAutoSwitchLink) && State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
                         {
                             SendQuery(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty);
                             Thread.Sleep(100);

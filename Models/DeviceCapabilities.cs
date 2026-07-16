@@ -76,6 +76,16 @@ public class DeviceCapabilities
     public bool HasMultiConnectManage { get; set; }
     public int  MultiDevicesConnect { get; set; }
 
+    /// <summary>Melody V1 多设备页：展示连接历史和基础连接控制，不提供历史设备解绑。</summary>
+    public bool IsMultiConnectV1 => MultiDevicesConnect == 1;
+
+    /// <summary>Melody V2 多设备管理页：支持高级管理；具体命令仍需结合运行时能力位图。</summary>
+    public bool IsMultiConnectV2 => MultiDevicesConnect >= 2;
+
+    /// <summary>V2 页面且耳机声明 0x0429 时，才支持 operation=3 取消配对。</summary>
+    public bool CanUnpairMultiConnectDevice(IReadOnlySet<ushort> supportedCommands) =>
+        IsMultiConnectV2 && supportedCommands.Contains(OppoProtocol.CmdOperateHandheld);
+
     /// <summary>按 Melody 的设备能力集合选择旧版 feature 27 或新版 0x0422 空间协议。</summary>
     public void ResolveSpatialProtocol(IReadOnlySet<ushort> supportedCommands)
     {

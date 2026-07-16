@@ -23,7 +23,7 @@ namespace OppoPodsManager;
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsRfcommStreamTransport : IPodTransport
 {
-    private const int ConnectTimeoutMs = 6000;   // StreamSocket.ConnectAsync 超时上限
+    public static readonly int ConnectTimeoutMs = 3000;   // StreamSocket.ConnectAsync 硬超时上限
 
     // 目标设备地址（48 位）。0 = 不限（沿用"品牌名优先/首个"旧行为）；非 0 = 精确连接该耳机。
     private readonly ulong _targetAddr;
@@ -44,6 +44,7 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     private DataReader? _reader;             // InputStream 读器
     private CancellationTokenSource? _readCts;
     private CancellationTokenSource? _connectCts;
+    private StreamSocket? _connectingSocket;
     private Task? _readLoop;
     private bool _disposed;
 
@@ -69,7 +70,14 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
         try
         {
             Log.D("RFSOCK", $"Connect: 开始 (超时预算={ConnectTimeoutMs}ms)");
-            if (!ConnectAsyncCore(cts.Token).GetAwaiter().GetResult())
+            var connectTask = ConnectAsyncCore(cts.Token);
+            if (!BoundedTaskWait.Wait(connectTask, ConnectTimeoutMs, CancelConnectingSocket, out var connected))
+            {
+                LastError = $"RFCOMM 连接超时 (耗时{sw.ElapsedMilliseconds}ms)";
+                Log.Result("RFSOCK", "Connect", false, LastError);
+                return false;
+            }
+            if (!connected)
             {
                 Cleanup();
                 if (string.IsNullOrEmpty(LastError))
@@ -134,6 +142,11 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
             Log.D("RFSOCK", $"Connect: 命中目标服务 name=\"{deviceName}\" host={service.ConnectionHostName} svc={service.ConnectionServiceName}");
 
             socket = new StreamSocket();
+            lock (_lifecycleLock)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _connectingSocket = socket;
+            }
             await socket.ConnectAsync(service.ConnectionHostName, service.ConnectionServiceName)
                 .AsTask(cancellationToken);
             writer = new DataWriter(socket.OutputStream);
@@ -147,6 +160,8 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
                 _socket = socket;
                 _writer = writer;
                 _reader = reader;
+                if (ReferenceEquals(_connectingSocket, socket))
+                    _connectingSocket = null;
                 DeviceName = deviceName;
                 service = null;
                 socket = null;
@@ -163,8 +178,25 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
             try { if (writer != null) { writer.DetachStream(); writer.Dispose(); } } catch { }
             try { if (reader != null) { reader.DetachStream(); reader.Dispose(); } } catch { }
             try { socket?.Dispose(); } catch { }
+            lock (_lifecycleLock)
+            {
+                if (ReferenceEquals(_connectingSocket, socket))
+                    _connectingSocket = null;
+            }
             try { service?.Dispose(); } catch { }
         }
+    }
+
+    private void CancelConnectingSocket()
+    {
+        StreamSocket? connectingSocket;
+        lock (_lifecycleLock)
+        {
+            try { _connectCts?.Cancel(); } catch { }
+            connectingSocket = _connectingSocket;
+            _connectingSocket = null;
+        }
+        try { connectingSocket?.Dispose(); } catch { }
     }
 
     /// <summary>启动后台读循环（Task.Run 在新线程运行 ReadLoopAsync）。</summary>
@@ -271,6 +303,7 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
     {
         IsConnected = false;
         try { _connectCts?.Cancel(); } catch { }
+        try { _connectingSocket?.Dispose(); } catch { }
         Cleanup();
     }
 
@@ -291,6 +324,7 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
         try { _service?.Dispose(); } catch { }
         try { _connectCts?.Dispose(); } catch { }
         _writer = null;
+        _connectingSocket = null;
         _reader = null;
         _socket = null;
         _service = null;

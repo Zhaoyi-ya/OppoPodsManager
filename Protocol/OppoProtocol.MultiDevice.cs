@@ -20,8 +20,8 @@ public static partial class OppoProtocol
     /// 多设备操作载荷（cmd 0x0429），对应 melody SetCommandManager.operateMultiConnectHandheldDevice：
     ///   operateType 1/2/3：[type(1)][addr(6)]，MAC 按显示顺序正序写入。
     ///   operateType 4（设置音频优先设备）：
-    ///     - clearAddress=true（恢复自动切换）：[04][00]
-    ///     - clearAddress=false（指定某设备为音频输出）：[04][01][addr(6)]
+    ///     - clearAddress=true（恢复自动选择）：[04][00]
+    ///     - clearAddress=false（指定优先自动连接设备）：[04][01][addr(6)]
     ///   （melody p0：z4=true 发 byte[2]；z4=false 发 byte[8] 且 bar[1]=(!z4?1:0)=1）
     /// </summary>
     public static byte[] MultiConnectOpPayload(byte operateType, string targetAddress, bool clearAddress = false)

@@ -197,7 +197,7 @@ public static class DeviceProfileLoader
         {
             caps.MultiDevicesConnect = mdc.GetInt32();
             caps.HasDualDevice = caps.MultiDevicesConnect >= 1;
-            caps.HasMultiConnectManage = caps.MultiDevicesConnect >= 2;
+            caps.HasMultiConnectManage = caps.IsMultiConnectV2;
         }
 
         caps.HasHiResAudio         = FlagAnyPresent(func, "highAudio", "highToneQuality");

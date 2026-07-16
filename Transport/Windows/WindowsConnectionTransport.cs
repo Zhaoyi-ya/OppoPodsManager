@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Versioning;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace OppoPodsManager;
 
@@ -22,7 +23,7 @@ public sealed class WindowsConnectionTransport : IPodTransport
     private readonly int _connectBudgetMs;
     private readonly object _gate = new();
 
-    private IPodTransport? _connecting;
+    private readonly HashSet<IPodTransport> _connecting = new();
     private IPodTransport? _active;
     private int _generation;
     private bool _disposed;
@@ -91,87 +92,30 @@ public sealed class WindowsConnectionTransport : IPodTransport
             }
 
             var attemptFactories = _createAttempts(addr, name);
-            IPodTransport? selected = null;
-            var createdAttempts = new List<IPodTransport>();
             Log.D("WINCONNECT", $"目标 addr={addr:X12} name=\"{name}\"，传输尝试数={attemptFactories.Count}");
-            try
+            var selected = TryConnectTarget(generation, addr, attemptFactories, budget);
+            if (selected != null)
             {
-                foreach (var createAttempt in attemptFactories)
+                Attach(selected);
+                var accepted = false;
+                lock (_gate)
                 {
-                    if (!IsCurrent(generation)) return Cancelled();
-                    if (budget.ElapsedMilliseconds >= _connectBudgetMs)
+                    if (!_disposed && generation == _generation)
                     {
-                        LastError = $"Windows 连接总超时（{_connectBudgetMs}ms）";
-                        return false;
+                        _active = selected;
+                        accepted = true;
                     }
-
-                    var attempt = createAttempt();
-                    createdAttempts.Add(attempt);
-                    if (!TrySetConnecting(generation, attempt))
-                        return Cancelled();
-                    Attach(attempt);
-                    bool ok;
-                    int attemptTimedOut = 0;
-                    int remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
-                    var deadline = new Timer(_ =>
-                    {
-                        Interlocked.Exchange(ref attemptTimedOut, 1);
-                        Log.D("WINCONNECT", $"总预算到期，关闭 {attempt.GetType().Name} addr={addr:X12}");
-                        try { attempt.Close(); } catch { }
-                    }, null, remainingMs, Timeout.Infinite);
-                    try
-                    {
-                        Log.D("WINCONNECT", $"尝试 {attempt.GetType().Name} addr={addr:X12}，总预算剩余={remainingMs}ms");
-                        ok = attempt.Connect();
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Ex("WINCONNECT", attempt.GetType().Name + ".Connect", ex);
-                        ok = false;
-                    }
-                    finally
-                    {
-                        using var drained = new ManualResetEvent(false);
-                        if (deadline.Dispose(drained))
-                            drained.WaitOne();
-                    }
-
-                    ClearConnecting(attempt);
-                    if (!IsCurrent(generation)) return Cancelled();
-                    if (Volatile.Read(ref attemptTimedOut) != 0)
-                    {
-                        LastError = $"Windows 连接总超时（{_connectBudgetMs}ms）";
-                        return false;
-                    }
-                    if (ok)
-                    {
-                        lock (_gate)
-                        {
-                            if (generation != _generation) return Cancelled();
-                            _active = attempt;
-                        }
-                        selected = attempt;
-                        LastError = null;
-                        Log.Result("WINCONNECT", "Connect", true,
-                            $"addr={addr:X12} transport={attempt.GetType().Name} elapsed={budget.ElapsedMilliseconds}ms");
-                        return true;
-                    }
-
-                    LastError = attempt.LastError;
-                    Detach(attempt);
-                    ReleaseLocked(attempt);
-                    createdAttempts.Remove(attempt);
                 }
-            }
-            finally
-            {
-                foreach (var attempt in createdAttempts)
+                if (!accepted)
                 {
-                    if (ReferenceEquals(attempt, selected)) continue;
-                    ClearConnecting(attempt);
-                    Detach(attempt);
-                    ReleaseLocked(attempt);
+                    Detach(selected);
+                    ReleaseLocked(selected);
+                    return Cancelled();
                 }
+                LastError = null;
+                Log.Result("WINCONNECT", "Connect", true,
+                    $"addr={addr:X12} transport={selected.GetType().Name} elapsed={budget.ElapsedMilliseconds}ms");
+                return true;
             }
         }
 
@@ -185,19 +129,19 @@ public sealed class WindowsConnectionTransport : IPodTransport
 
     public void Close()
     {
-        IPodTransport? connecting;
+        IPodTransport[] connecting;
         IPodTransport? active;
         lock (_gate)
         {
             _generation++;
-            connecting = _connecting;
+            connecting = _connecting.ToArray();
             active = _active;
-            _connecting = null;
+            _connecting.Clear();
             _active = null;
         }
 
-        Release(connecting);
-        if (!ReferenceEquals(active, connecting)) Release(active);
+        foreach (var attempt in connecting) Release(attempt);
+        if (active != null && !connecting.Contains(active)) Release(active);
     }
 
     private static IReadOnlyList<Func<IPodTransport>> CreateTargetAttempts(ulong addr, string name)
@@ -229,21 +173,146 @@ public sealed class WindowsConnectionTransport : IPodTransport
         return false;
     }
 
-    private bool TrySetConnecting(int generation, IPodTransport attempt)
+    private IPodTransport? TryConnectTarget(
+        int generation,
+        ulong addr,
+        IReadOnlyList<Func<IPodTransport>> factories,
+        Stopwatch budget)
+    {
+        if (factories.Count == 0) return null;
+
+        using var raceCts = new CancellationTokenSource();
+        var branches = factories.Count >= 2
+            ? new[]
+            {
+                StartBranch(() => TrySequential(generation, addr, factories.Take(factories.Count - 1), budget, raceCts.Token)),
+                StartBranch(() => TrySequential(generation, addr, factories.Skip(factories.Count - 1), budget, raceCts.Token)),
+            }
+            : new[] { StartBranch(() => TrySequential(generation, addr, factories, budget, raceCts.Token)) };
+        var pending = branches.ToList();
+
+        while (pending.Count > 0 && IsCurrent(generation))
+        {
+            var remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
+            var deadline = Task.Delay(remainingMs);
+            var completed = Task.WhenAny(pending.Cast<Task>().Append(deadline)).GetAwaiter().GetResult();
+            if (ReferenceEquals(completed, deadline))
+            {
+                LastError = $"Windows 连接总超时（{_connectBudgetMs}ms）";
+                raceCts.Cancel();
+                CancelConnectingExcept(null);
+                ObserveLateBranches(pending, null);
+                return null;
+            }
+
+            var branch = (Task<AttemptResult>)completed;
+            pending.Remove(branch);
+            var result = branch.GetAwaiter().GetResult();
+            if (result.Transport == null)
+            {
+                if (!string.IsNullOrEmpty(result.Error)) LastError = result.Error;
+                continue;
+            }
+
+            raceCts.Cancel();
+            CancelConnectingExcept(result.Transport);
+            ObserveLateBranches(pending, result.Transport);
+            return result.Transport;
+        }
+
+        raceCts.Cancel();
+        CancelConnectingExcept(null);
+        ObserveLateBranches(pending, null);
+        return null;
+    }
+
+    private AttemptResult TrySequential(
+        int generation,
+        ulong addr,
+        IEnumerable<Func<IPodTransport>> factories,
+        Stopwatch budget,
+        CancellationToken cancellationToken)
+    {
+        string? error = null;
+        foreach (var factory in factories)
+        {
+            if (cancellationToken.IsCancellationRequested || !IsCurrent(generation)) break;
+            var attempt = factory();
+            if (!TryAddConnecting(generation, attempt))
+            {
+                ReleaseLocked(attempt);
+                break;
+            }
+
+            var remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
+            try
+            {
+                Log.D("WINCONNECT", $"并行尝试 {attempt.GetType().Name} addr={addr:X12}，总预算剩余={remainingMs}ms");
+                var ok = attempt.Connect();
+                RemoveConnecting(attempt);
+                if (ok && !cancellationToken.IsCancellationRequested && IsCurrent(generation))
+                    return new AttemptResult(attempt, null);
+                error = attempt.LastError;
+            }
+            catch (Exception ex)
+            {
+                error = Log.DescribeException(ex);
+                Log.Ex("WINCONNECT", attempt.GetType().Name + ".Connect", ex);
+            }
+
+            RemoveConnecting(attempt);
+            ReleaseLocked(attempt);
+        }
+        return new AttemptResult(null, error);
+    }
+
+    private bool TryAddConnecting(int generation, IPodTransport attempt)
     {
         lock (_gate)
         {
             if (_disposed || generation != _generation) return false;
-            _connecting = attempt;
+            _connecting.Add(attempt);
             return true;
         }
     }
 
-    private void ClearConnecting(IPodTransport attempt)
+    private void RemoveConnecting(IPodTransport attempt)
     {
-        lock (_gate)
-            if (ReferenceEquals(_connecting, attempt)) _connecting = null;
+        lock (_gate) _connecting.Remove(attempt);
     }
+
+    private void CancelConnectingExcept(IPodTransport? winner)
+    {
+        IPodTransport[] losers;
+        lock (_gate)
+            losers = _connecting.Where(attempt => !ReferenceEquals(attempt, winner)).ToArray();
+        foreach (var loser in losers)
+            try { loser.Close(); } catch { }
+    }
+
+    private static void ObserveLateBranches(IEnumerable<Task<AttemptResult>> branches, IPodTransport? winner)
+    {
+        foreach (var branch in branches)
+        {
+            branch.ContinueWith(completed =>
+            {
+                if (completed.Status == TaskStatus.RanToCompletion
+                    && completed.Result.Transport is { } transport
+                    && !ReferenceEquals(transport, winner))
+                    ReleaseLocked(transport);
+                _ = completed.Exception;
+            }, TaskScheduler.Default);
+        }
+    }
+
+    private static Task<AttemptResult> StartBranch(Func<AttemptResult> connect) =>
+        Task.Factory.StartNew(
+            connect,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+    private sealed record AttemptResult(IPodTransport? Transport, string? Error);
 
     private void Attach(IPodTransport transport)
     {

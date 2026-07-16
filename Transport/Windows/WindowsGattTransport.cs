@@ -119,7 +119,8 @@ public sealed class WindowsGattTransport : IPodTransport
             device = await BluetoothLEDevice.FromBluetoothAddressAsync(_targetAddress).AsTask(cancellationToken);
             if (device == null)
             {
-                LastError = $"目标地址 {_targetAddress:X12} 无法打开为 BLE 设备";
+            Log.D("GATT", $"Connect: 目标地址 {_targetAddress:X12} 无法打开为 BLE 设备");
+            LastError = "未连接";
                 return false;
             }
 

@@ -24,8 +24,7 @@ internal sealed class LogManager : IDisposable
 
     public LogManager()
     {
-        var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _logDir = Path.Combine(localData, "OppoPodsManager", "Logs");
+        _logDir = Path.Combine(SettingsManager.AppDataDirectory, "Logs");
         Directory.CreateDirectory(_logDir);
         _currentSessionFile = Path.Combine(_logDir, $"session_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
         _flushTimer = new Timer(_ => FlushToDisk(), null, FlushIntervalMs, FlushIntervalMs);
@@ -143,14 +142,14 @@ internal sealed class LogManager : IDisposable
     }
 
     /// <summary>清理 N 天前的旧日志文件，避免历史日志无限积累。</summary>
-    public void CleanOldLogs(int daysToKeep = 7)
+    public void CleanOldLogs(int daysToKeep = 2)
     {
         try
         {
             var cutoff = DateTime.Now.AddDays(-daysToKeep);
             foreach (var file in Directory.GetFiles(_logDir, "session_*.txt"))
             {
-                if (File.GetCreationTime(file) < cutoff)
+                if (File.GetLastWriteTime(file) < cutoff)
                     File.Delete(file);
             }
         }
