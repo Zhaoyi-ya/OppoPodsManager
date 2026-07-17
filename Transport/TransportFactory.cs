@@ -13,7 +13,7 @@ public static class TransportFactory
     /// <summary>可选注入点：测试或自定义实现时设置；为 null 时按平台自动选择。</summary>
     public static Func<IPodTransport>? Override { get; set; }
 
-    /// <summary>不指定目标：枚举全部候选并逐台尝试，不再由系统枚举顺序决定目标。</summary>
+    /// <summary>不指定目标：只尝试当前已连接且符合候选条件的设备。</summary>
     public static IPodTransport Create() => Create(0, null);
 
     /// <summary>

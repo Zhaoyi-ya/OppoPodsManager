@@ -48,6 +48,25 @@ public sealed class PodManagerSession : IDisposable
         return replacement;
     }
 
+    public IPodManager Replace(IPodManager replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        IPodManager previous;
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            previous = _current;
+            _current = replacement;
+            replacement.StateChanged += _stateChanged;
+        }
+
+        Release(previous);
+        return replacement;
+    }
+
+    /// <summary>创建全新连接会话并释放旧会话；旧管理器的异步结果不再属于当前会话。</summary>
+    public IPodManager Reset() => Replace();
+
     public void Dispose()
     {
         IPodManager current;

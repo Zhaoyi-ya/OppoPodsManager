@@ -174,13 +174,19 @@
      <Border Padding="14,10" 
        CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard"
        >
-      <Grid ColumnDefinitions="Auto,*,Auto" MinHeight="28">
+       <Grid ColumnDefinitions="Auto,*,Auto,Auto" MinHeight="28">
        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
         <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#FF5555" Margin="0,0,6,0"/>
         <TextBlock x:Name="StatusText" Text="未连接" FontSize="13" Foreground="#FF8888"
            VerticalAlignment="Center"/>
        </StackPanel>
-       <Button x:Name="BtnReconnect" Grid.Column="2" Content="重新连接" Height="26" FontSize="13"
+        <ComboBox x:Name="CbDevice" Grid.Column="1" Height="26" FontSize="11" MinWidth="140" MaxWidth="220"
+          HorizontalAlignment="Right" Margin="8,0,8,0" IsVisible="False"
+          ToolTip.Tip="切换当前控制的耳机"/>
+        <Button x:Name="BtnRefreshDevices" Grid.Column="2" Content="⟳" Height="26" Width="26" FontSize="13"
+          Click="RefreshDevices_Click" Padding="0" IsVisible="False" Margin="0,0,8,0"
+          ToolTip.Tip="重新检测已连接且可通信的耳机"/>
+        <Button x:Name="BtnReconnect" Grid.Column="3" Content="重新连接" Height="26" FontSize="13"
          Click="Reconnect_Click" Padding="10,0" IsVisible="False" Classes="TextPanelButton"/>
       </Grid>
      </Border>

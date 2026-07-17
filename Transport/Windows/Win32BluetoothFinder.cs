@@ -103,7 +103,9 @@ internal static class Win32BluetoothFinder
                 ulong addr = info.Address & 0xFFFFFFFFFFFFUL;
                 Log.D("BT", $"Win32Finder: 设备 addr={addr:X12} name=\"{name}\" connected={connected} auth={info.fAuthenticated != 0}");
 
-                if (addr != 0 && IsSupportedBrand(name))
+                if (addr != 0 && SupportedEarbudIdentity.IsCandidate(
+                    name,
+                    WindowsDeviceDiscovery.HasOppoSppService(addr)))
                     result.Add((addr, string.IsNullOrEmpty(name) ? ("耳机 " + addr.ToString("X12")) : name, connected));
 
                 info = new BluetoothDeviceInfo { dwSize = (uint)Marshal.SizeOf<BluetoothDeviceInfo>() };
@@ -131,11 +133,4 @@ internal static class Win32BluetoothFinder
         return sb.ToString();
     }
 
-    private static bool IsSupportedBrand(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return false;
-        foreach (var brand in OppoProtocol.SupportedBrands)
-            if (name.Contains(brand, StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
-    }
 }
