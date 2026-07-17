@@ -56,6 +56,17 @@ public partial class MainWindow : SukiWindow
     private IPodManager _pods => _podSession.Current;
     private CancellationTokenSource? _pollCts;
     private readonly SemaphoreSlim _reconnectWake = new(0, 1);
+    private readonly SemaphoreSlim _transportOperationGate = new(1, 1);
+    private readonly List<(ulong addr, string name)> _earbudDevices = new();
+    private bool _suppressEarbudSelection;
+#if WINDOWS
+    private bool _bluetoothChangeScheduled;
+#endif
+    private ulong _selectedEarbudAddress;
+    private int _earbudProbeGeneration;
+#if WINDOWS
+    private readonly BluetoothConnectionWatcher _bluetoothWatcher = new();
+#endif
     private string _ancMain = "", _ancLevel = "";
     /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
     private readonly Dictionary<string, string> _ancLastSub = new();
@@ -222,6 +233,7 @@ public partial class MainWindow : SukiWindow
         CbSeries.SelectionChanged += CbSeries_Changed;
         CbModel.SelectionChanged += CbModel_Changed;
         CbTheme.SelectionChanged += CbTheme_Changed;
+        CbDevice.SelectionChanged += CbDevice_Changed;
         TbCustomName.TextChanged += TbCustomName_Changed;
 
         // EQ 滑块事件
@@ -414,9 +426,18 @@ public partial class MainWindow : SukiWindow
         Closed += (_, _) =>
         {
             _pollCts?.Cancel();
+#if WINDOWS
+            _bluetoothWatcher.Dispose();
+#endif
             DisposeRuntimeUiResources();
             _podSession.Dispose();
+            _transportOperationGate.Dispose();
+            _reconnectWake.Dispose();
         };
+#if WINDOWS
+        _bluetoothWatcher.DevicesChanged += OnBluetoothDevicesChanged;
+        _bluetoothWatcher.Start();
+#endif
         _ = ConnectAsync();
         _ = CheckForUpdateAsync(); // 后台检查更新
         }
@@ -429,18 +450,36 @@ public partial class MainWindow : SukiWindow
 
     private async Task ConnectAsync()
     {
+        await InitializeEarbudSelectionAsync();
         while (!_realClose)
         {
+            if (_earbudDevices.Count == 0)
+            {
+                Log.D("UI", "ConnectAsync: 当前没有已验证耳机，等待蓝牙设备状态变化");
+                await WaitForConnectionSignalAsync();
+                continue;
+            }
+
             Log.D("UI", "ConnectAsync: 尝试连接");
             var manager = _podSession.Current;
-            await manager.ConnectAsync();
+            await _transportOperationGate.WaitAsync();
+            try
+            {
+                await manager.ConnectAsync();
+            }
+            finally
+            {
+                _transportOperationGate.Release();
+            }
             if (!_podSession.IsCurrent(manager))
             {
                 Log.D("UI", "ConnectAsync: 旧连接会话已被替换，等待重连信号启动新会话");
+                continue;
             }
             else if (manager.IsConnected)
             {
                 Log.D("UI", "ConnectAsync: 已连接,进入轮询");
+                _ = RefreshConnectedEarbudsAsync();
                 _pollCts = new CancellationTokenSource();
                 await manager.PollAsync(_pollCts.Token);
                 Log.D("UI", "ConnectAsync: 轮询结束");
@@ -451,13 +490,170 @@ public partial class MainWindow : SukiWindow
             }
             _ = Dispatcher.UIThread.InvokeAsync(() => OnStateChanged());
             if (!_realClose)
-            {
-                Log.D("UI", "ConnectAsync: 等待自动重试或手动重连");
-                await _reconnectWake.WaitAsync(TimeSpan.FromSeconds(5));
-                while (_reconnectWake.CurrentCount > 0)
-                    await _reconnectWake.WaitAsync();
-            }
+                await WaitForConnectionSignalAsync();
         }
+    }
+
+    private async Task WaitForConnectionSignalAsync()
+    {
+#if WINDOWS
+        Log.D("UI", "ConnectAsync: 无连接事件，等待蓝牙设备状态变化或手动重连");
+        await _reconnectWake.WaitAsync();
+#else
+        Log.D("UI", "ConnectAsync: 等待自动重试或手动重连");
+        await _reconnectWake.WaitAsync(TimeSpan.FromSeconds(5));
+        while (_reconnectWake.CurrentCount > 0)
+            await _reconnectWake.WaitAsync();
+#endif
+    }
+
+#if WINDOWS
+    private void OnBluetoothDevicesChanged(IReadOnlyList<(ulong addr, string name)> devices)
+    {
+        if (_realClose) return;
+        // DeviceWatcher callbacks run on a WinRT worker thread. All window state,
+        // controls, and session replacement must be handled by Avalonia's UI thread.
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_realClose || _bluetoothChangeScheduled) return;
+            _bluetoothChangeScheduled = true;
+            _ = HandleBluetoothDevicesChangedAsync();
+        });
+    }
+
+    private async Task HandleBluetoothDevicesChangedAsync()
+    {
+        try
+        {
+            await RefreshConnectedEarbudsAsync();
+            if (_realClose) return;
+
+            var selectedStillConnected = _earbudDevices.Any(device => device.addr == _selectedEarbudAddress);
+            if (!selectedStillConnected)
+            {
+                var replacement = _earbudDevices.FirstOrDefault();
+                _selectedEarbudAddress = replacement.addr;
+                _pollCts?.Cancel();
+                if (replacement.addr != 0)
+                    _podSession.Replace(new PodManager(replacement.addr, replacement.name));
+                else
+                    _podSession.Current.Disconnect();
+                ResetUi();
+            }
+
+            if (_earbudDevices.Count > 0 && _reconnectWake.CurrentCount == 0)
+                _reconnectWake.Release();
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "BluetoothDevicesChanged", ex);
+        }
+        finally
+        {
+            _bluetoothChangeScheduled = false;
+        }
+    }
+#endif
+
+    private async Task InitializeEarbudSelectionAsync()
+    {
+        await RefreshConnectedEarbudsAsync();
+        if (_earbudDevices.Count == 0)
+            return;
+
+        // 保留当前会话对应的耳机；首次启动没有当前地址时才选择第一副。
+        var selected = _earbudDevices.FirstOrDefault(device => device.addr == _selectedEarbudAddress);
+        if (selected.addr == 0)
+            selected = _earbudDevices[0];
+        _selectedEarbudAddress = selected.addr;
+        _podSession.Replace(new PodManager(selected.addr, selected.name));
+        ApplyEarbudDevices(_earbudDevices);
+    }
+
+    private async Task RefreshConnectedEarbudsAsync()
+    {
+        await _transportOperationGate.WaitAsync();
+        try
+        {
+            var generation = Interlocked.Increment(ref _earbudProbeGeneration);
+            var discovered = await Task.Run(DeviceDiscovery.ListConnected);
+            var verified = new List<(ulong addr, string name)>();
+
+            foreach (var device in discovered)
+            {
+                if (_realClose || generation != Volatile.Read(ref _earbudProbeGeneration))
+                    return;
+
+                if (device.addr == _selectedEarbudAddress && _pods.IsConnected)
+                {
+                    verified.Add(device);
+                    continue;
+                }
+
+                using var probe = TransportFactory.Create(device.addr, device.name);
+                bool connected = false;
+                try
+                {
+                    connected = await Task.Run(() => ProbeEarbudCommunication(probe));
+                }
+                catch (Exception ex)
+                {
+                    Log.Ex("UI", $"ProbeEarbud addr={device.addr:X12}", ex);
+                }
+
+                if (connected)
+                    verified.Add(device);
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => ApplyEarbudDevices(verified));
+        }
+        finally
+        {
+            _transportOperationGate.Release();
+        }
+    }
+
+    private void ApplyEarbudDevices(IReadOnlyList<(ulong addr, string name)> devices)
+    {
+        _earbudDevices.Clear();
+        _earbudDevices.AddRange(devices);
+        _suppressEarbudSelection = true;
+        CbDevice.Items.Clear();
+        foreach (var (_, name) in _earbudDevices)
+            CbDevice.Items.Add(name);
+
+        var selected = _earbudDevices.FindIndex(device => device.addr == _selectedEarbudAddress);
+        if (selected >= 0)
+            CbDevice.SelectedIndex = selected;
+        _suppressEarbudSelection = false;
+        // 测试期间单耳机也展示下拉框，便于验证列表刷新和选择逻辑。
+        CbDevice.IsVisible = _earbudDevices.Count >= 1;
+        BtnRefreshDevices.IsVisible = _earbudDevices.Count >= 1;
+    }
+
+    private async void RefreshDevices_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "用户操作: 刷新多耳机列表");
+        try { await RefreshConnectedEarbudsAsync(); }
+        catch (Exception ex) { Log.Ex("UI", "RefreshConnectedEarbuds", ex); }
+    }
+
+    private void CbDevice_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressEarbudSelection || CbDevice.SelectedIndex < 0 || CbDevice.SelectedIndex >= _earbudDevices.Count)
+            return;
+
+        var (address, name) = _earbudDevices[CbDevice.SelectedIndex];
+        if (address == _selectedEarbudAddress)
+            return;
+
+        Log.D("UI", $"用户操作: 切换多耳机 -> addr={address:X12} name=\"{name}\"");
+        _selectedEarbudAddress = address;
+        _pollCts?.Cancel();
+        _podSession.Replace(new PodManager(address, name));
+        ResetUi();
+        if (_reconnectWake.CurrentCount == 0)
+            _reconnectWake.Release();
     }
 
     private DispatcherTimer EnsureEqDebounceTimer()
@@ -534,6 +730,15 @@ public partial class MainWindow : SukiWindow
         }
         else
         {
+            _selectedEarbudAddress = 0;
+            _earbudDevices.Clear();
+            _suppressEarbudSelection = true;
+            CbDevice.Items.Clear();
+            CbDevice.IsVisible = false;
+            BtnRefreshDevices.IsVisible = false;
+            _suppressEarbudSelection = false;
+            if (_reconnectWake.CurrentCount == 0)
+                _reconnectWake.Release();
             var wasConnected = _wasConnected;
             _wasConnected = false;
             _lowBatteryAlerted = false;
@@ -811,6 +1016,31 @@ public partial class MainWindow : SukiWindow
             var (btn, bg) = MakeTextButton(child.Label, child, 72, 28, 13, corner, AncSub_Click);
             AddToRow(AncSubRow, bg, ref col);
             _ancSubButtons[child.Key] = (btn, bg);
+        }
+    }
+
+    private static bool ProbeEarbudCommunication(IPodTransport probe)
+    {
+        var response = 0;
+        void OnFrame(PodFrame frame)
+        {
+            if (frame.Cmd == OppoProtocol.CmdProductIdResp || frame.Cmd == OppoProtocol.CmdCapabilityResp)
+                Interlocked.Exchange(ref response, 1);
+        }
+
+        probe.FrameReceived += OnFrame;
+        try
+        {
+            if (!probe.Connect())
+                return false;
+
+            probe.Send(OppoProtocol.CmdQueryProductId, OppoProtocol.PayEmpty);
+            probe.Poll(1200);
+            return Volatile.Read(ref response) != 0;
+        }
+        finally
+        {
+            probe.FrameReceived -= OnFrame;
         }
     }
 
@@ -2692,7 +2922,10 @@ public partial class MainWindow : SukiWindow
     {
         Log.D("UI", "用户操作: 点击重连");
         _pollCts?.Cancel();
-        _podSession.Replace();
+        var current = _earbudDevices.FirstOrDefault(device => device.addr == _selectedEarbudAddress);
+        _podSession.Replace(_selectedEarbudAddress == 0
+            ? new PodManager()
+            : new PodManager(_selectedEarbudAddress, current.name));
         if (_reconnectWake.CurrentCount == 0)
             _reconnectWake.Release();
     }

@@ -31,21 +31,14 @@ internal static class WindowsDeviceDiscovery
             {
                 if (!TryParseAddress(subName, out var addr)) continue;
                 var name = ReadDeviceName(key, subName);
-                if (IsSupportedBrand(name) && seen.Add(addr))
+                var hasMelodyService = HasOppoSppService(subName);
+                if (SupportedEarbudIdentity.IsCandidate(name, hasMelodyService) && seen.Add(addr))
                 {
                     var displayName = name ?? $"耳机 {addr:X12}";
                     result.Add((addr, displayName));
-                    Log.D("BT", $"Locate: 按品牌命中设备 addr={addr:X12} name=\"{displayName}\"");
+                    var evidence = hasMelodyService ? "Melody SPP UUID" : "耳机型号白名单";
+                    Log.D("BT", $"Locate: 按 {evidence} 命中设备 addr={addr:X12} name=\"{displayName}\"");
                 }
-            }
-
-            foreach (var subName in subKeys)
-            {
-                if (!TryParseAddress(subName, out var addr) || !seen.Add(addr)) continue;
-                if (!HasOppoSppService(subName)) continue;
-                var name = ReadDeviceName(key, subName) ?? $"耳机 {addr:X12}";
-                result.Add((addr, name));
-                Log.D("BT", $"Locate: 按 SPP UUID 命中设备 addr={addr:X12} name=\"{name}\"");
             }
             Log.D("BT", $"Locate: 注册表候选共 {result.Count} 个");
         }
@@ -80,7 +73,6 @@ internal static class WindowsDeviceDiscovery
 
         foreach (var info in devices)
         {
-            if (!IsSupportedBrand(info.Name)) continue;
             BluetoothDevice? device = null;
             try { device = await BluetoothDevice.FromIdAsync(info.Id); }
             catch (Exception ex) { Log.Ex("BT", $"ConnectedFinder.FromIdAsync name=\"{info.Name}\"", ex); }
@@ -88,6 +80,7 @@ internal static class WindowsDeviceDiscovery
 
             ulong addr = device.BluetoothAddress;
             if (addr == 0 || !seen.Add(addr)) continue;
+            if (!SupportedEarbudIdentity.IsCandidate(info.Name, HasOppoSppService(addr))) continue;
             var name = string.IsNullOrEmpty(info.Name) ? $"耳机 {addr:X12}" : info.Name;
             result.Add((addr, name));
             Log.D("BT", $"ConnectedFinder: 命中已连接 addr={addr:X12} name=\"{name}\"");
@@ -127,6 +120,11 @@ internal static class WindowsDeviceDiscovery
         _ => null,
     };
 
+    internal static bool HasOppoSppService(ulong address)
+    {
+        return HasOppoSppService(address.ToString("X12"));
+    }
+
     private static bool HasOppoSppService(string subKeyName)
     {
         try
@@ -143,11 +141,4 @@ internal static class WindowsDeviceDiscovery
         return false;
     }
 
-    private static bool IsSupportedBrand(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return false;
-        foreach (var brand in OppoProtocol.SupportedBrands)
-            if (name.Contains(brand, StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
-    }
 }

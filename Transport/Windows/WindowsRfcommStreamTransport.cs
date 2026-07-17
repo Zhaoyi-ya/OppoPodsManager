@@ -108,6 +108,13 @@ public sealed class WindowsRfcommStreamTransport : IPodTransport
             Log.Result("RFSOCK", "Connect", false, LastError);
             return false;
         }
+        catch (ObjectDisposedException) when (cts.IsCancellationRequested)
+        {
+            LastError = $"RFCOMM 连接已取消或超时 (耗时{sw.ElapsedMilliseconds}ms)";
+            Cleanup();
+            Log.Result("RFSOCK", "Connect", false, LastError);
+            return false;
+        }
         catch (Exception e)
         {
             LastError = Log.DescribeException(e);
@@ -417,6 +424,10 @@ internal static class RfcommServiceFinder
             }
         }
         catch (OperationCanceledException) { throw; }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByServiceUuidAsync", ex); }
         return null;
     }
@@ -443,6 +454,10 @@ internal static class RfcommServiceFinder
             }
         }
         catch (OperationCanceledException) { throw; }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (Exception ex) { Log.Ex("BT", "RfcommFinder.FindByPairedDeviceAsync", ex); }
         return null;
     }
@@ -468,6 +483,10 @@ internal static class RfcommServiceFinder
             }
         }
         catch (OperationCanceledException) { throw; }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (Exception ex) { Log.Ex("BT", "RfcommFinder.ResolveFreshAsync", ex); }
         return cached;
     }
@@ -481,6 +500,10 @@ internal static class RfcommServiceFinder
             return await RfcommDeviceService.FromIdAsync(deviceId).AsTask(cancellationToken);
         }
         catch (OperationCanceledException) { throw; }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
         catch (Exception ex)
         {
             Log.Ex("BT", $"RfcommFinder.TryOpenAsync id={deviceId}", ex);

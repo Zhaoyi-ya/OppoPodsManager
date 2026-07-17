@@ -10,8 +10,7 @@ namespace OppoPodsManager;
 public static class DeviceDiscovery
 {
     /// <summary>
-    /// 返回自动连接候选。当前连接设备优先，其后补充全部已配对设备；按地址去重。
-    /// 与 ListConnected 不同，此列表包含离线候选，连接器必须逐台尝试并以连接结果为准。
+    /// 返回设备选择器使用的候选。包含当前连接设备和历史已配对设备；不用于自动传输连接。
     /// </summary>
     public static IReadOnlyList<(ulong addr, string name)> ListCandidates()
     {
