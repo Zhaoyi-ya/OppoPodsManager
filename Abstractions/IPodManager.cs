@@ -115,9 +115,6 @@ public interface IPodManager : IDisposable
     /// <summary>清除固定优先连接设备，恢复自动选择（cmd 0x0429 操作 4）。</summary>
     void SendMultiConnectAutoSwitch();
 
-    /// <summary>设置独立的自动切换设备开关（cmd 0x0132：开启=2，关闭=1）。</summary>
-    void SendAutoSwitchLink(bool enabled);
-
     /// <summary>取消配对/解绑指定手持设备。</summary>
     void SendMultiConnectUnpair(string targetAddress);
 

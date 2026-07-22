@@ -123,10 +123,8 @@
      <TextBlock Text="多设备连接" FontSize="12" Opacity="0.55"
         Margin="14,0,0,2" Foreground="{DynamicResource SukiText}"/>
       <Expander x:Name="ConnectionStrategyExpander" Header="连接策略" IsExpanded="False"
-          IsVisible="False" Margin="0,0,0,4">
-        <StackPanel Margin="8,4,4,8" Spacing="6" HorizontalAlignment="Stretch">
-         <CheckBox x:Name="CbAutoSwitchLink" Content="自动切换设备" IsVisible="False"
-             Margin="0" HorizontalAlignment="Left"/>
+          IsVisible="False" Margin="0,0,0,2">
+        <StackPanel Margin="4,2,4,6" Spacing="4" HorizontalAlignment="Stretch">
          <StackPanel x:Name="PriorityDevicePanel" IsVisible="False" Spacing="3"
              Margin="0" HorizontalAlignment="Stretch">
           <TextBlock Text="优先连接设备" FontSize="11" Opacity="0.65"

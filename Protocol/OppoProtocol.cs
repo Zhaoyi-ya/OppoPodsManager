@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace OppoPodsManager;
 
@@ -27,7 +28,9 @@ public static partial class OppoProtocol
     public const ushort CmdEqResp = 0x810F;          // EQ 查询响应
     public const ushort CmdEqNotify = 0x0504;        // EQ 变更通知
     public const ushort CmdSpatialAudio = 0x0422;    // 空间音频三模式（Off/Fixed/Track）
-    public const ushort CmdRegisterNotify = 0x0205;  // 订阅设备主动通知
+    public const ushort CmdQueryNotifyCapability = 0x0200; // 查询设备支持的主动通知事件
+    public const ushort CmdRegisterNotifySingle = 0x0201; // 注册单个主动通知事件
+    public const ushort CmdRegisterNotify = 0x0205;  // 批量订阅设备主动通知
     public const ushort CmdBatchQuery = 0x010D;      // 批量查询功能状态
     public const ushort CmdBatchQueryResp = 0x810D;  // 批量查询响应
     public const ushort CmdMultiConnectInfo = 0x0112;  // 查询多设备连接列表
@@ -65,6 +68,7 @@ public static partial class OppoProtocol
     public const ushort CmdQueryEarRestore   = 0x0118;  // getEarRestoreData 入耳恢复数据
     public const ushort CmdQueryZenMode      = 0x0119;  // getEarBudsZenModeInformation 禅模式信息
     public const ushort CmdQueryCapBitmap    = 0x011C;  // getTriangleInfo/getRemoteCapability 能力位图（三角/GetCapability）
+    public const ushort CmdTriangleInfoResp  = 0x811C;  // getTriangleInfo 响应
     public const ushort CmdQueryFreeDialog   = 0x011D;  // getFreeDialogRecoveryTime 自由对话恢复时间
     public const ushort CmdQueryEarScan      = 0x011E;  // getEarScanData 耳道扫描数据
     public const ushort CmdQueryEarScanFilter = 0x011F; // getEarScanFilterData 耳道扫描滤波数据
@@ -213,13 +217,26 @@ public static partial class OppoProtocol
     public static readonly byte[] PktQueryAnc = BuildPacket(CmdQueryAnc, new byte[] { 0x01, 0x01 });
     public static readonly byte[] PktQueryEq = BuildPacket(CmdQueryEq);
 
-    /// <summary>订阅主动通知：电池 + 佩戴 + ANC</summary>
-    public static readonly byte[] PktRegisterNotify = BuildPacket(CmdRegisterNotify,
-        new byte[] { 0x01, 0x01, 0x02, 0x02 });
+    /// <summary>查询设备支持的主动通知事件。</summary>
+    public static readonly byte[] PayQueryNotifyCapability = Array.Empty<byte>();
 
-    /// <summary>单独订阅佩戴通知（部分设备需要单独注册，使用 action=0x02）</summary>
-    public static readonly byte[] PktRegisterWear = BuildPacket(CmdRegisterNotify,
-        new byte[] { 0x02, 0x02 });
+    /// <summary>构造 Android Melody 兼容的批量通知注册载荷：[count][eventId...]。</summary>
+    public static byte[] BuildNotifyRegistrationPayload(IEnumerable<byte> eventIds)
+    {
+        var events = eventIds.Distinct().ToArray();
+        var payload = new byte[events.Length + 1];
+        payload[0] = (byte)events.Length;
+        events.CopyTo(payload, 1);
+        return payload;
+    }
+
+    /// <summary>解析 0x8200：[status][count][eventId...]。</summary>
+    public static byte[] ParseNotifyCapabilities(byte[] payload)
+    {
+        if (payload.Length < 2 || payload[0] != 0) return Array.Empty<byte>();
+        int count = Math.Min(payload[1], payload.Length - 2);
+        return payload.Skip(2).Take(count).Distinct().ToArray();
+    }
 
     /// <summary>批量查询包，查询 12 个功能 feature 的状态</summary>
     public static readonly byte[] PktBatchQuery = BuildPacket(CmdBatchQuery,

@@ -18,6 +18,7 @@ public partial class PodManager : IPodManager
     private readonly object _connectionLifecycleLock = new();
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private int _connectionGeneration;
+    private bool _priorityExplicitlySet;
 
     public PodState State { get; } = new();
     public DeviceCapabilities Caps { get; private set; } = DeviceCapabilities.Detect(null);
@@ -109,6 +110,10 @@ public partial class PodManager : IPodManager
             case OppoProtocol.CmdProductIdResp: ParseProductId(p, 0, len); break;
             case OppoProtocol.CmdCapabilityResp: ParseCapabilities(p, 0, len); break;
             case OppoProtocol.CmdMultiPriorityResp: ParseMultiPriority(p, 0, len); break;
+            case OppoProtocol.CmdNotifyCapabilityResp:
+                Log.D("RFCOMM", $"0x8200 通知能力响应 raw={BitConverter.ToString(p)} count={p.Length}");
+                RegisterSupportedNotifications(OppoProtocol.ParseNotifyCapabilities(p));
+                break;
 
             // ===== 新增：固件版本 / 编解码器 响应 =====
             case (ushort)(OppoProtocol.CmdQueryVersion | 0x8000):  // 0x8105
@@ -158,9 +163,6 @@ public partial class PodManager : IPodManager
             case OppoProtocol.CmdRegisterMultiResp:
                 // 批量注册完成 = 初始化握手结束 ACK（置 setInitCmdCompleted）
                 Log.D("RFCOMM", "DispatchFrame: 注册通知完成 (0x8205 握手 ACK)");
-                break;
-            case OppoProtocol.CmdNotifyCapabilityResp:
-                Log.D("RFCOMM", $"DispatchFrame: 通知能力响应 (0x8200) len={len}");
                 break;
             case OppoProtocol.CmdRegisterNotifyResp:
             case OppoProtocol.CmdCancelNotifyResp:
@@ -292,14 +294,27 @@ public partial class PodManager : IPodManager
                 Thread.Sleep(80);
             }
 
-            // ===== 阶段4：注册主动通知（电池/佩戴）=====
-            _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterNotify);
+            // ===== 阶段4：查询并注册主动通知（包含 TriangleInfo/AutoSwitchLink）=====
+            // 0x0200 → 等待 0x8200 → 解析能力 → RegisterSupportedNotifications → 再 poll 收 ACK + 初始上报
+            _transport.Send(OppoProtocol.CmdQueryNotifyCapability, OppoProtocol.PayQueryNotifyCapability);
             Thread.Sleep(80);
-            _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
-            Thread.Sleep(80);
+            _transport.Poll(800);  // 先收 0x8200 并触发 RegisterSupportedNotifications
+            if (!IsConnectionGenerationCurrent(generation)) return;
+            // 再给一轮 poll 收 0x8205 ACK 与设备注册后主动推送的初始状态
+            _transport.Poll(600);
+            if (!IsConnectionGenerationCurrent(generation)) return;
 
-            // ===== 阶段5：多设备列表（仅双设备型号）=====
-            if (Caps.HasDualDevice) { SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty); Thread.Sleep(400); }
+            // ===== 阶段5：多设备列表 + 优先设备/连接策略 =====
+            if (Caps.HasDualDevice)
+            {
+                SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
+                Thread.Sleep(200);
+            }
+            if (ShouldQueryMultiPriority())
+            {
+                SendQuery(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty);
+                Thread.Sleep(200);
+            }
             if (!IsConnectionGenerationCurrent(generation)) return;
 
             Log.D("RFCOMM", "ConnectAsync: 握手命令已发完,等待首批响应");
@@ -311,6 +326,40 @@ public partial class PodManager : IPodManager
         finally
         {
             _connectGate.Release();
+        }
+    }
+
+    private void RegisterSupportedNotifications(byte[] supportedEvents)
+    {
+        Log.D("RFCOMM", $"设备通知能力: events=[{BitConverter.ToString(supportedEvents)}] (共{supportedEvents.Length}个)");
+        var desired = new[]
+        {
+            OppoProtocol.EvtBattery,
+            OppoProtocol.EvtEarBudsStatus,
+            OppoProtocol.EvtNoiseMode,
+            OppoProtocol.EvtMultiConnect,
+        };
+        var supported = new HashSet<byte>(supportedEvents);
+        var events = desired.Where(supported.Contains).ToArray();
+        if (events.Length == 0)
+        {
+            Log.D("RFCOMM", "通知能力响应未包含桌面端需要的事件");
+            return;
+        }
+
+        if (State.SupportedCommands.Contains(OppoProtocol.CmdRegisterNotify))
+        {
+            var payload = OppoProtocol.BuildNotifyRegistrationPayload(events);
+            Log.D("RFCOMM", $"注册主动通知(批量): events=[{BitConverter.ToString(events)}] payload=[{BitConverter.ToString(payload)}]");
+            _transport.Send(OppoProtocol.CmdRegisterNotify, payload);
+        }
+        else
+        {
+            foreach (var eventId in events)
+            {
+                Log.D("RFCOMM", $"注册主动通知(单个): event=0x{eventId:X2}");
+                _transport.Send(OppoProtocol.CmdRegisterNotifySingle, new[] { eventId });
+            }
         }
     }
 
@@ -338,7 +387,13 @@ public partial class PodManager : IPodManager
         {
             if (status == CmdStatus.Success)
             {
-                Log.D("RFCOMM", $"多设备操作: {label} ACK 成功，刷新设备列表");
+                Log.D("RFCOMM", $"多设备操作: {label} ACK 成功");
+                if (operateType == OppoProtocol.MultiOpSetPriority)
+                {
+                    State.MultiConnectAutoMode = clearAddress;
+                    State.PriorityDeviceAddress = clearAddress ? "" : targetAddress;
+                    _priorityExplicitlySet = true;
+                }
                 SendMultiConnectInfo();
             }
             else
@@ -362,26 +417,14 @@ public partial class PodManager : IPodManager
     public void SendMultiConnectAutoSwitch() =>
         SendMultiConnectOp(OppoProtocol.MultiOpSetPriority, "", "恢复自动选择", clearAddress: true);
 
-    public void SendAutoSwitchLink(bool enabled)
-    {
-        if (!Caps.HasAutoSwitchLink || !State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority))
-        {
-            CommandFailed?.Invoke("该设备不支持自动切换设备");
-            return;
-        }
+    /// <summary>Whitelist capability drives 0x0132 priority-device queries.</summary>
+    private bool ShouldQueryMultiPriority() =>
+        Caps.HasDualDevice || Caps.HasMultiConnectManage || Caps.HasAutoSwitchLink;
 
-        var payload = new[] { enabled ? (byte)2 : (byte)1 };
-        Log.D("RFCOMM", $"自动切换设备: enabled={enabled} payload=[{BitConverter.ToString(payload)}]");
-        _dispatcher.SendTracked(OppoProtocol.CmdQueryMultiPriority, payload, (status, _) =>
-        {
-            if (status == CmdStatus.Success)
-            {
-                State.AutoSwitchLinkEnabled = enabled;
-                StateChanged?.Invoke();
-            }
-            else
-                CommandFailed?.Invoke("自动切换设备设置失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
-        });
+    private void QueryMultiPriority()
+    {
+        if (!ShouldQueryMultiPriority()) return;
+        SendQuery(OppoProtocol.CmdQueryMultiPriority, OppoProtocol.PayEmpty);
     }
 
     public void SendMultiConnectUnpair(string targetAddress)

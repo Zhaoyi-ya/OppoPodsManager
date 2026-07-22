@@ -146,16 +146,19 @@ public partial class PodManager
                     Log.D("RFCOMM", $"ParseActiveReport: 禅模式 -> {pkt[bodyStart]}");
                 break;
             case OppoProtocol.EvtMultiConnect:
-                Log.D("RFCOMM", "ParseActiveReport: 多连接状态变更，刷新列表");
+                Log.D("RFCOMM", "ParseActiveReport: 多连接状态变更，刷新列表与优先设备");
                 _transport.Send(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
+                QueryMultiPriority();  // 另一设备可能也改了优先设备，即时同步
                 break;
             case OppoProtocol.EvtCompactness:
             case OppoProtocol.EvtHearingDetect:
             case OppoProtocol.EvtCodecType:
             case OppoProtocol.EvtPersonalNoise:
             case OppoProtocol.EvtTriangle:
-            case OppoProtocol.EvtEarScan:
+                // AutoSwitchLink 主动上报：已在 PodState 注释说明该功能在 SPP 上无法回读。
+                break;
             case OppoProtocol.EvtGaming:
+            case OppoProtocol.EvtEarScan:
             case OppoProtocol.EvtOneshot:
             case OppoProtocol.EvtToneChange:
                 break;
@@ -476,37 +479,67 @@ public partial class PodManager
         }
     }
 
+    /// <summary>
+    /// Parse 0x8132 getMultiConnectPriorityDevice.
+    /// JADX HandheldDeviceInfo constructor reads level first (1=low, 2=high), then mode:
+    ///   high: mode==0 auto; else 6-byte LE MAC.
+    ///   low:  mode!=0 has fixed device + LE MAC; mode==0 auto.
+    /// Real devices may omit the leading status byte (log: payload=02-01).
+    /// Accept both layouts:
+    ///   [status=0][level][mode][mac?]  or  [level][mode][mac?]
+    /// </summary>
     private void ParseMultiPriority(byte[] pkt, int start, int len)
     {
         try
         {
             Log.D("RFCOMM", "ParseMultiPriority: len=" + len + ", data=" + BitConverter.ToString(pkt, start, Math.Min(len, 24)));
-            if (len < 3) return;
-            if (pkt[start] != 0) return;
+            if (len < 2) return;
 
-            int level = pkt[start + 1];
+            // If the user explicitly set priority via 0x0429, don't let 0x8132 polling overwrite it.
+            if (_priorityExplicitlySet)
+            {
+                Log.D("RFCOMM", "ParseMultiPriority: 已由用户手动设置优先设备，跳过回读");
+                return;
+            }
+
+            // Optional status prefix used by some firmwares: only skip when the next
+            // byte is a valid level (1/2). Device log showed bare "02-01".
+            int offset = start;
+            if (len >= 3 && pkt[start] == 0x00
+                && (pkt[start + 1] == 1 || pkt[start + 1] == 2))
+            {
+                offset = start + 1;
+            }
+            else if (pkt[start] != 1 && pkt[start] != 2)
+            {
+                Log.D("RFCOMM", $"ParseMultiPriority: 无法识别布局, 首字节=0x{pkt[start]:X2}");
+                return;
+            }
+
+            int remain = start + len - offset;
+            if (remain < 2) return;
+
+            int level = pkt[offset];
             bool isHighLevel = level == 2;
-            byte modeByte = pkt[start + 2];
-            bool autoMode = false;
+            byte modeByte = pkt[offset + 1];
+            bool autoMode = modeByte == 0;
             string priorityAddr = "";
 
-            if (isHighLevel)
+            if (!autoMode && remain >= 8)
             {
-                autoMode = modeByte == 0;
-                if (!autoMode && len >= 9)
-                {
-                    // MAC 小端倒序，反转成显示序（与 ParseMultiConnect 一致）
-                    priorityAddr = string.Join(":",
-                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + 5 - j].ToString("X2")));
-                }
+                // MAC little-endian -> display order (same as ParseMultiConnect)
+                priorityAddr = string.Join(":",
+                    Enumerable.Range(0, 6).Select(j => pkt[offset + 2 + 5 - j].ToString("X2")));
             }
-            else
+
+            // JADX HandheldDeviceInfo.parseData: when mode!=0 but payload too short for MAC,
+            // mHandheldAddress stays null and the official APK falls back to "自动选择".
+            // Do NOT substitute the current device — let SyncConnectionStrategy show auto when
+            // priorityAddr is empty and autoMode is false (matching APK behavior).
+            if (!autoMode && string.IsNullOrEmpty(priorityAddr))
             {
-                if (modeByte != 0 && len >= 9)
-                {
-                    priorityAddr = string.Join(":",
-                        Enumerable.Range(0, 6).Select(j => pkt[start + 3 + 5 - j].ToString("X2")));
-                }
+                autoMode = true;
+                Log.D("RFCOMM", $"ParseMultiPriority: mode={modeByte} 但无完整 MAC，回退为自动模式");
             }
 
             State.MultiConnectAutoMode = autoMode;

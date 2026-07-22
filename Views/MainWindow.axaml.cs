@@ -94,6 +94,7 @@ public partial class MainWindow : SukiWindow
     private bool _logScrollPending;
     private ContextMenu? _openMultiDeviceMenu;
     private bool _syncingConnectionStrategy;
+    private PriorityDeviceOption? _pendingPrioritySelection;
     private string _priorityOptionsSignature = "";
     /// <summary>日志显示模式：true=简化版（翻译+合并），false=完整版（原始行）。</summary>
     private bool _logSimplified = true;
@@ -228,6 +229,7 @@ public partial class MainWindow : SukiWindow
         CbTray.IsCheckedChanged += CbTray_Changed;
         CbAuto.IsCheckedChanged += CbAuto_Changed;
         CbAutoUpdate.IsCheckedChanged += CbAutoUpdate_Changed;
+        CbPriorityDevice.SelectionChanged += CbPriorityDevice_Changed;
         CbEq.SelectionChanged += CbEq_SelectionChanged;
         CbBrand.SelectionChanged += CbBrand_Changed;
         CbSeries.SelectionChanged += CbSeries_Changed;
@@ -3117,22 +3119,30 @@ public partial class MainWindow : SukiWindow
             : _pods.Caps;
         var canManage = caps.IsMultiConnectV2
             && _pods.State.SupportedCommands.Contains(OppoProtocol.CmdOperateHandheld);
+        // Priority strategy UI is driven by 0x8132 readback, not only by 0x0429 manage ops.
+        var canManagePriority = canManage
+            || caps.HasDualDevice
+            || caps.HasAutoSwitchLink
+            || caps.HasMultiConnectManage;
         var canUnpair = caps.CanUnpairMultiConnectDevice(_pods.State.SupportedCommands);
-        SyncConnectionStrategy(caps, canManage, all);
+        SyncConnectionStrategy(caps, canManagePriority, all);
         DeviceListEmptyHint.Text = hiddenMacs.Count > 0
             ? "暂无可显示的设备，可在设置中恢复已隐藏设备"
             : "暂无其他设备";
         DeviceListEmptyHint.IsVisible = all.Count == 0;
 
-        // 计算列表签名。只包含影响行数量/菜单可用性的结构字段，避免音频活动等高频状态导致整棵 UI 树反复 Clear+new。
+        // 列表签名包含连接策略回读字段：0x8132 只改 auto/priority 时也必须刷新策略 UI。
         var sig = string.Join("|", all.Select(d =>
             $"{d.Address};{d.DeviceName};{d.ConnectionState};{d.IsCurrentDevice}"))
-            + $"##manage={canManage};unpair={canUnpair};hidden={string.Join(',', hiddenMacs.OrderBy(value => value))};conn={_pods.State.Connected}";
+            + $"##manage={canManage};unpair={canUnpair};hidden={string.Join(',', hiddenMacs.OrderBy(value => value))};conn={_pods.State.Connected}"
+            + $";prioAuto={_pods.State.MultiConnectAutoMode};prio={_pods.State.PriorityDeviceAddress}";
         if (sig == _deviceListSignature && DeviceList.Items.Count > 0)
         {
             UpdateDeviceListRows(all);
             UpdateDeviceListStatus(all);
-            return;   // 结构未变，只更新文字/颜色状态，保住已打开的菜单和已创建的视觉树
+            // 结构未变时也再刷一次策略控件，避免 0x8132 晚于列表到达时选中项卡住。
+            SyncConnectionStrategy(caps, canManagePriority, all);
+            return;
         }
         _deviceListSignature = sig;
         Log.D("UI", "SyncMultiDeviceList: 渲染 " + all.Count + " 个设备: " + string.Join(", ", all.Select(d => $"{d.DeviceName}/{d.Address}/{d.ConnectionState}/cur={d.IsCurrentDevice}")));
@@ -3145,20 +3155,6 @@ public partial class MainWindow : SukiWindow
         }
         DeviceList.Items.Clear();
         _deviceListRows.Clear();
-
-        // 自动模式提示
-        if (canManage && _pods.State.MultiConnectAutoMode && all.Count > 1)
-        {
-            var autoHint = new TextBlock
-            {
-                Text = "（自动切换模式）",
-                FontSize = 11,
-                Opacity = 0.35,
-                Margin = new Thickness(14, 0, 0, 4),
-                Foreground = BrushLightGreen,
-            };
-            DeviceList.Items.Add(autoHint);
-        }
 
         foreach (var d in all)
         {
@@ -3306,21 +3302,20 @@ public partial class MainWindow : SukiWindow
         bool canManagePriority,
         IReadOnlyCollection<ConnectedDeviceInfo> visibleDevices)
     {
-        var canAutoSwitch = caps.HasAutoSwitchLink
-            && _pods.State.SupportedCommands.Contains(OppoProtocol.CmdQueryMultiPriority);
-        ConnectionStrategyExpander.IsVisible = canAutoSwitch || canManagePriority;
-        CbAutoSwitchLink.IsVisible = canAutoSwitch;
+        // Whitelist capability is enough to show the control; state comes from 0x8132.
+        var showStrategy = canManagePriority;
+        ConnectionStrategyExpander.IsVisible = showStrategy;
         PriorityDevicePanel.IsVisible = canManagePriority;
 
         _syncingConnectionStrategy = true;
         try
         {
-            CbAutoSwitchLink.IsChecked = _pods.State.AutoSwitchLinkEnabled;
             if (!canManagePriority)
             {
                 CbPriorityDevice.Items.Clear();
                 CbPriorityDevice.SelectedItem = null;
                 _priorityOptionsSignature = "";
+                Log.D("UI", "SyncConnectionStrategy: priorityPanel=hidden");
                 return;
             }
 
@@ -3328,8 +3323,10 @@ public partial class MainWindow : SukiWindow
                 .Where(device => device.ConnectionState == 2
                     && !string.IsNullOrWhiteSpace(device.Address))
                 .ToList();
+            // Include strategy mode in option signature so selection is recomputed after 0x8132.
             var optionSignature = string.Join("|", connected.Select(device =>
-                $"{device.Address};{device.DeviceName};{device.IsCurrentDevice}"));
+                $"{device.Address};{device.DeviceName};{device.IsCurrentDevice}"))
+                + $"|mode={_pods.State.MultiConnectAutoMode}|prio={_pods.State.PriorityDeviceAddress}";
             if (optionSignature != _priorityOptionsSignature)
             {
                 _priorityOptionsSignature = optionSignature;
@@ -3354,8 +3351,9 @@ public partial class MainWindow : SukiWindow
             }
 
             PriorityDeviceOption? selected = null;
-            if (_pods.State.MultiConnectAutoMode)
+            if (_pods.State.MultiConnectAutoMode || string.IsNullOrWhiteSpace(_pods.State.PriorityDeviceAddress))
             {
+                // Auto mode, or fixed mode with no valid address → show "自动选择".
                 selected = CbPriorityDevice.Items
                     .OfType<PriorityDeviceOption>()
                     .FirstOrDefault(option => option.IsAutomatic);
@@ -3363,36 +3361,51 @@ public partial class MainWindow : SukiWindow
             }
             else
             {
+                var priorityAddr = _pods.State.PriorityDeviceAddress;
+
                 selected = CbPriorityDevice.Items
                     .OfType<PriorityDeviceOption>()
                     .FirstOrDefault(option => string.Equals(
                         option.Address,
-                        _pods.State.PriorityDeviceAddress,
+                        priorityAddr,
                         StringComparison.OrdinalIgnoreCase));
                 CbPriorityDevice.PlaceholderText = selected == null
                     ? "已设置设备当前未连接"
                     : "选择优先连接设备";
             }
             CbPriorityDevice.SelectedItem = selected;
+            Log.D("UI", $"SyncConnectionStrategy: visible={ConnectionStrategyExpander.IsVisible} expanded={ConnectionStrategyExpander.IsExpanded} priorityVisible={PriorityDevicePanel.IsVisible} autoMode={_pods.State.MultiConnectAutoMode} selected={(CbPriorityDevice.SelectedItem as PriorityDeviceOption)?.DisplayName ?? "null"}");
         }
         finally
         {
             _syncingConnectionStrategy = false;
         }
-    }
 
-    private void CbAutoSwitchLink_Changed(object? sender, RoutedEventArgs e)
-    {
-        if (_syncingConnectionStrategy || !_pods.IsConnected) return;
-        _pods.SendAutoSwitchLink(CbAutoSwitchLink.IsChecked == true);
+        var pending = _pendingPrioritySelection;
+        _pendingPrioritySelection = null;
+        if (pending != null && pending != CbPriorityDevice.SelectedItem)
+        {
+            CbPriorityDevice.SelectedItem = pending;
+        }
     }
 
     private void CbPriorityDevice_Changed(object? sender, SelectionChangedEventArgs e)
     {
-        if (_syncingConnectionStrategy || !_pods.IsConnected
+        if (!_pods.IsConnected
             || CbPriorityDevice.SelectedItem is not PriorityDeviceOption option)
             return;
 
+        if (_syncingConnectionStrategy)
+        {
+            _pendingPrioritySelection = option;
+            return;
+        }
+
+        ApplyPrioritySelection(option);
+    }
+
+    private void ApplyPrioritySelection(PriorityDeviceOption option)
+    {
         if (option.IsAutomatic)
             _pods.SendMultiConnectAutoSwitch();
         else
