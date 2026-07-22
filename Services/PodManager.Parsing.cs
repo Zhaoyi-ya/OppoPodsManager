@@ -154,9 +154,6 @@ public partial class PodManager
             case OppoProtocol.EvtHearingDetect:
             case OppoProtocol.EvtCodecType:
             case OppoProtocol.EvtPersonalNoise:
-            case OppoProtocol.EvtTriangle:
-                // AutoSwitchLink 主动上报：已在 PodState 注释说明该功能在 SPP 上无法回读。
-                break;
             case OppoProtocol.EvtGaming:
             case OppoProtocol.EvtEarScan:
             case OppoProtocol.EvtOneshot:

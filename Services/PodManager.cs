@@ -294,7 +294,7 @@ public partial class PodManager : IPodManager
                 Thread.Sleep(80);
             }
 
-            // ===== 阶段4：查询并注册主动通知（包含 TriangleInfo/AutoSwitchLink）=====
+            // ===== 阶段4：查询并注册主动通知 =====
             // 0x0200 → 等待 0x8200 → 解析能力 → RegisterSupportedNotifications → 再 poll 收 ACK + 初始上报
             _transport.Send(OppoProtocol.CmdQueryNotifyCapability, OppoProtocol.PayQueryNotifyCapability);
             Thread.Sleep(80);

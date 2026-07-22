@@ -67,8 +67,8 @@ public static partial class OppoProtocol
     public const ushort CmdQueryHearingFilter = 0x0116; // getHearingEnhancementFilterData 听力增强滤波数据
     public const ushort CmdQueryEarRestore   = 0x0118;  // getEarRestoreData 入耳恢复数据
     public const ushort CmdQueryZenMode      = 0x0119;  // getEarBudsZenModeInformation 禅模式信息
-    public const ushort CmdQueryCapBitmap    = 0x011C;  // getTriangleInfo/getRemoteCapability 能力位图（三角/GetCapability）
-    public const ushort CmdTriangleInfoResp  = 0x811C;  // getTriangleInfo 响应
+    public const ushort CmdQueryCapBitmap    = 0x011C;  // getRemoteCapability 能力位图
+    public const ushort CmdTriangleInfoResp  = 0x811C;  // getRemoteCapability 响应
     public const ushort CmdQueryFreeDialog   = 0x011D;  // getFreeDialogRecoveryTime 自由对话恢复时间
     public const ushort CmdQueryEarScan      = 0x011E;  // getEarScanData 耳道扫描数据
     public const ushort CmdQueryEarScanFilter = 0x011F; // getEarScanFilterData 耳道扫描滤波数据
@@ -151,7 +151,7 @@ public static partial class OppoProtocol
     public const byte EvtCodecType     = 0x09;  // 编解码器类型
     public const byte EvtZenMode       = 0x0A;  // 禅模式开关
     public const byte EvtPersonalNoise = 0x0B;  // 个性化降噪结果
-    public const byte EvtTriangle      = 0x0D;  // 空间音频三角信息
+    public const byte EvtTriangle      = 0x0D;  // 空间音频三角信息（AutoSwitchLink 已移除，见 PodState 注释）
     public const byte EvtEarScan       = 0x0E;  // 耳道扫描结果
     public const byte EvtGaming        = 0x0F;  // 多连接游戏/手持/点击等级公共事件
     public const byte EvtOneshot       = 0x10;  // Oneshot 状态
