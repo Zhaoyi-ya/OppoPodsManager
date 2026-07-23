@@ -1574,6 +1574,9 @@ public partial class MainWindow : SukiWindow
         SettingsManager.SetString("Language", option.IsAutomatic ? null : option.CultureCode);
         LanguageManager.ApplyConfiguredCulture(option.IsAutomatic ? null : option.CultureCode);
         RefreshLocalizedComboBoxes();
+        // Force rebuild multi-device list with new language strings
+        _deviceListSignature = "";
+        RequestSyncMultiDeviceList();
     }
 
     /// <summary>
@@ -3202,7 +3205,7 @@ public partial class MainWindow : SukiWindow
             }
             DeviceList.Items.Clear();
             _deviceListRows.Clear();
-            DeviceListEmptyHint.Text = "连接耳机后显示多设备列表";
+            DeviceListEmptyHint.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_EmptyHint);
             DeviceListEmptyHint.IsVisible = true;
             ConnectionStrategyExpander.IsVisible = false;
             UpdateDeviceListStatus(Array.Empty<ConnectedDeviceInfo>());
@@ -3225,9 +3228,9 @@ public partial class MainWindow : SukiWindow
             || caps.HasMultiConnectManage;
         var canUnpair = caps.CanUnpairMultiConnectDevice(_pods.State.SupportedCommands);
         SyncConnectionStrategy(caps, canManagePriority, all);
-        DeviceListEmptyHint.Text = hiddenMacs.Count > 0
-            ? "暂无可显示的设备，可在设置中恢复已隐藏设备"
-            : "暂无其他设备";
+            DeviceListEmptyHint.Text = hiddenMacs.Count > 0
+                ? LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_AllHidden)
+                : LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_NoOtherDevices);
         DeviceListEmptyHint.IsVisible = all.Count == 0;
 
         // 列表签名包含连接策略回读字段：0x8132 只改 auto/priority 时也必须刷新策略 UI。
@@ -3322,32 +3325,31 @@ public partial class MainWindow : SukiWindow
                 if (d.ConnectionState != 2)
                 {
                     // 已断开 → 连接
-                    var connect = new MenuItem { Header = $"连接「{d.DeviceName}」" };
+                    var connect = new MenuItem { Header = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Connect), d.DeviceName) };
                     connect.Click += (_, _) => _pods.SendMultiConnectConnect(d.Address);
                     menu.Items.Add(connect);
                 }
                 else
                 {
-                    var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
+                    var disconnect = new MenuItem { Header = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Disconnect), d.DeviceName) };
                     disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
                     menu.Items.Add(disconnect);
                 }
                 if (canUnpair)
                 {
-                    // Melody 仅在 V2 多设备管理页提供解绑，协议为 0x0429 operation=3。
                     menu.Items.Add(new Separator());
-                    var unpair = new MenuItem { Header = "取消配对" };
+                    var unpair = new MenuItem { Header = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Unpair) };
                     unpair.Click += (_, _) => _pods.SendMultiConnectUnpair(d.Address);
                     menu.Items.Add(unpair);
                 }
                 menu.Items.Add(new Separator());
-                var hide = new MenuItem { Header = "隐藏此设备" };
+                var hide = new MenuItem { Header = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Hide) };
                 hide.Click += (_, _) => HideMultiDevice(d);
                 menu.Items.Add(hide);
             }
             else if (isReal && d.IsCurrentDevice)
             {
-                var disconnect = new MenuItem { Header = $"断开「{d.DeviceName}」" };
+                var disconnect = new MenuItem { Header = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Disconnect), d.DeviceName) };
                 disconnect.Click += (_, _) => _pods.SendMultiConnectDisconnect(d.Address);
                 menu.Items.Add(disconnect);
             }
@@ -3547,8 +3549,16 @@ public partial class MainWindow : SukiWindow
     private static string GetDeviceAudioText(ConnectedDeviceInfo d)
         => d.IsCurrentDevice ? "  ♪" : " ♪";
 
-    private static string GetDeviceConnectionText(ConnectedDeviceInfo d)
-        => $" ({d.ConnectionStatus})";
+    private string GetDeviceConnectionText(ConnectedDeviceInfo d)
+    {
+        var obs = d.ConnectionState switch
+        {
+            2 => d.IsCurrentDevice ? LanguageManager.Instance.MultiDevice_StatusCurrentDevice : LanguageManager.Instance.MultiDevice_StatusConnected,
+            1 => LanguageManager.Instance.MultiDevice_StatusConnecting,
+            _ => LanguageManager.Instance.MultiDevice_StatusDisconnected
+        };
+        return $" ({LanguageManager.Instance.GetString(obs)})";
+    }
 
     private void UpdateDeviceListRows(IReadOnlyList<ConnectedDeviceInfo> all)
     {

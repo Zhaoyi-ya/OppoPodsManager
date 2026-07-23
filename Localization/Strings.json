@@ -268,5 +268,8 @@
   "Common_Disconnected": "已断开",
   "SpatialAudio_ModeOff": "关闭",
   "SpatialAudio_ModeFixed": "固定",
-  "SpatialAudio_ModeTrack": "头部跟踪"
+  "MultiDevice_StatusConnected": "已连接",
+  "MultiDevice_StatusConnecting": "连接中",
+  "MultiDevice_StatusDisconnected": "已断开",
+  "MultiDevice_StatusCurrentDevice": "当前设备"
 }

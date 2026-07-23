@@ -268,5 +268,8 @@
   "Common_Disconnected": "Disconnected",
   "SpatialAudio_ModeOff": "Off",
   "SpatialAudio_ModeFixed": "Fixed",
-  "SpatialAudio_ModeTrack": "Head Tracking"
+  "MultiDevice_StatusConnected": "Connected",
+  "MultiDevice_StatusConnecting": "Connecting...",
+  "MultiDevice_StatusDisconnected": "Disconnected",
+  "MultiDevice_StatusCurrentDevice": "Current Device"
 }
