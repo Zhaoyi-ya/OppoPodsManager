@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l10n="using:OppoPodsManager.Localization"
         x:Class="OppoPodsManager.ToastWindow"
         WindowDecorations="None" ShowInTaskbar="False"
         Topmost="True" CanResize="False"
@@ -90,7 +91,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="LeftBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="LeftLabel" Text="左耳" FontSize="13"
+                                <TextBlock x:Name="LeftLabel" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_LeftLabel}}" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
@@ -102,7 +103,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="CaseBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="CaseLabel" Text="充电盒" FontSize="13"
+                                <TextBlock x:Name="CaseLabel" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_CaseLabel}}" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
@@ -114,7 +115,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center">
                                 <Path x:Name="RightBolt" Width="10" Height="10" Stretch="Uniform"
                                       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-                                <TextBlock x:Name="RightLabel" Text="右耳" FontSize="13"
+                                <TextBlock x:Name="RightLabel" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_RightLabel}}" FontSize="13"
                                            Foreground="#99FFFFFF" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
@@ -135,10 +136,10 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="LowBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FFB020"
                               VerticalAlignment="Center"/>
-                        <TextBlock Text="低电量" FontSize="23"
+                        <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_LowBattery}}" FontSize="23"
                                    Foreground="#FFB020" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock x:Name="LowHintText" Text="建议尽快充电" FontSize="13"
+                    <TextBlock x:Name="LowHintText" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_LowBatteryHint}}" FontSize="13"
                                Foreground="#99FFFFFF" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
@@ -156,10 +157,10 @@
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6">
                         <Path x:Name="CritBolt" Width="18" Height="18" Stretch="Uniform" Fill="#FF453A"
                               VerticalAlignment="Center"/>
-                        <TextBlock Text="电量极低" FontSize="23"
+                        <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_CriticalBattery}}" FontSize="23"
                                    Foreground="#FF453A" VerticalAlignment="Center"/>
                     </StackPanel>
-                    <TextBlock x:Name="CritHintText" Text="请立即充电" FontSize="13"
+                    <TextBlock x:Name="CritHintText" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_CriticalBatteryHint}}" FontSize="13"
                                Foreground="#FF8078" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
@@ -171,7 +172,7 @@
                     <TextBlock x:Name="DisconnectTitle" Text="" FontSize="15"
                                Foreground="#F5FFFFFF" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock Text="连接已断开" FontSize="17"
+                <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_Disconnected}}" FontSize="17"
                            Foreground="#FF8078" HorizontalAlignment="Center"/>
             </StackPanel>
 
@@ -190,10 +191,10 @@
                 <TextBlock x:Name="UpdateVersion" Grid.Row="1" Text="版本号：v0.0.0" FontSize="13"
                            Foreground="#BFFFFFFF" HorizontalAlignment="Center" Margin="0,8,6,12"/>
                 <Grid Grid.Row="2" RowDefinitions="Auto,6,Auto" ColumnDefinitions="*,8,*" Margin="0,0,6,0">
-                    <Button x:Name="UpdateLaterBtn" Grid.Row="0" Grid.Column="0" Content="下次提醒我" Classes="UpdateActionButton"/>
-                    <Button x:Name="UpdateSkipBtn" Grid.Row="0" Grid.Column="2" Content="跳过此版本" Classes="UpdateActionButton"/>
-                    <Button x:Name="UpdateMirrorBtn" Grid.Row="2" Grid.Column="0" Content="国内下载" Classes="UpdateActionButton"/>
-                    <Button x:Name="UpdateDownloadBtn" Grid.Row="2" Grid.Column="2" Content="GitHub 下载" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateLaterBtn" Grid.Row="0" Grid.Column="0" Content="{Translate {x:Static l10n:LanguageManager+Keys.Toast_UpdateRemindLater}}" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateSkipBtn" Grid.Row="0" Grid.Column="2" Content="{Translate {x:Static l10n:LanguageManager+Keys.Toast_UpdateSkip}}" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateMirrorBtn" Grid.Row="2" Grid.Column="0" Content="{Translate {x:Static l10n:LanguageManager+Keys.Toast_UpdateMirror}}" Classes="UpdateActionButton"/>
+                    <Button x:Name="UpdateDownloadBtn" Grid.Row="2" Grid.Column="2" Content="{Translate {x:Static l10n:LanguageManager+Keys.Toast_UpdateDownload}}" Classes="UpdateActionButton"/>
                 </Grid>
             </Grid>
         </Grid>

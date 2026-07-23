@@ -1,7 +1,8 @@
 <suki:SukiWindow xmlns="https://github.com/avaloniaui"
-   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-   xmlns:suki="https://github.com/kikipoulet/SukiUI"
-   xmlns:local="using:OppoPodsManager"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:suki="https://github.com/kikipoulet/SukiUI"
+    xmlns:local="using:OppoPodsManager"
+    xmlns:l10n="using:OppoPodsManager.Localization"
    x:Class="OppoPodsManager.SmallWindow"
    Title="OPPO Pods" Height="440" Width="300"
    WindowStartupLocation="Manual"
@@ -100,8 +101,8 @@
    Classes="glassCard"
    IsVisible="False">
   <StackPanel Spacing="10">
-   <TextBlock Text="降噪控制" FontSize="14"
-    HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+    <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Anc_Title}}" FontSize="14"
+     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
    <Grid x:Name="AncMainRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
    <Grid x:Name="AncSubRow" ColumnDefinitions="Auto" HorizontalAlignment="Center"/>
    <TextBlock x:Name="AncRealtimeHint" FontSize="13" Opacity="0.5" IsVisible="False"

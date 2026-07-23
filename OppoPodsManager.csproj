@@ -9,8 +9,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Windows 后端使用 windows TFM 以启用 WinRT (Windows.Devices.Bluetooth GATT)；
-         其它平台保持纯 net10.0，便于后续 Linux/macOS 后端。 -->
+    <!-- Windows 后端使用 windows TFM 以启�?WinRT (Windows.Devices.Bluetooth GATT)�?
+         其它平台保持�?net10.0，便于后�?Linux/macOS 后端�?-->
     <TargetFramework Condition="'$(EnableWindowsBackend)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="'$(EnableWindowsBackend)' != 'true'">net10.0</TargetFramework>
 	<RuntimeIdentifiers>win-x64;win-arm64;linux-x64</RuntimeIdentifiers>
@@ -24,49 +24,67 @@
     <SelfContained Condition="'$(Configuration)' != 'Release'">false</SelfContained>
   </PropertyGroup>
 
-  <!-- Release/AOT 发布专用属性 -->
+  <!-- Release/AOT 发布专用属�?-->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishAot>true</PublishAot>
     <SelfContained>true</SelfContained>
     <StripSymbols>true</StripSymbols>
     <OptimizationPreference>Size</OptimizationPreference>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Language selection and system-culture fallback require culture data in Release builds. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <DebuggerSupport>false</DebuggerSupport>
     <DebugType>none</DebugType>
   </PropertyGroup>
 
-  <!-- Linux 编译符号 + 非 Windows 平台禁用 AOT（Tmds.DBus 依赖动态代码）-->
+  <!-- Linux 编译符号 + �?Windows 平台禁用 AOT（Tmds.DBus 依赖动态代码）-->
   <PropertyGroup Condition="'$(EnableWindowsBackend)' != 'true'">
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+  
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>obj\Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(EnableWindowsBackend)' != 'true'">
     <PublishAot>false</PublishAot>
+  
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>obj\Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
-  <!-- 启用 Windows 后端时定义 WINDOWS 编译符号 -->
+  <!-- 启用 Windows 后端时定�?WINDOWS 编译符号 -->
   <PropertyGroup Condition="'$(EnableWindowsBackend)' == 'true'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>obj\Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
-  <!-- 非 Windows 目标：把 Windows 专属源码排除出编译 -->
+  <!-- �?Windows 目标：把 Windows 专属源码排除出编�?-->
   <ItemGroup Condition="'$(EnableWindowsBackend)' != 'true'">
     <Compile Remove="Transport\Windows\**\*.cs" />
   </ItemGroup>
 
-  <!-- Windows 目标：把 Linux 专属源码排除出编译 -->
+  <!-- Windows 目标：把 Linux 专属源码排除出编�?-->
   <ItemGroup Condition="'$(EnableWindowsBackend)' == 'true'">
     <Compile Remove="Transport\Linux\**\*.cs" />
   </ItemGroup>
 
-  <!-- 测试工程位于仓库内，但不参与桌面应用编译。 -->
+  <!-- 测试工程位于仓库内，但不参与桌面应用编译�?-->
   <ItemGroup>
     <Compile Remove="Tests\**\*.cs" />
   </ItemGroup>
 
-  <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
+  <!-- Embedded JSON data（保�?LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
   <ItemGroup>
     <EmbeddedResource Include="Data\DeviceModels.json" LogicalName="OppoPodsManager.DeviceModels.json" />
     <EmbeddedResource Include="Data\EqModeNames.json" LogicalName="OppoPodsManager.EqModeNames.json" />
+  </ItemGroup>
+
+  <!-- Irihi.Lingua localization resources -->
+  <ItemGroup>
+    <AdditionalFiles Include="Localization\**\*.json" />
+    <EmbeddedResource Include="Localization\**\*.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Avalonia assets -->
@@ -86,7 +104,9 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.1" />
+    <PackageReference Include="Irihi.Lingua" Version="0.6.0" />
     <PackageReference Include="SukiUI" Version="7.0.1" />
+    <PackageReference Include="System.Reactive" Version="7.0.0" />
   </ItemGroup>
 
 <Target Name="RemovePdbAfterPublish" AfterTargets="Publish">
@@ -94,8 +114,12 @@
     <_PublishDir Condition="'$(PublishDir)' == ''">$(OutputPath)$(Platform)\$(TargetFramework)\$(RuntimeIdentifier)\publish\</_PublishDir>
     <_PublishDir Condition="'$(PublishDir)' != ''">$(PublishDir)</_PublishDir>
     <_PublishDir Condition="!HasTrailingSlash('$(_PublishDir)')">$(_PublishDir)\</_PublishDir>
+  
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>obj\Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 	<Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))" Command="del /f /q &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
 	<Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="rm -f &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
 </Target>
 </Project>
+

@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Controls;
 using Avalonia;
 using Avalonia.Threading;
+using OppoPodsManager.Localization;
 using SukiUI;
 
 namespace OppoPodsManager;
@@ -109,7 +110,10 @@ public partial class ToastWindow : Window
         toast.LowBatteryOverlay.IsVisible = false;
         toast.CriticalBatteryOverlay.IsVisible = false;
         toast.UpdatePanel.IsVisible = true;
-        toast.UpdateVersion.Text = $"版本号：{NormalizeVersionLabel(version)}";
+        toast.UpdateTitle.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.Toast_NewVersion);
+        toast.UpdateVersion.Text = string.Format(
+            LanguageManager.Instance.GetString(LanguageManager.Instance.Toast_VersionLabel),
+            NormalizeVersionLabel(version));
 
         await ShowAndClose(toast, async () =>
         {
