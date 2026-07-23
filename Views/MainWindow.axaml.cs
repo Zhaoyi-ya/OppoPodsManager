@@ -212,6 +212,7 @@ public partial class MainWindow : SukiWindow
     private readonly ObservableCollection<string> _seriesList = new();
     private readonly ObservableCollection<string> _modelList = new();
     private readonly ObservableCollection<LanguageOption> _languageList = new();
+    private bool _refreshingComboBoxes;
     private Dictionary<string, Dictionary<string, List<string>>> _brandTree = new();
 
     public MainWindow()
@@ -288,7 +289,11 @@ public partial class MainWindow : SukiWindow
 
         // 透明度预设
         CbTransparencyPreset.SelectedIndex = 0;
-        CbTransparencyPreset.SelectionChanged += (_, _) => ApplyTransparencyPreset(CbTransparencyPreset.SelectedIndex);
+        CbTransparencyPreset.SelectionChanged += (_, _) =>
+        {
+            if (_refreshingComboBoxes) return;
+            ApplyTransparencyPreset(CbTransparencyPreset.SelectedIndex);
+        };
 
         // 透明度：0 = 完全不透明，90 = 几乎透明
         var opacityVal = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
@@ -356,7 +361,7 @@ public partial class MainWindow : SukiWindow
 
         CbToastDuration.SelectionChanged += (_, _) =>
         {
-            if (_initializingSettings) return;
+            if (_refreshingComboBoxes || _initializingSettings) return;
             SettingsManager.SetInt("ToastDuration", CbToastDuration.SelectedIndex);
             Log.D("UI", $"设置: Toast 时长索引 -> {CbToastDuration.SelectedIndex}");
         };
@@ -1540,6 +1545,7 @@ public partial class MainWindow : SukiWindow
 
     private void CbTheme_Changed(object? s, SelectionChangedEventArgs e)
     {
+        if (_refreshingComboBoxes) return;
         var idx = CbTheme.SelectedIndex;
         Log.D("UI", $"用户操作: 切换主题 -> {idx}");
         ApplyTheme(idx);
@@ -1561,12 +1567,50 @@ public partial class MainWindow : SukiWindow
 
     private void CbLanguage_Changed(object? s, SelectionChangedEventArgs e)
     {
-        if (_initializingSettings || CbLanguage.SelectedItem is not LanguageOption option)
+        if (_refreshingComboBoxes || _initializingSettings || CbLanguage.SelectedItem is not LanguageOption option)
             return;
 
         // SetString(null) removes Language from settings.json: no key means automatic mode.
         SettingsManager.SetString("Language", option.IsAutomatic ? null : option.CultureCode);
         LanguageManager.ApplyConfiguredCulture(option.IsAutomatic ? null : option.CultureCode);
+        RefreshLocalizedComboBoxes();
+    }
+
+    /// <summary>
+    /// Force ComboBox presenters to re-evaluate the selected item's display text after
+    /// a language change. The {Translate} bindings update ComboBoxItem.Content, but
+    /// Avalonia's ComboBox caches the display in SelectionBoxItem at selection time and
+    /// does not re-read Content when it changes. Re-assigning SelectedIndex forces it to
+    /// re-evaluate from the bound Content.
+    /// </summary>
+    private void RefreshLocalizedComboBoxes()
+    {
+        _refreshingComboBoxes = true;
+
+        RefreshSelectedIndex(CbTheme);
+        RefreshSelectedIndex(CbTransparencyPreset);
+        RefreshSelectedIndex(CbToastDuration);
+        RefreshSelectedIndex(CbTouchLeftClick);
+        RefreshSelectedIndex(CbTouchLeftDouble);
+        RefreshSelectedIndex(CbTouchLeftTriple);
+        RefreshSelectedIndex(CbTouchLeftSlide);
+        RefreshSelectedIndex(CbTouchRightClick);
+        RefreshSelectedIndex(CbTouchRightDouble);
+        RefreshSelectedIndex(CbTouchRightTriple);
+        RefreshSelectedIndex(CbTouchRightSlide);
+        RefreshSelectedIndex(CbLanguage);
+
+        _refreshingComboBoxes = false;
+    }
+
+    private static void RefreshSelectedIndex(ComboBox comboBox)
+    {
+        var idx = comboBox.SelectedIndex;
+        if (idx >= 0)
+        {
+            comboBox.SelectedIndex = -1;
+            comboBox.SelectedIndex = idx;
+        }
     }
 
     private void ApplyTheme(int index)
