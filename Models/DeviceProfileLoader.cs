@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager;
 
@@ -90,7 +91,7 @@ public static class DeviceProfileLoader
                                   deviceName) is { } r2) return r2;
         if (MatchWithFunctionPref(e => { var nm = Normalize(EntryName(e) ?? ""); return norm.Length >= 5 && nm.Contains(norm); },
                                   deviceName) is { } r3) return r3;
-        return new DeviceCapabilities { DeviceName = deviceName, ModelName = "未识别设备", IsSupported = false };
+        return new DeviceCapabilities { DeviceName = deviceName, ModelName = LanguageManager.Instance.GetString(LanguageManager.Instance.Device_Unrecognized), IsSupported = false };
     }
 
     private static DeviceCapabilities? MatchWithFunctionPref(Func<JsonElement, bool> predicate, string deviceName)
@@ -295,7 +296,7 @@ public static class DeviceProfileLoader
         LoadEqModes(func, "equalizerMode", eqMap);
         LoadEqModes(func, "equalizerModeCompat", eqMap);
         LoadEqModes(func, "equalizerModeByVersion", eqMap);
-        if (eqMap.Count == 0) eqMap[0] = "默认";
+        if (eqMap.Count == 0) eqMap[0] = LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_Default);
         ApplyEqNames(caps, eqMap);
         return caps;
     }
@@ -307,7 +308,9 @@ public static class DeviceProfileLoader
         {
             if (!mode.TryGetProperty("protocolIndex", out var pi)) continue;
             byte idx = pi.GetByte();
-            string displayName = idx < 10 ? $"模式{idx}" : $"M{idx}";
+            string displayName = idx < 10
+                ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_ModeIndex), idx)
+                : $"M{idx}";
             if (mode.TryGetProperty("modeType", out var mt))
                 if (_eqModeNames.TryGetValue(mt.GetInt32().ToString(), out var n))
                     displayName = n;
@@ -356,14 +359,14 @@ public static class DeviceProfileLoader
 
     private static string AncLabel(string key) => key switch
     {
-        "Off" => "关闭",
-        "Transparency" => "通透",
-        "Adaptive" => "自适应",
-        "NC" => "降噪",
-        "Smart" => "智能",
-        "Light" => "轻度",
-        "Medium" => "中度",
-        "Deep" => "深度",
+        "Off" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeOff),
+        "Transparency" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeTransparency),
+        "Adaptive" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeAdaptive),
+        "NC" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeNoiseCancellation),
+        "Smart" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_SubSmart),
+        "Light" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_SubLight),
+        "Medium" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_SubMedium),
+        "Deep" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_SubDeep),
         _ => key
     };
 

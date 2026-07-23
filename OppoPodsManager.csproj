@@ -17,6 +17,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>OppoPodsManager</RootNamespace>
     <AssemblyName>OppoPodsManager</AssemblyName>
+    <!-- 唯一版本真源：改这里即可同步程序集版本与软件内显示（XAML/代码从程序集读取）。 -->
+    <Version>1.1.8</Version>
     <ApplicationIcon>Assets\tuopan.ico</ApplicationIcon>
     <SupportedOSPlatformVersion Condition="'$(EnableWindowsBackend)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <NoWarn>CA1416;AVLN3001;IL2104;IL3053</NoWarn>

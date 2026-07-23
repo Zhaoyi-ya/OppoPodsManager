@@ -393,7 +393,7 @@
        </Grid>
        <TextBlock Text="OPPO Pods Manager" FontSize="23" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,6"
           Foreground="{DynamicResource SukiText}"/>
-       <TextBlock x:Name="VersionText" Text="v1.1.8" FontSize="16" HorizontalAlignment="Center" Opacity="0.55" Margin="0,0,0,6"/>
+       <TextBlock x:Name="VersionText" FontSize="16" HorizontalAlignment="Center" Opacity="0.55" Margin="0,0,0,6"/>
        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,18" Padding="4,2"
          Background="Transparent" BorderThickness="0" Opacity="0.72"
          Click="OpenUrl_Click" Tag="https://github.com/Zhaoyi-ya/OppoPodsManager">GitHub</Button>
@@ -928,20 +928,20 @@
      </ScrollViewer>
      <TextBox Grid.Row="2" x:Name="DialogInput" PlaceholderText="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_PresetNamePlaceholder}}"
         Width="240" Height="28" FontSize="13" Padding="6,2"/>
-     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+     <WrapPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="DialogCancelBtn" Content="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_Cancel}}"
-          Height="28" FontSize="13" Padding="14,0"
+          Height="28" FontSize="13" Padding="14,0" Margin="0,0,8,8"
           Click="DialogCancel_Click"/>
       <Button x:Name="DialogSkipBtn" Content="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_SkipVersion}}"
-          Height="28" FontSize="13" Padding="14,0"
+          Height="28" FontSize="13" Padding="14,0" Margin="0,0,8,8"
           IsVisible="False" Click="DialogSkip_Click"/>
       <Button x:Name="DialogMirrorBtn" Content="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_MirrorDownload}}"
-          Height="28" FontSize="13" Padding="14,0"
+          Height="28" FontSize="13" Padding="14,0" Margin="0,0,8,8"
           IsVisible="False" Click="DialogMirror_Click"/>
       <Button x:Name="DialogConfirmBtn" Content="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_Save}}"
-          Height="28" FontSize="13" Padding="14,0" IsDefault="True"
+          Height="28" FontSize="13" Padding="14,0" Margin="0,0,8,8" IsDefault="True"
           Click="DialogConfirm_Click"/>
-     </StackPanel>
+     </WrapPanel>
     </Grid>
    </Border>
   </Panel>
