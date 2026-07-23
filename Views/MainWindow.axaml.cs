@@ -221,6 +221,15 @@ public partial class MainWindow : SukiWindow
         {
             Log.D("UI", "MainWindow 构造开始");
         InitializeComponent();
+
+        // 版本号统一取自 csproj 的 <Version>（经程序集元数据），避免 XAML 硬编码。
+        // GetName().Version 在 AOT 下可用（与 DeviceProfileLoader 读取资源同源），
+        // 末位 Revision 为 0 时舍去，保持 "v主.次.修订" 三段格式。
+        var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        VersionText.Text = asmVer != null
+            ? $"v{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}"
+            : "v?";
+
         AdaptToPlatform();
         AddHandler(PointerPressedEvent, CloseFloatingMenusOnBlankClick, RoutingStrategies.Tunnel, handledEventsToo: true);
         NavHome.Classes.Add("selected");
@@ -416,26 +425,26 @@ public partial class MainWindow : SukiWindow
         CbSeries.ItemsSource = _seriesList;
         CbModel.ItemsSource = _modelList;
 
-        _brandList.Add("自动检测");
+        _brandList.Add(LAutoDetect());
         foreach (var brand in _brandTree.Keys.OrderBy(b => b)) _brandList.Add(brand);
 
         _modelOverride = SettingsManager.GetString("ModelOverride");
         if (string.IsNullOrEmpty(_modelOverride))
         {
-            CbBrand.SelectedItem = "自动检测";
+            CbBrand.SelectedItem = LAutoDetect();
         }
         else
         {
             var (brand, series) = FindBrandSeries(_modelOverride, _brandTree);
-            CbBrand.SelectedItem = brand ?? "自动检测";
+            CbBrand.SelectedItem = brand ?? LAutoDetect();
             if (brand != null)
             {
                 _seriesList.Clear();
-                _seriesList.Add("（全部子系列）");
+                _seriesList.Add(LAllSeries());
                 foreach (var s in _brandTree[brand].Keys.OrderBy(s => s)) _seriesList.Add(s);
-                CbSeries.SelectedItem = series ?? "（全部子系列）";
+                CbSeries.SelectedItem = series ?? LAllSeries();
                 _modelList.Clear();
-                _modelList.Add("（全部机型）");
+                _modelList.Add(LAllModels());
                 foreach (var m in _brandTree[brand][series ?? _brandTree[brand].Keys.First()].OrderBy(m => m))
                     _modelList.Add(m);
                 CbModel.SelectedItem = _modelOverride;
@@ -826,8 +835,8 @@ public partial class MainWindow : SukiWindow
 
         // 佩戴状态 - 即使空也显示占位，排查显示问题
         var wearParts = new List<string>();
-        if (!string.IsNullOrEmpty(s.WearingL)) wearParts.Add($"左耳{s.WearingL}");
-        if (!string.IsNullOrEmpty(s.WearingR)) wearParts.Add($"右耳{s.WearingR}");
+        if (!string.IsNullOrEmpty(s.WearingL)) wearParts.Add(LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Left) + LocalizedWearing(s.WearingL));
+        if (!string.IsNullOrEmpty(s.WearingR)) wearParts.Add(LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Right) + LocalizedWearing(s.WearingR));
         WearStatus.Text = wearParts.Count > 0 ? string.Join("  ", wearParts) : "";
         WearStatus.IsVisible = wearParts.Count > 0;
 
@@ -845,7 +854,7 @@ public partial class MainWindow : SukiWindow
         // Smart 在容器型设备是子档位(_ancLevel)，在扁平型是主模式(_ancMain)，两者都要判。
         if ((_ancMain == "Smart" || _ancLevel == "Smart") && !string.IsNullOrEmpty(s.IntelligentRealtime))
         {
-            AncRealtimeHint.Text = $"实时计算：{AncModeLabel(s.IntelligentRealtime)}";
+            AncRealtimeHint.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_RealtimeHint), AncModeLabel(s.IntelligentRealtime));
             AncRealtimeHint.IsVisible = true;
         }
         else
@@ -894,7 +903,7 @@ public partial class MainWindow : SukiWindow
         // CbWearDetection.IsVisible = caps.HasWearDetection;
         // CbSpineHealth.IsVisible = caps.HasSpineHealth;
 
-        ModelNote.Text = $"当前自动识别: {caps.ModelName}";
+        ModelNote.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), caps.ModelName);
         UpdateTitle();
         RebuildTrayMenu();
         }
@@ -1258,6 +1267,22 @@ public partial class MainWindow : SukiWindow
         return key;
     }
 
+    // 本地化辅助：型号选择 ComboBox 哨兵项（显示与比较共用，必须保持一致）。
+    private static string LAutoDetect() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AutoDetect);
+    private static string LAllSeries() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AllSeries);
+    private static string LAllModels() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AllModels);
+
+    // 佩戴状态：State.WearingL/R 内部保留原始值（MergeCharge/查找设备逻辑依赖中文原值），
+    // 仅在界面显示时本地化，避免破坏充电检测与"佩戴中"判断。
+    private static string LocalizedWearing(string raw) => raw switch
+    {
+        "已断连" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Disconnected),
+        "摘下" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Removed),
+        "佩戴" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Wearing),
+        "入盒" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_InCase),
+        _ => raw
+    };
+
     /// <summary>把设备上报的 ANC 模式键映射到 UI 主/子选中态（完全按当前型号选项模型）。</summary>
     private void SyncAncFromState(string modeKey)
     {
@@ -1439,7 +1464,7 @@ public partial class MainWindow : SukiWindow
 
     private void CbBrand_Changed(object? s, SelectionChangedEventArgs e)
     {
-        if (CbBrand.SelectedItem is not string brand || brand == "自动检测")
+        if (CbBrand.SelectedItem is not string brand || brand == LAutoDetect())
         {
             _seriesList.Clear();
             _modelList.Clear();
@@ -1448,28 +1473,28 @@ public partial class MainWindow : SukiWindow
         if (!_brandTree.TryGetValue(brand, out var series)) return;
 
         _seriesList.Clear();
-        _seriesList.Add("（全部子系列）");
+        _seriesList.Add(LAllSeries());
         foreach (var sn in series.Keys.OrderBy(x => x)) _seriesList.Add(sn);
-        CbSeries.SelectedItem = "（全部子系列）";
+        CbSeries.SelectedItem = LAllSeries();
     }
 
     private void CbSeries_Changed(object? s, SelectionChangedEventArgs e)
     {
         if (CbBrand.SelectedItem is not string brand || !_brandTree.TryGetValue(brand, out var series)) return;
-        var sn = CbSeries.SelectedItem as string ?? "（全部子系列）";
+        var sn = CbSeries.SelectedItem as string ?? LAllSeries();
 
         _modelList.Clear();
-        _modelList.Add("（全部机型）");
-        var models = sn == "（全部子系列）"
+        _modelList.Add(LAllModels());
+        var models = sn == LAllSeries()
             ? series.SelectMany(kv => kv.Value).Distinct().OrderBy(x => x).ToList()
             : series.TryGetValue(sn, out var list) ? list.OrderBy(x => x).ToList() : new();
         foreach (var m in models) _modelList.Add(m);
-        CbModel.SelectedItem = "（全部机型）";
+        CbModel.SelectedItem = LAllModels();
     }
 
     private void CbModel_Changed(object? s, SelectionChangedEventArgs e)
     {
-        if (CbModel.SelectedItem is string model && model != "（全部机型）")
+        if (CbModel.SelectedItem is string model && model != LAllModels())
         {
             Log.D("UI", $"用户操作: 手动指定机型 -> {model}");
             _modelOverride = model;
@@ -1519,8 +1544,8 @@ public partial class MainWindow : SukiWindow
         BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = _modelOverride == null
-            ? $"当前自动识别: {_pods.Caps.ModelName}"
-            : $"已手动指定: {caps.ModelName}";
+            ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), _pods.Caps.ModelName)
+            : string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelManualSet), caps.ModelName);
 
         UpdateTitle();
         if (_pods.State.Connected)
@@ -2758,7 +2783,7 @@ public partial class MainWindow : SukiWindow
             LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_InvalidName));
             if (string.IsNullOrEmpty(name)) return;
             if (IsValidEqName(name)) break;
-            await ShowCheckResultDialog("名称仅支持中文/英文/数字，不能含空格或特殊字符", "名称无效");
+            await ShowCheckResultDialog(LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_InvalidName), LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_InvalidNameTitle));
         } while (true);
         _eqCurrentPreset = name;
         _eqCurrentId = 0;
@@ -3158,7 +3183,7 @@ public partial class MainWindow : SukiWindow
             }
             DeviceList.Items.Clear();
             _deviceListRows.Clear();
-            DeviceListEmptyHint.Text = "连接耳机后显示多设备列表";
+            DeviceListEmptyHint.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_EmptyHint);
             DeviceListEmptyHint.IsVisible = true;
             ConnectionStrategyExpander.IsVisible = false;
             UpdateDeviceListStatus(Array.Empty<ConnectedDeviceInfo>());
@@ -3182,8 +3207,8 @@ public partial class MainWindow : SukiWindow
         var canUnpair = caps.CanUnpairMultiConnectDevice(_pods.State.SupportedCommands);
         SyncConnectionStrategy(caps, canManagePriority, all);
         DeviceListEmptyHint.Text = hiddenMacs.Count > 0
-            ? "暂无可显示的设备，可在设置中恢复已隐藏设备"
-            : "暂无其他设备";
+            ? LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_AllHidden)
+            : LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_NoOtherDevices);
         DeviceListEmptyHint.IsVisible = all.Count == 0;
 
         // 列表签名包含连接策略回读字段：0x8132 只改 auto/priority 时也必须刷新策略 UI。
@@ -3910,6 +3935,7 @@ public partial class MainWindow : SukiWindow
 
     // ===== 版本更新检查 =====
 
+    // 正式更新接口（生产环境）
     private const string UPDATE_API = "https://oppopods.zhaoyi.fun/api/update/latest";
     private const string DOWNLOAD_URL = "https://github.com/Zhaoyi-ya/OppoPodsManager/releases/latest";
     private const string DOWNLOAD_MIRROR_URL = "https://www.zhaoyi.fun/index.php/archives/7/";
@@ -4228,7 +4254,15 @@ public partial class MainWindow : SukiWindow
     {
         try
         {
-            Log.D("UPDATE", $"开始检查更新，silent={silent}, api={UPDATE_API}");
+            // 发送 Accept-Language，让更新服务器按当前界面语言返回翻译后的更新说明。
+            // 复用与 App 启动一致的解析逻辑（LanguageManager.ResolveCulture），确保与用户在 App 内看到的语言一致；
+            // 放在每次请求时设置，以覆盖运行期间切换语言的场景。
+            var uiLang = LanguageManager.ResolveCulture(SettingsManager.GetString("Language")).Name;
+            _http.DefaultRequestHeaders.Remove("Accept-Language");
+            if (!string.IsNullOrEmpty(uiLang))
+                _http.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", uiLang);
+
+            Log.D("UPDATE", $"开始检查更新，silent={silent}, api={UPDATE_API}, lang={uiLang}");
             var resp = await _http.GetStringAsync(UPDATE_API);
             using var doc = System.Text.Json.JsonDocument.Parse(resp);
             var json = doc.RootElement;
@@ -4241,7 +4275,8 @@ public partial class MainWindow : SukiWindow
             {
                 Log.D("UPDATE", "当前已是最新版本");
                 if (!silent) await Dispatcher.UIThread.InvokeAsync(async () =>
-                    await ShowCheckResultDialog($"已是最新版本 ({VersionText.Text})"));
+                    await ShowCheckResultDialog(string.Format(
+                        LanguageManager.Instance.GetString(LanguageManager.Instance.Update_UpToDate), VersionText.Text)));
                 return;
             }
 
@@ -4285,25 +4320,25 @@ public partial class MainWindow : SukiWindow
         {
             Log.Ex("UPDATE", "检查更新请求超时或被取消", ex);
             await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog("检查更新超时，请稍后重试或检查网络是否能访问更新服务器。"));
+                await ShowCheckResultDialog(LanguageManager.Instance.GetString(LanguageManager.Instance.Update_Timeout)));
         }
         catch (HttpRequestException ex) when (!silent)
         {
             Log.Ex("UPDATE", "检查更新网络请求失败", ex);
             await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog("检查更新失败，无法连接更新服务器。"));
+                await ShowCheckResultDialog(LanguageManager.Instance.GetString(LanguageManager.Instance.Update_ConnectFailed)));
         }
         catch (System.Text.Json.JsonException ex) when (!silent)
         {
             Log.Ex("UPDATE", "检查更新响应解析失败", ex);
             await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog("检查更新失败，服务器返回的数据格式异常。"));
+                await ShowCheckResultDialog(LanguageManager.Instance.GetString(LanguageManager.Instance.Update_ParseError)));
         }
         catch (Exception ex)
         {
             Log.Ex("UPDATE", "检查更新失败", ex);
             if (!silent) await Dispatcher.UIThread.InvokeAsync(async () =>
-                await ShowCheckResultDialog("检查更新失败，请检查网络连接"));
+                await ShowCheckResultDialog(LanguageManager.Instance.GetString(LanguageManager.Instance.Update_NetworkError)));
         }
     }
 
@@ -4330,17 +4365,17 @@ public partial class MainWindow : SukiWindow
         }
     }
 
-    private async Task ShowCheckResultDialog(string msg, string title = "检查更新")
+    private async Task ShowCheckResultDialog(string msg, string? title = null)
     {
         _confirmTcs = new TaskCompletionSource<bool>();
         _promptTcs = null;
 
-        DialogTitle.Text = title;
+        DialogTitle.Text = title ?? LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_CheckUpdate);
         DialogMessage.Text = msg;
         DialogInput.IsVisible = false;
         DialogSkipBtn.IsVisible = false;
         DialogCancelBtn.IsVisible = false;
-        DialogConfirmBtn.Content = "确定";
+        DialogConfirmBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_OK);
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
@@ -4368,22 +4403,24 @@ public partial class MainWindow : SukiWindow
         _confirmTcs = new TaskCompletionSource<bool>();
         _promptTcs = null;
 
-        DialogTitle.Text = "发现新版本";
+        DialogTitle.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.Toast_NewVersion);
         if (string.IsNullOrEmpty(content))
-            DialogMessage.Text = $"新版本 {newVersion} 已发布，当前版本 {VersionText.Text}，是否前往下载？";
+            DialogMessage.Text = string.Format(
+                LanguageManager.Instance.GetString(LanguageManager.Instance.Update_MessageNoContent), newVersion, VersionText.Text);
         else
-            DialogMessage.Text = $"v{newVersion} 已发布\n当前版本：{VersionText.Text}\n\n{content}";
+            DialogMessage.Text = string.Format(
+                LanguageManager.Instance.GetString(LanguageManager.Instance.Update_MessageWithContent), newVersion, VersionText.Text) + content;
         DialogInput.IsVisible = false;
-        DialogCancelBtn.Content = "下次提醒我";
+        DialogCancelBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_RemindLater);
         DialogCancelBtn.Background = Brushes.Transparent;
         DialogCancelBtn.IsVisible = true;
-        DialogSkipBtn.Content = "跳过此版本";
+        DialogSkipBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_SkipVersion);
         DialogSkipBtn.Background = Brushes.Transparent;
         DialogSkipBtn.IsVisible = true;
-        DialogMirrorBtn.Content = "国内下载";
+        DialogMirrorBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_MirrorDownload);
         DialogMirrorBtn.Background = Brushes.Transparent;
         DialogMirrorBtn.IsVisible = true;
-        DialogConfirmBtn.Content = "GitHub 下载";
+        DialogConfirmBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_GitHubDownload);
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
