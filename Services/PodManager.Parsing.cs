@@ -30,6 +30,7 @@ public partial class PodManager
             Log.D("RFCOMM", $"ParseProductId: 精确识别为 {byId.ModelName}");
             Caps = byId;
             UpdateSpatialCapabilities();
+            RefineCapsFromSupportedCommands();
             StateChanged?.Invoke();
         }
     }
@@ -40,11 +41,25 @@ public partial class PodManager
         var bitmap = OppoProtocol.CapabilityBitmap(payload);
         State.SupportedCommands = OppoProtocol.ParseCapabilityCommands(payload);
         UpdateSpatialCapabilities();
+        RefineCapsFromSupportedCommands();
         Log.D("RFCOMM", $"能力响应: status={(payload.Length > 0 ? payload[0] : -1)}, payload={BitConverter.ToString(payload)}");
         Log.D("RFCOMM", $"完整能力位图: hex={BitConverter.ToString(bitmap)}, bits(bit0→)={OppoProtocol.CapabilityBitmapBits(bitmap)}");
         Log.D("RFCOMM", $"能力解析: {State.SupportedCommands.Count} 条命令, " +
             $"空间协议={(Caps.HasSpatialAudio ? "V2/0x0422" : Caps.HasSpatialSound ? "旧版/feature27" : "无")}");
+        RefineCapsFromSupportedCommands();
         StateChanged?.Invoke();
+    }
+
+    /// <summary>能力位图权威覆盖 JSON 白名单：JSON 是"可能支持"，位图是"当前实际支持"。</summary>
+    private void RefineCapsFromSupportedCommands()
+    {
+        // 有独立 SET 命令的 feature，位图可精确裁定。
+        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetBassEngine))
+            Caps.HasBassEngine = false;
+        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetHearingDetect))
+            Caps.HasHearingEnhancement = false;
+        // 脊柱健康暂时禁用（后端未就绪）
+        Caps.HasSpineHealth = false;
     }
 
     private void ParseBattery(byte[] pkt, int start, int len)

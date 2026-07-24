@@ -263,6 +263,22 @@ public static class DeviceProfileLoader
             caps.HasDualDevice = caps.MultiDevicesConnect >= 1;
             caps.HasMultiConnectManage = caps.IsMultiConnectV2;
         }
+        else if (func.TryGetProperty("multiConnectFunctions", out var mcf) && mcf.ValueKind == JsonValueKind.Array
+                 && mcf.GetArrayLength() > 0)
+        {
+            // Air5 Pro 等新设备使用 multiConnectFunctions 数组替代 multiDevicesConnect 数字。
+            // 只要数组非空即表示支持多设备连接。
+            caps.HasDualDevice = true;
+            // 有 "unpairDevice" 条目 ≈ V2 管理页（支持取消配对）
+            foreach (var fn in mcf.EnumerateArray())
+                if (fn.TryGetProperty("functionType", out var ft) && ft.ValueKind == JsonValueKind.String
+                    && ft.GetString() == "unpairDevice")
+                {
+                    caps.HasMultiConnectManage = true;
+                    caps.MultiDevicesConnect = 2; // 标记为 V2 级
+                    break;
+                }
+        }
 
         caps.HasHiResAudio         = FlagAnyPresent(func, "highAudio", "highToneQuality");
         caps.HasDolbyAtmos         = FlagOn(func, "dolbyAtmos");

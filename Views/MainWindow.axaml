@@ -258,11 +258,11 @@
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Feature_Title}}" FontSize="14" Margin="0,0,0,6"
            HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
         <StackPanel Spacing="6">
-          <CheckBox x:Name="CbDualDevice" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_DualDevice}}" Margin="0,3"/>
-          <CheckBox x:Name="CbGame" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}" Margin="0,3"/>
-          <CheckBox x:Name="CbLongPower" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_LongPowerMode}}" Margin="0,3"/>
-          <CheckBox x:Name="CbWearDetection" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_WearDetection}}" Margin="0,3"/>
-          <CheckBox x:Name="CbSpineHealth" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_SpineHealth}}" Margin="0,3"/>
+<CheckBox x:Name="CbDualDevice" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_DualDevice}}" Margin="0,3"/>
+<CheckBox x:Name="CbGame" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}" Margin="0,3"/>
+<CheckBox x:Name="CbLongPower" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_LongPowerMode}}" Margin="0,3"/>
+<CheckBox x:Name="CbWearDetection" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_WearDetection}}" Margin="0,3"/>
+<CheckBox x:Name="CbSpineHealth" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_SpineHealth}}" Margin="0,3"/>
           <Button x:Name="BtnFindDevice" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_FindDevice}}" Height="28" FontSize="13"
               Click="BtnFindDevice_Click" Padding="18,0" IsVisible="False" Classes="TextPanelButton"/>
         </StackPanel>

@@ -461,7 +461,9 @@ public partial class PodManager : IPodManager
             var m = Caps.IsLegacyAnc ? OppoProtocol.LegacyAncSwap(mode) : mode;
             payload = OppoProtocol.AncPayloadByName(m);
         }
-        SendSet(OppoProtocol.CmdAnc, payload, $"降噪设置 {mode}");
+        // Air4 Pro may apply ANC successfully without returning a standard 0x8404 ACK.
+        // Do not use SendSet here: its 10-second retry would apply the same ANC change twice.
+        _transport.Send(OppoProtocol.CmdAnc, payload);
 
         // 乐观更新：部分型号（如 Enco Air4 Pro）设置降噪后不回标准 ACK（0x8404 返回非 0），
         // 但模式实际已切换。这里立即把 UI 状态更新为用户所选模式，避免"切了但界面不同步"。
@@ -691,7 +693,6 @@ public partial class PodManager : IPodManager
                         Thread.Sleep(100);
                     }
                     _transport.Poll(500);
-            _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterWear);
                     tick++;
 
                     // 低频：EQ（能力门控）
@@ -722,11 +723,6 @@ public partial class PodManager : IPodManager
                             Thread.Sleep(100);
                             _transport.Poll(400);
                         }
-
-                        _transport.Send(OppoProtocol.CmdRegisterNotify, OppoProtocol.PayRegisterNotify);
-                        Thread.Sleep(100);
-                        Thread.Sleep(100);
-                        _transport.Poll(400);
 
                         if (Caps.HasDualDevice)
                         {

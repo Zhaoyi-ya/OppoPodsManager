@@ -42,7 +42,7 @@
   "Feature_VocalEnhance": "Усиление голоса",
   "Feature_HearingEnhance": "Улучшение слуха",
   "Feature_LongPowerMode": "Режим долгой работы",
-  "Feature_WearDetection": "Детекция ношения",
+  "Feature_WearDetection": "Автопауза при снятии",
   "Feature_SpineHealth": "Здоровье позвоночника",
   "Feature_FindDevice": "Найти наушники",
   "Feature_StopFindDevice": "Остановить поиск",
