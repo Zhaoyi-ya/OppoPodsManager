@@ -185,10 +185,10 @@
                 </Button>
                 <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="28,1,28,0">
                     <Ellipse Width="8" Height="8" Fill="#4CD964" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="UpdateTitle" Text="发现新版本" FontSize="17"
+                    <TextBlock x:Name="UpdateTitle" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_NewVersion}}" FontSize="17"
                                Foreground="#F5FFFFFF" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock x:Name="UpdateVersion" Grid.Row="1" Text="版本号：v0.0.0" FontSize="13"
+                <TextBlock x:Name="UpdateVersion" Grid.Row="1" Text="{Translate {x:Static l10n:LanguageManager+Keys.Toast_VersionLabel}}" FontSize="13"
                            Foreground="#BFFFFFFF" HorizontalAlignment="Center" Margin="0,8,6,12"/>
                 <Grid Grid.Row="2" RowDefinitions="Auto,6,Auto" ColumnDefinitions="*,8,*" Margin="0,0,6,0">
                     <Button x:Name="UpdateLaterBtn" Grid.Row="0" Grid.Column="0" Content="{Translate {x:Static l10n:LanguageManager+Keys.Toast_UpdateRemindLater}}" Classes="UpdateActionButton"/>

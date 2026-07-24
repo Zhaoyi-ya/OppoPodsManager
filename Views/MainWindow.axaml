@@ -123,18 +123,6 @@
     <StackPanel Grid.Row="0" Margin="16,8,12,4" Spacing="4">
      <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_MultiDevice}}" FontSize="12" Opacity="0.55"
         Margin="14,0,0,2" Foreground="{DynamicResource SukiText}"/>
-       <Expander x:Name="ConnectionStrategyExpander" Header="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_ConnectionStrategy}}" IsExpanded="False"
-          IsVisible="False" Margin="0,0,0,2">
-        <StackPanel Margin="4,2,4,6" Spacing="4" HorizontalAlignment="Stretch">
-         <StackPanel x:Name="PriorityDevicePanel" IsVisible="False" Spacing="3"
-             Margin="0" HorizontalAlignment="Stretch">
-          <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_PriorityDevice}}" FontSize="11" Opacity="0.65"
-              Margin="0" HorizontalAlignment="Left"/>
-          <ComboBox x:Name="CbPriorityDevice" Height="28" Padding="7,0"
-              Margin="0" HorizontalAlignment="Stretch" PlaceholderText="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_AutoSelect}}"/>
-         </StackPanel>
-       </StackPanel>
-      </Expander>
       <ScrollViewer MaxHeight="190" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
        <Grid>
         <ItemsControl x:Name="DeviceList" Margin="0,0,0,4">
@@ -269,9 +257,12 @@
        <StackPanel>
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Feature_Title}}" FontSize="14" Margin="0,0,0,6"
            HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-        <StackPanel Spacing="6" HorizontalAlignment="Center">
+        <StackPanel Spacing="6">
           <CheckBox x:Name="CbDualDevice" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_DualDevice}}" Margin="0,3"/>
           <CheckBox x:Name="CbGame" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}" Margin="0,3"/>
+          <CheckBox x:Name="CbLongPower" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_LongPowerMode}}" Margin="0,3"/>
+          <CheckBox x:Name="CbWearDetection" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_WearDetection}}" Margin="0,3"/>
+          <CheckBox x:Name="CbSpineHealth" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_SpineHealth}}" Margin="0,3"/>
           <Button x:Name="BtnFindDevice" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_FindDevice}}" Height="28" FontSize="13"
               Click="BtnFindDevice_Click" Padding="18,0" IsVisible="False" Classes="TextPanelButton"/>
         </StackPanel>
@@ -435,19 +426,19 @@
            Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
         <StackPanel Orientation="Horizontal" Spacing="12">
          <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Language}}" FontSize="13" VerticalAlignment="Center"
-            Foreground="{DynamicResource SukiText}" Width="80"/>
+            Foreground="{DynamicResource SukiText}"/>
          <ComboBox x:Name="CbLanguage" Height="28" Padding="8,0" Width="180" HorizontalAlignment="Left"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Theme}}" FontSize="13" VerticalAlignment="Center"
-           Foreground="{DynamicResource SukiText}" Width="80"/>
+           Foreground="{DynamicResource SukiText}"/>
         <ComboBox x:Name="CbTheme" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_ThemeFollowSystem}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_ThemeDark}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_ThemeLight}}"/>
         </ComboBox>
        </StackPanel>
        <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_TransparencyPreset}}" FontSize="13" VerticalAlignment="Center"
-           Foreground="{DynamicResource SukiText}" Width="80"/>
+           Foreground="{DynamicResource SukiText}"/>
         <ComboBox x:Name="CbTransparencyPreset" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Custom}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Clear}}"/>
          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Balanced}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Personal_Transparent}}"/>
@@ -455,7 +446,7 @@
        </StackPanel>
        <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_CardOpacity}}" FontSize="13" VerticalAlignment="Center"
-           Foreground="{DynamicResource SukiText}" Width="80"/>
+           Foreground="{DynamicResource SukiText}"/>
         <Slider x:Name="SlOpacity" Minimum="0" Maximum="90" Value="50" Width="160"
             TickFrequency="10" IsSnapToTickEnabled="True"/>
         <TextBlock x:Name="TbOpacity" Text="50%" FontSize="12" VerticalAlignment="Center"
@@ -466,7 +457,7 @@
        </StackPanel>
        <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_ToastDuration}}" FontSize="13" VerticalAlignment="Center"
-           Foreground="{DynamicResource SukiText}" Width="80"/>
+           Foreground="{DynamicResource SukiText}"/>
         <ComboBox x:Name="CbToastDuration" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
          <ComboBoxItem Content="3s"/>
          <ComboBoxItem Content="4s"/>
@@ -528,7 +519,7 @@
        </Grid>
        <StackPanel Orientation="Horizontal" Spacing="12">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Personal_BackgroundBlur}}" FontSize="13" VerticalAlignment="Center"
-           Foreground="{DynamicResource SukiText}" Width="80"/>
+           Foreground="{DynamicResource SukiText}"/>
         <Slider x:Name="SlBgBlur" Minimum="0" Maximum="20" Value="0" Width="160"
             TickFrequency="5" IsSnapToTickEnabled="True"/>
         <TextBlock x:Name="TbBgBlur" Text="0" FontSize="12" VerticalAlignment="Center"
@@ -596,6 +587,12 @@
            HorizontalAlignment="Center"/>
         <CheckBox x:Name="CbGameSound" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameSound}}" Margin="0,2"
            HorizontalAlignment="Center"/>
+        <CheckBox x:Name="CbBassEngine" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_BassEngine}}" Margin="0,2"
+           HorizontalAlignment="Center"/>
+        <CheckBox x:Name="CbVocalEnhance" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_VocalEnhance}}" Margin="0,2"
+           HorizontalAlignment="Center"/>
+        <CheckBox x:Name="CbHearingEnhance" Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_HearingEnhance}}" Margin="0,2"
+           HorizontalAlignment="Center"/>
        </UniformGrid>
       </StackPanel>
      </Border>
@@ -617,7 +614,7 @@
               MaxHeight="260" BorderThickness="0" Background="Transparent">
           <ListBox.ItemTemplate>
            <DataTemplate x:DataType="local:EqPresetItem">
-            <TextBlock Text="{Binding Name}" FontSize="13" Margin="0,2"
+            <TextBlock Text="{Binding DisplayName}" FontSize="13" Margin="0,2"
                Foreground="{DynamicResource SukiText}"/>
            </DataTemplate>
           </ListBox.ItemTemplate>
@@ -635,7 +632,7 @@
           <ListBox.ItemTemplate>
            <DataTemplate x:DataType="local:EqPresetItem">
             <Grid ColumnDefinitions="*,Auto" Margin="0,1">
-             <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center"
+             <TextBlock Text="{Binding DisplayName}" FontSize="13" VerticalAlignment="Center"
                 Foreground="{DynamicResource SukiText}"/>
              <Button Content="{Translate {x:Static l10n:LanguageManager+Keys.Eq_Delete}}" Height="22" FontSize="13"
                  Padding="8,0" IsVisible="{Binding ShowDelete}"
@@ -894,18 +891,26 @@
        </Grid>
       </StackPanel>
      </Border>
+     <!-- 连接策略 -->
+     <Border x:Name="DiConnectionStrategyCard" Padding="18,16" IsVisible="False"
+       CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+      <StackPanel Spacing="10">
+       <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_ConnectionStrategy}}" FontSize="14"
+          Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+       <StackPanel x:Name="PriorityDevicePanel" IsVisible="False" Spacing="6" Margin="0" HorizontalAlignment="Stretch">
+        <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_PriorityDevice}}" FontSize="12" Opacity="0.6"
+            Margin="0" HorizontalAlignment="Left" Foreground="{DynamicResource SukiText}"/>
+        <ComboBox x:Name="CbPriorityDevice" Height="30" Padding="8,0"
+            Margin="0" HorizontalAlignment="Stretch" PlaceholderText="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_AutoSelect}}"/>
+       </StackPanel>
+      </StackPanel>
+     </Border>
     </StackPanel>
    </ScrollViewer>
   </Grid>
 
   <!-- 隐藏控件占位（代码引用但不显示，放最外层避免影响布局） -->
   <ComboBox x:Name="CbEq" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbBassEngine" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbVocalEnhance" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbHearingEnhance" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbLongPower" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbWearDetection" IsVisible="False" Grid.Column="1"/>
-  <CheckBox x:Name="CbSpineHealth" IsVisible="False" Grid.Column="1"/>
 
   <!-- ========== 浮层对话框 ========== -->
   <!-- 命名输入浮层 -->
@@ -919,7 +924,7 @@
        MinWidth="300" MaxWidth="560" MaxHeight="460">
     <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="14">
      <TextBlock x:Name="DialogTitle" Text="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_SaveEqPreset}}"
-        FontSize="15"
+        FontSize="15" TextWrapping="Wrap"
         Foreground="{DynamicResource SukiText}"/>
      <ScrollViewer Grid.Row="1" MaxHeight="300" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <TextBlock x:Name="DialogMessage" Text="{Translate {x:Static l10n:LanguageManager+Keys.Dialog_InputPresetName}}"

@@ -205,6 +205,12 @@ public partial class MainWindow : SukiWindow
     private bool _prevGameMode;
     private bool _prevGameSound;
     private bool _prevDualDevice;
+    private bool _prevBassEngine;
+    private bool _prevVocalEnhance;
+    private bool _prevHearingEnhance;
+    private bool _prevLongPowerMode;
+    private bool _prevWearDetection;
+    private bool _prevSpineHealth;
     private string _prevSpatialMode = "";
 
     // 三级联动：品牌 → 子系列 → 机型
@@ -247,6 +253,12 @@ public partial class MainWindow : SukiWindow
             CbGame.IsCheckedChanged += CbGame_Changed;
             CbGameSound.IsCheckedChanged += CbGameSound_Changed;
         CbDualDevice.IsCheckedChanged += CbDualDevice_Changed;
+        CbBassEngine.IsCheckedChanged += CbBassEngine_Changed;
+        CbVocalEnhance.IsCheckedChanged += CbVocalEnhance_Changed;
+        CbHearingEnhance.IsCheckedChanged += CbHearingEnhance_Changed;
+        CbLongPower.IsCheckedChanged += CbLongPower_Changed;
+        CbWearDetection.IsCheckedChanged += CbWearDetection_Changed;
+        CbSpineHealth.IsCheckedChanged += CbSpineHealth_Changed;
         CbTray.IsCheckedChanged += CbTray_Changed;
         CbAuto.IsCheckedChanged += CbAuto_Changed;
         CbAutoUpdate.IsCheckedChanged += CbAutoUpdate_Changed;
@@ -882,6 +894,12 @@ public partial class MainWindow : SukiWindow
             if (s.GameMode != _prevGameMode) { _prevGameMode = s.GameMode; SetGameCheckedSilent(s.GameMode); }
             if (s.GameSound != _prevGameSound) { _prevGameSound = s.GameSound; SetGameSoundCheckedSilent(s.GameSound); CbSpatial.IsEnabled = !s.GameSound; SetEqControlsEnabled(!s.GameSound); }
             if (s.DualDevice != _prevDualDevice) { _prevDualDevice = s.DualDevice; SetDualDeviceCheckedSilent(s.DualDevice); }
+            if (s.BassEngine != _prevBassEngine) { _prevBassEngine = s.BassEngine; SetBassEngineCheckedSilent(s.BassEngine); }
+            if (s.VocalEnhance != _prevVocalEnhance) { _prevVocalEnhance = s.VocalEnhance; SetVocalEnhanceCheckedSilent(s.VocalEnhance); }
+            if (s.HearingEnhance != _prevHearingEnhance) { _prevHearingEnhance = s.HearingEnhance; SetHearingEnhanceCheckedSilent(s.HearingEnhance); }
+            if (s.LongPowerMode != _prevLongPowerMode) { _prevLongPowerMode = s.LongPowerMode; SetLongPowerCheckedSilent(s.LongPowerMode); }
+            if (s.WearDetection != _prevWearDetection) { _prevWearDetection = s.WearDetection; SetWearDetectionCheckedSilent(s.WearDetection); }
+            if (s.SpineHealth != _prevSpineHealth) { _prevSpineHealth = s.SpineHealth; SetSpineHealthCheckedSilent(s.SpineHealth); }
         }
 
         if (DeviceInfoPanel.IsVisible) RefreshDeviceInfo();
@@ -900,13 +918,13 @@ public partial class MainWindow : SukiWindow
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
 
-        // 以下功能后端未实现，暂时隐藏
-        // CbBassEngine.IsVisible = caps.HasBassEngine;
-        // CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        // CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        // CbLongPower.IsVisible = caps.HasLongPowerMode;
-        // CbWearDetection.IsVisible = caps.HasWearDetection;
-        // CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        // 以下功能后端已实现（SendFeatureSwitch + 状态回读），按能力显示
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
 
         ModelNote.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), caps.ModelName);
         UpdateTitle();
@@ -1052,10 +1070,23 @@ public partial class MainWindow : SukiWindow
             var child = container.Children[i];
             if (i > 0) AddSeparator(AncSubRow, ref col);
             var corner = FirstLast(i, container.Children.Count, 5);
-            var (btn, bg) = MakeTextButton(child.Label, child, 72, 28, 13, corner, AncSub_Click);
+            var (btn, bg) = MakeTextButton(DeviceProfileLoader.AncLabel(child.Key), child, 72, 28, 13, corner, AncSub_Click);
             AddToRow(AncSubRow, bg, ref col);
             _ancSubButtons[child.Key] = (btn, bg);
         }
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的 ANC 主/子按钮文字。</summary>
+    private void RefreshAncLabels()
+    {
+        foreach (var (key, (_, _, label)) in _ancMainButtons)
+        {
+            var t = DeviceProfileLoader.AncLabel(key);
+            label.Text = t;
+            label.FontSize = t.Length > 10 ? 9 : 11;
+        }
+        foreach (var (key, (btn, _)) in _ancSubButtons)
+            btn.Content = DeviceProfileLoader.AncLabel(key);
     }
 
     private static bool ProbeEarbudCommunication(IPodTransport probe)
@@ -1130,13 +1161,15 @@ public partial class MainWindow : SukiWindow
         grid.Children.Add(icon);
         grid.Children.Add(clickBtn);
 
+        var labelText = DeviceProfileLoader.AncLabel(opt.Key);
         var label = new TextBlock
         {
-            Text = opt.Label,
-            FontSize = fontSize,
+            Text = labelText,
+            FontSize = labelText.Length > 10 ? Math.Max(9, fontSize - 2) : fontSize,
             Foreground = BrushGray,
             TextAlignment = Avalonia.Media.TextAlignment.Center,
-            Margin = new Thickness(0, 6, 0, 0)
+            Margin = new Thickness(0, 6, 0, 0),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
         };
 
         var panel = new StackPanel();
@@ -1182,10 +1215,11 @@ public partial class MainWindow : SukiWindow
     {
         var btn = new Button
         {
-            Content = label, Tag = opt, Width = w, Height = h,
-            BorderThickness = new Thickness(0), Padding = new Thickness(0),
+            Content = label, Tag = opt, MinWidth = w, Height = h,
+            BorderThickness = new Thickness(0), Padding = new Thickness(8, 0),
             Background = BrushTransparent, Focusable = false,
-            Foreground = BrushGray, FontSize = fontSize
+            Foreground = BrushGray, FontSize = fontSize,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center
         };
         btn.Click += onClick;
         var bg = new Border { CornerRadius = corner, Padding = new Thickness(0), Background = BrushTransparent, Child = btn };
@@ -1427,6 +1461,54 @@ public partial class MainWindow : SukiWindow
         CbDualDevice.IsCheckedChanged += CbDualDevice_Changed;
     }
 
+    /// <summary>不触发事件地设置低音引擎勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetBassEngineCheckedSilent(bool value)
+    {
+        CbBassEngine.IsCheckedChanged -= CbBassEngine_Changed;
+        CbBassEngine.IsChecked = value;
+        CbBassEngine.IsCheckedChanged += CbBassEngine_Changed;
+    }
+
+    /// <summary>不触发事件地设置人声增强勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetVocalEnhanceCheckedSilent(bool value)
+    {
+        CbVocalEnhance.IsCheckedChanged -= CbVocalEnhance_Changed;
+        CbVocalEnhance.IsChecked = value;
+        CbVocalEnhance.IsCheckedChanged += CbVocalEnhance_Changed;
+    }
+
+    /// <summary>不触发事件地设置听力增强勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetHearingEnhanceCheckedSilent(bool value)
+    {
+        CbHearingEnhance.IsCheckedChanged -= CbHearingEnhance_Changed;
+        CbHearingEnhance.IsChecked = value;
+        CbHearingEnhance.IsCheckedChanged += CbHearingEnhance_Changed;
+    }
+
+    /// <summary>不触发事件地设置长续航模式勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetLongPowerCheckedSilent(bool value)
+    {
+        CbLongPower.IsCheckedChanged -= CbLongPower_Changed;
+        CbLongPower.IsChecked = value;
+        CbLongPower.IsCheckedChanged += CbLongPower_Changed;
+    }
+
+    /// <summary>不触发事件地设置佩戴检测勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetWearDetectionCheckedSilent(bool value)
+    {
+        CbWearDetection.IsCheckedChanged -= CbWearDetection_Changed;
+        CbWearDetection.IsChecked = value;
+        CbWearDetection.IsCheckedChanged += CbWearDetection_Changed;
+    }
+
+    /// <summary>不触发事件地设置脊柱健康勾选态（用于初始化/轮询回读，非用户操作）。</summary>
+    private void SetSpineHealthCheckedSilent(bool value)
+    {
+        CbSpineHealth.IsCheckedChanged -= CbSpineHealth_Changed;
+        CbSpineHealth.IsChecked = value;
+        CbSpineHealth.IsCheckedChanged += CbSpineHealth_Changed;
+    }
+
     private void CbDualDevice_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (CbDualDevice.IsChecked is { } on && _pods.IsConnected)
@@ -1434,6 +1516,66 @@ public partial class MainWindow : SukiWindow
             Log.D("UI", $"用户操作: 双设备开关 -> {on}");
             _featureUserSetAt = DateTime.Now;
             _pods.SendDualDevice(on);
+        }
+    }
+
+    private void CbBassEngine_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbBassEngine.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 低音引擎开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendBassEngine(on);
+        }
+    }
+
+    private void CbVocalEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbVocalEnhance.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 人声增强开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendVocalEnhance(on);
+        }
+    }
+
+    private void CbHearingEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbHearingEnhance.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 听力增强开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendHearingEnhance(on);
+        }
+    }
+
+    private void CbLongPower_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbLongPower.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 长续航模式开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendLongPowerMode(on);
+        }
+    }
+
+    private void CbWearDetection_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbWearDetection.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 佩戴检测开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendWearDetection(on);
+        }
+    }
+
+    private void CbSpineHealth_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbSpineHealth.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 脊柱健康开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _pods.SendSpineHealth(on);
         }
     }
 
@@ -1539,13 +1681,13 @@ public partial class MainWindow : SukiWindow
         CbGame.IsVisible = caps.HasGameMode;
         CbGameSound.IsVisible = caps.HasGameSound;
 
-        // 以下功能后端未实现，暂时隐藏
-        // CbBassEngine.IsVisible = caps.HasBassEngine;
-        // CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        // CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        // CbLongPower.IsVisible = caps.HasLongPowerMode;
-        // CbWearDetection.IsVisible = caps.HasWearDetection;
-        // CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        // 以下功能后端已实现（SendFeatureSwitch + 状态回读），按能力显示
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
         BtnFindDevice.IsVisible = caps.HasFindDevice;
 
         ModelNote.Text = _modelOverride == null
@@ -1598,7 +1740,46 @@ public partial class MainWindow : SukiWindow
         // SetString(null) removes Language from settings.json: no key means automatic mode.
         SettingsManager.SetString("Language", option.IsAutomatic ? null : option.CultureCode);
         LanguageManager.ApplyConfiguredCulture(option.IsAutomatic ? null : option.CultureCode);
+        // 语言列表里的"自动"项在初始化时按启动语言本地化，切换语言后需重新取当前语言的显示文本。
+        // 必须延迟到本次 SelectionChanged 的选择更新结束后再改源集合，否则 Avalonia 抛
+        // "Source collection was modified during selection update"。
+        var autoOption = LanguageManager.GetAvailableLanguages()[0];
+        Dispatcher.UIThread.Post(() =>
+        {
+            _refreshingComboBoxes = true;
+            try
+            {
+                // 先记录当前选中索引。替换首项（自动）后，若该对象正是当前选中项且其
+                // 本地化文本随语言变化（如从 English 切到“自动”会解析成中文“自动”），
+                // record 值不再相等，Avalonia 会判定选中项已离开列表而清空选择——下拉框
+                // 会显示空白。按原索引重新选中即可恢复正确的显示文本。
+                var selIdx = CbLanguage.SelectedIndex;
+                _languageList[0] = autoOption;
+                if (selIdx >= 0 && selIdx < _languageList.Count)
+                    CbLanguage.SelectedIndex = selIdx;
+            }
+            finally
+            {
+                _refreshingComboBoxes = false;
+            }
+        });
         RefreshLocalizedComboBoxes();
+        RefreshAncLabels();
+        _smallWindow?.RefreshAncLabels();
+        RefreshSpatialAudioLabels();
+        // "恢复已隐藏设备"按钮文字由代码动态设置（带计数），切语言后需重新本地化
+        RefreshRestoreHiddenDevicesButton();
+        // 顶栏连接状态与佩戴状态文字在状态事件里赋值，切语言后需重新刷新一次，
+        // 否则会停留在旧语言直到下次状态变化。
+        OnStateChanged();
+        // 音效页系统预设名按当前语言本地化（DisplayName），切语言后需重建列表以刷新显示。
+        if (_pods?.Caps != null) RefreshAllEqViews();
+        // 托盘菜单/提示含冻结中文（ANC 标签、功能项、显示主页面/退出），强制重建
+        _trayMenuSignature = "";
+        RebuildTrayMenu();
+        // 优先设备下拉的中文选项（自动选择/未知设备/占位符）在策略同步时重建；
+        // 重置签名确保语言切换后使用本地化文本。
+        _priorityOptionsSignature = "";
         // Force rebuild multi-device list with new language strings
         _deviceListSignature = "";
         RequestSyncMultiDeviceList();
@@ -2039,10 +2220,10 @@ public partial class MainWindow : SukiWindow
         if (storage == null) return;
         var files = await storage.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
         {
-            Title = "选择背景图片",
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_Title),
             FileTypeFilter = new List<Avalonia.Platform.Storage.FilePickerFileType>
             {
-                new("图片") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" } }
+                new(LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_FilterName)) { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" } }
             },
             AllowMultiple = false,
         });
@@ -2598,13 +2779,13 @@ public partial class MainWindow : SukiWindow
 
         // 左：系统预设
         foreach (var kv in caps.EqPresets)
-            LbEqBuiltinPresets.Items.Add(new EqPresetItem { Name = kv.Key, IsCustom = false });
+            LbEqBuiltinPresets.Items.Add(new EqPresetItem { Name = kv.Key, DisplayName = DeviceProfileLoader.LocalizedEqName(kv.Key), IsCustom = false });
 
         // 右：自定义
         foreach (var e in _pods.State.DeviceEqEntries)
         {
             if (!string.IsNullOrEmpty(e.Name) && !caps.EqPresets.ContainsKey(e.Name))
-                LbEqCustomPresets.Items.Add(new EqPresetItem { Name = e.Name, IsCustom = false, EqId = e.EqId });
+                LbEqCustomPresets.Items.Add(new EqPresetItem { Name = e.Name, DisplayName = e.Name, IsCustom = false, EqId = e.EqId });
         }
 
         // 恢复选中项
@@ -3232,7 +3413,7 @@ public partial class MainWindow : SukiWindow
             _deviceListRows.Clear();
             DeviceListEmptyHint.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_EmptyHint);
             DeviceListEmptyHint.IsVisible = true;
-            ConnectionStrategyExpander.IsVisible = false;
+            DiConnectionStrategyCard.IsVisible = false;
             UpdateDeviceListStatus(Array.Empty<ConnectedDeviceInfo>());
             return;
         }
@@ -3431,7 +3612,7 @@ public partial class MainWindow : SukiWindow
     {
         // Whitelist capability is enough to show the control; state comes from 0x8132.
         var showStrategy = canManagePriority;
-        ConnectionStrategyExpander.IsVisible = showStrategy;
+        DiConnectionStrategyCard.IsVisible = showStrategy;
         PriorityDevicePanel.IsVisible = canManagePriority;
 
         _syncingConnectionStrategy = true;
@@ -3461,13 +3642,13 @@ public partial class MainWindow : SukiWindow
                 CbPriorityDevice.Items.Add(new PriorityDeviceOption
                 {
                     IsAutomatic = true,
-                    DisplayName = "自动选择",
+                    DisplayName = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Automatic),
                 });
 
                 foreach (var device in connected)
                 {
                     var name = string.IsNullOrWhiteSpace(device.DeviceName)
-                        ? "未知设备"
+                        ? LanguageManager.Instance.GetString(LanguageManager.Instance.Common_UnknownDevice)
                         : device.DeviceName;
                     CbPriorityDevice.Items.Add(new PriorityDeviceOption
                     {
@@ -3484,7 +3665,7 @@ public partial class MainWindow : SukiWindow
                 selected = CbPriorityDevice.Items
                     .OfType<PriorityDeviceOption>()
                     .FirstOrDefault(option => option.IsAutomatic);
-                CbPriorityDevice.PlaceholderText = "自动选择";
+                CbPriorityDevice.PlaceholderText = LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_Automatic);
             }
             else
             {
@@ -3497,11 +3678,11 @@ public partial class MainWindow : SukiWindow
                         priorityAddr,
                         StringComparison.OrdinalIgnoreCase));
                 CbPriorityDevice.PlaceholderText = selected == null
-                    ? "已设置设备当前未连接"
-                    : "选择优先连接设备";
+                    ? LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_PriorityUnavailable)
+                    : LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_PriorityHint);
             }
             CbPriorityDevice.SelectedItem = selected;
-            Log.D("UI", $"SyncConnectionStrategy: visible={ConnectionStrategyExpander.IsVisible} expanded={ConnectionStrategyExpander.IsExpanded} priorityVisible={PriorityDevicePanel.IsVisible} autoMode={_pods.State.MultiConnectAutoMode} selected={(CbPriorityDevice.SelectedItem as PriorityDeviceOption)?.DisplayName ?? "null"}");
+            Log.D("UI", $"SyncConnectionStrategy: visible={DiConnectionStrategyCard.IsVisible} priorityVisible={PriorityDevicePanel.IsVisible} autoMode={_pods.State.MultiConnectAutoMode} selected={(CbPriorityDevice.SelectedItem as PriorityDeviceOption)?.DisplayName ?? "null"}");
         }
         finally
         {
@@ -3554,8 +3735,8 @@ public partial class MainWindow : SukiWindow
         var count = SettingsManager.GetHiddenMultiDeviceMacs().Count;
         BtnRestoreHiddenDevices.IsEnabled = count > 0;
         BtnRestoreHiddenDevices.Content = count > 0
-            ? $"恢复已隐藏设备（{count}）"
-            : "恢复已隐藏设备";
+            ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_RestoreHidden), count)
+            : LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_RestoreHiddenDevices);
     }
 
     private void BtnRestoreHiddenDevices_Click(object? sender, RoutedEventArgs e)
@@ -3650,7 +3831,7 @@ public partial class MainWindow : SukiWindow
             _trayIcon = new TrayIcon
             {
                 Icon = _iconConnected ?? _iconDisconnected,
-                ToolTipText = "OPPO Pods · 单击小窗 / 双击主窗口",
+                ToolTipText = LanguageManager.Instance.GetString(LanguageManager.Instance.Tray_Tooltip),
                 IsVisible = true
             };
             _trayIcon.Clicked += OnTrayClicked;
@@ -3771,6 +3952,7 @@ public partial class MainWindow : SukiWindow
     private void RebuildTrayMenu()
     {
         if (_trayIcon == null) return;
+        _trayIcon.ToolTipText = LanguageManager.Instance.GetString(LanguageManager.Instance.Tray_Tooltip);
         var s = _pods.State;
         var caps = _modelOverride != null
             ? DeviceCapabilities.ForceModel(_modelOverride)
@@ -3796,7 +3978,7 @@ public partial class MainWindow : SukiWindow
                         foreach (var child in opt.Children)
                         {
                             var active = _ancLevel == child.Key;
-                            var item = new NativeMenuItem((active ? "✓ " : "    ") + child.Label);
+                            var item = new NativeMenuItem((active ? "✓ " : "    ") + DeviceProfileLoader.AncLabel(child.Key));
                             _trayAncMap[item] = (child.Key, opt.Key, true);
                             item.Click += TrayAncItem_Click;
                             menu.Add(item);
@@ -3805,7 +3987,7 @@ public partial class MainWindow : SukiWindow
                     else
                     {
                         var active = _ancMain == opt.Key;
-                        var item = new NativeMenuItem((active ? "✓ " : "") + opt.Label);
+                        var item = new NativeMenuItem((active ? "✓ " : "") + DeviceProfileLoader.AncLabel(opt.Key));
                         _trayAncMap[item] = (opt.Key, "", false);
                         item.Click += TrayAncItem_Click;
                         menu.Add(item);
@@ -3817,19 +3999,19 @@ public partial class MainWindow : SukiWindow
             // 功能开关
             if (caps.HasGameMode)
             {
-                var item = new NativeMenuItem((s.GameMode ? "✓ " : "") + "游戏模式");
+                var item = new NativeMenuItem((s.GameMode ? "✓ " : "") + LanguageManager.Instance.GetString(LanguageManager.Instance.Feature_GameMode));
                 item.Click += (_, _) => { _pods.SendGameMode(!s.GameMode); };
                 menu.Add(item);
             }
             if (caps.HasSpatialSound)
             {
-                var item = new NativeMenuItem((s.SpatialSound ? "✓ " : "") + "空间音效");
+                var item = new NativeMenuItem((s.SpatialSound ? "✓ " : "") + LanguageManager.Instance.GetString(LanguageManager.Instance.Feature_SpatialSound));
                 item.Click += (_, _) => _pods.SendSpatial(!s.SpatialSound);
                 menu.Add(item);
             }
             if (caps.HasDualDevice)
             {
-                var item = new NativeMenuItem((s.DualDevice ? "✓ " : "") + "双设备连接");
+                var item = new NativeMenuItem((s.DualDevice ? "✓ " : "") + LanguageManager.Instance.GetString(LanguageManager.Instance.Feature_DualDevice));
                 item.Click += (_, _) => _pods.SendDualDevice(!s.DualDevice);
                 menu.Add(item);
             }
@@ -3837,11 +4019,11 @@ public partial class MainWindow : SukiWindow
                 menu.Add(new NativeMenuItemSeparator());
         }
 
-        var showItem = new NativeMenuItem("显示主页面");
+        var showItem = new NativeMenuItem(LanguageManager.Instance.GetString(LanguageManager.Instance.Tray_ShowMain));
         showItem.Click += (_, _) => ShowFromTray();
         menu.Add(showItem);
         menu.Add(new NativeMenuItemSeparator());
-        var quitItem = new NativeMenuItem("退出");
+        var quitItem = new NativeMenuItem(LanguageManager.Instance.GetString(LanguageManager.Instance.Tray_Quit));
         quitItem.Click += (_, _) => QuitApplication();
         menu.Add(quitItem);
         _trayIcon.Menu = menu;
@@ -3910,9 +4092,9 @@ public partial class MainWindow : SukiWindow
         {
             var (mode, label) = type switch
             {
-                1 => ("Fixed", "固定"),
-                2 => ("Track", "头部跟踪"),
-                _ => ("Off", "关闭"),
+                1 => ("Fixed", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeFixed)),
+                2 => ("Track", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeHeadTrack)),
+                _ => ("Off", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeOff)),
             };
             var button = new RadioButton
             {
@@ -3926,6 +4108,21 @@ public partial class MainWindow : SukiWindow
         }
         _spatialModesSignature = signature;
         SyncSpatialModeFromState(_pods.State.SpatialMode);
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的空间音频单选项文字。</summary>
+    private void RefreshSpatialAudioLabels()
+    {
+        foreach (var c in SpatialAudioModes.Children)
+        {
+            if (c is not RadioButton rb || rb.Tag is not string mode) continue;
+            rb.Content = mode switch
+            {
+                "Fixed" => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeFixed),
+                "Track" => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeHeadTrack),
+                _ => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeOff),
+            };
+        }
     }
 
     /// <summary>按设备回读的空间音频三模式（0x812A）静默勾选对应单选项，不触发 SendSpatialAudio。</summary>
@@ -4071,7 +4268,7 @@ public partial class MainWindow : SukiWindow
 
         var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
         {
-            Title = "导出日志 ZIP",
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.Log_ExportTitle),
             DefaultExtension = "zip",
             ShowOverwritePrompt = true,
             SuggestedFileName = $"OPPOPods_logs_{DateTime.Now:yyyyMMdd_HHmmss}.zip"

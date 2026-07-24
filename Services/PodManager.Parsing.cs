@@ -393,6 +393,18 @@ public partial class PodManager
                 State.DualDevice = value != 0;
             else if (feature == OppoProtocol.FeatureSpatial)
                 State.SpatialSound = value != 0;
+            else if (feature == OppoProtocol.FeatureBassEngine)
+                State.BassEngine = value != 0;
+            else if (feature == OppoProtocol.FeatureVocalEnhance)
+                State.VocalEnhance = value != 0;
+            else if (feature == OppoProtocol.FeatureHearingEnhance)
+                State.HearingEnhance = value != 0;
+            else if (feature == OppoProtocol.FeatureLongPowerMode)
+                State.LongPowerMode = value != 0;
+            else if (feature == OppoProtocol.FeatureWearDetection)
+                State.WearDetection = value != 0;
+            else if (feature == OppoProtocol.FeatureSpineLiveMonitor)
+                State.SpineHealth = value != 0;
         }
         StateChanged?.Invoke();
     }

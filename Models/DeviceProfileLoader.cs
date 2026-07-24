@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,6 +19,68 @@ public static class DeviceProfileLoader
     private static readonly List<JsonElement> _deviceModels = LoadDeviceModels();
     private static readonly Dictionary<string, string> _eqModeNames = LoadEqNameMap();
     private static readonly Dictionary<string, JsonElement> _modelsById = BuildIdIndex(_deviceModels);
+    // zh 规范名 → modeType 反向索引；本地化显示时查当前语言文件用。
+    private static readonly Dictionary<string, string> _eqZhToModeType = BuildEqZhToModeType(_eqModeNames);
+    // 各语言 EqModeNames 映射缓存（按 TwoLetterISOLanguageName，"" 表示基础中文文件）。
+    private static readonly Dictionary<string, Dictionary<string, string>> _eqCultureNameMaps = new();
+
+    private static Dictionary<string, string> BuildEqZhToModeType(Dictionary<string, string> map)
+    {
+        var rev = new Dictionary<string, string>();
+        foreach (var kv in map)
+            if (!rev.ContainsKey(kv.Value)) rev[kv.Value] = kv.Key; // zh 名 -> modeType
+        return rev;
+    }
+
+    /// <summary>按当前 UI 语言返回系统预设（规范 zh 名）的本地化显示名。字典键保持 zh 不变，仅显示本地化。</summary>
+    internal static string LocalizedEqName(string canonicalName)
+    {
+        if (_eqZhToModeType.TryGetValue(canonicalName, out var mt))
+        {
+            var map = GetEqNameMap(CurrentEqCultureSuffix());
+            if (map.TryGetValue(mt, out var loc) && !string.IsNullOrEmpty(loc)) return loc;
+            return canonicalName; // 该语言缺翻译时回退中文
+        }
+        // 兜底预设（设备未在映射表中）：M{idx}
+        if (canonicalName.Length > 1 && canonicalName[0] == 'M' && int.TryParse(canonicalName[1..], out var idx))
+            return idx < 10
+                ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_ModeIndex), idx)
+                : canonicalName;
+        return canonicalName;
+    }
+
+    private static string CurrentEqCultureSuffix()
+    {
+        // 必须用 Lingua 真正维护的当前文化；切语言时框架并不会改写 CultureInfo.CurrentUICulture，
+        // 若读后者将始终停留在系统默认（zh），导致预设名永远显示中文。
+        var two = LanguageManager.Instance.CurrentCulture.TwoLetterISOLanguageName;
+        return string.Equals(two, "zh", StringComparison.OrdinalIgnoreCase) ? "" : two;
+    }
+
+    private static Dictionary<string, string> GetEqNameMap(string suffix)
+    {
+        if (suffix == "") return _eqModeNames; // 基础文件即中文规范名
+        lock (_eqCultureNameMaps)
+        {
+            if (_eqCultureNameMaps.TryGetValue(suffix, out var cached)) return cached;
+            var map = new Dictionary<string, string>();
+            try
+            {
+                var asm = Assembly.GetExecutingAssembly();
+                using var stream = asm.GetManifestResourceStream($"OppoPodsManager.EqModeNames.{suffix}.json");
+                if (stream != null)
+                {
+                    using var reader = new StreamReader(stream);
+                    var doc = JsonDocument.Parse(reader.ReadToEnd());
+                    foreach (var kv in doc.RootElement.GetProperty("mapping").EnumerateObject())
+                        map[kv.Name] = kv.Value.GetString() ?? "";
+                }
+            }
+            catch { /* 缺翻译时返回空，调用方回退中文 */ }
+            _eqCultureNameMaps[suffix] = map;
+            return map;
+        }
+    }
 
     /// <summary>id → 条目索引（productId 主键，O(1)）。</summary>
     private static Dictionary<string, JsonElement> BuildIdIndex(List<JsonElement> models)
@@ -308,9 +371,8 @@ public static class DeviceProfileLoader
         {
             if (!mode.TryGetProperty("protocolIndex", out var pi)) continue;
             byte idx = pi.GetByte();
-            string displayName = idx < 10
-                ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_ModeIndex), idx)
-                : $"M{idx}";
+            // 兜底名统一用语言无关的 M{idx} 作稳定键（显示时再按语言本地化），避免连接语言影响键。
+            string displayName = $"M{idx}";
             if (mode.TryGetProperty("modeType", out var mt))
                 if (_eqModeNames.TryGetValue(mt.GetInt32().ToString(), out var n))
                     displayName = n;
@@ -357,7 +419,7 @@ public static class DeviceProfileLoader
         _ => "Mode" + type
     };
 
-    private static string AncLabel(string key) => key switch
+    internal static string AncLabel(string key) => key switch
     {
         "Off" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeOff),
         "Transparency" => LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_ModeTransparency),

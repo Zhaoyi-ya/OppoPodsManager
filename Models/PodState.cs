@@ -36,6 +36,18 @@ public class PodState
     public bool GameSound { get; set; }
     /// <summary>双设备连接开关（0x0403 FeatureDualDevice）。</summary>
     public bool DualDevice { get; set; }
+    /// <summary>低音引擎开关（0x0403 FeatureBassEngine）。</summary>
+    public bool BassEngine { get; set; }
+    /// <summary>人声增强开关（0x0403 FeatureVocalEnhance）。</summary>
+    public bool VocalEnhance { get; set; }
+    /// <summary>听力增强开关（0x0403 FeatureHearingEnhance）。</summary>
+    public bool HearingEnhance { get; set; }
+    /// <summary>长续航模式开关（0x0403 FeatureLongPowerMode）。</summary>
+    public bool LongPowerMode { get; set; }
+    /// <summary>佩戴检测开关（0x0403 FeatureWearDetection）。</summary>
+    public bool WearDetection { get; set; }
+    /// <summary>脊柱健康开关（0x0403 FeatureSpineLiveMonitor）。</summary>
+    public bool SpineHealth { get; set; }
 
     /// <summary>多设备连接列表（由主动轮询同步）。</summary>
     public List<ConnectedDeviceInfo> ConnectedDevices { get; set; } = new();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager;
 
@@ -126,7 +127,7 @@ public class DeviceCapabilities
         get
         {
             byte min = byte.MaxValue;
-            string name = "默认";
+            string name = LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_Default);
             foreach (var kv in EqPresets)
                 if (kv.Value < min) { min = kv.Value; name = kv.Key; }
             return name;

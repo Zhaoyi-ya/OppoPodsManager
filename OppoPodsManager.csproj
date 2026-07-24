@@ -67,9 +67,24 @@
   </ItemGroup>
 
   <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致） -->
+  <!-- SDK 默认会把 *.json 当 None，需先 Remove 再 Include，避免 BuildAction 冲突导致资源未嵌入。 -->
   <ItemGroup>
+    <None Remove="Data\DeviceModels.json" />
+    <None Remove="Data\EqModeNames.json" />
+    <None Remove="Data\EqModeNames.en.json" />
+    <None Remove="Data\EqModeNames.ru.json" />
+    <None Remove="Data\EqModeNames.de.json" />
     <EmbeddedResource Include="Data\DeviceModels.json" LogicalName="OppoPodsManager.DeviceModels.json" />
     <EmbeddedResource Include="Data\EqModeNames.json" LogicalName="OppoPodsManager.EqModeNames.json" />
+    <EmbeddedResource Include="Data\EqModeNames.en.json" LogicalName="OppoPodsManager.EqModeNames.en.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Data\EqModeNames.ru.json" LogicalName="OppoPodsManager.EqModeNames.ru.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Data\EqModeNames.de.json" LogicalName="OppoPodsManager.EqModeNames.de.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Irihi.Lingua localization resources -->

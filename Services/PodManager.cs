@@ -515,6 +515,48 @@ public partial class PodManager : IPodManager
         SendFeatureSwitch(feature, on, "游戏模式");
     }
 
+    public void SendBassEngine(bool on)
+    {
+        if (!Caps.HasBassEngine) return;
+        Log.D("RFCOMM", $"SendBassEngine on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureBassEngine, on, "低音引擎");
+    }
+
+    public void SendVocalEnhance(bool on)
+    {
+        if (!Caps.HasVocalEnhance) return;
+        Log.D("RFCOMM", $"SendVocalEnhance on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureVocalEnhance, on, "人声增强");
+    }
+
+    public void SendHearingEnhance(bool on)
+    {
+        if (!Caps.HasHearingEnhancement) return;
+        Log.D("RFCOMM", $"SendHearingEnhance on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureHearingEnhance, on, "听力增强");
+    }
+
+    public void SendLongPowerMode(bool on)
+    {
+        if (!Caps.HasLongPowerMode) return;
+        Log.D("RFCOMM", $"SendLongPowerMode on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureLongPowerMode, on, "长续航模式");
+    }
+
+    public void SendWearDetection(bool on)
+    {
+        if (!Caps.HasWearDetection) return;
+        Log.D("RFCOMM", $"SendWearDetection on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureWearDetection, on, "佩戴检测");
+    }
+
+    public void SendSpineHealth(bool on)
+    {
+        if (!Caps.HasSpineHealth) return;
+        Log.D("RFCOMM", $"SendSpineHealth on={on}");
+        SendFeatureSwitch(OppoProtocol.FeatureSpineLiveMonitor, on, "脊柱健康");
+    }
+
     /// <summary>
     /// 游戏音效开关（命令 0x423 + [type][enable]）。
     /// "关闭"不是发 enable=0，而是选择 type 0（gameSoundList 里的 {type:0} 即"关闭"项），
