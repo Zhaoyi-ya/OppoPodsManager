@@ -1,0 +1,541 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using SukiUI;
+using SukiUI.Controls;
+
+using OppoPodsManager.Core.Devices;
+using OppoPodsManager.Infrastructure;
+
+using CoreCaps = OppoPodsManager.Core.Devices.DeviceCapabilities;
+using CoreState = OppoPodsManager.Core.Devices.HeadsetState;
+using CoreFeature = OppoPodsManager.Core.Devices.DeviceFeature;
+using CoreAnc = OppoPodsManager.Core.Devices.AncOption;
+using CoreMulti = OppoPodsManager.Core.Devices.MultiDeviceEntry;
+namespace OppoPodsManager;
+
+public partial class SmallWindow : SukiWindow
+{
+    private readonly HeadsetUiSession _pods;
+    private readonly Action? _onDeactivated;
+
+    private static readonly SolidColorBrush BrushGray   = new(Color.FromRgb(0xCC, 0xCC, 0xCC));
+    private static readonly SolidColorBrush BrushAccent = new(Color.FromRgb(0x60, 0x90, 0xFF));
+    private static readonly SolidColorBrush BrushWhite  = new(Colors.White);
+
+    private readonly SolidColorBrush _cardBgBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _cardBorderBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _windowBgBrush = new(Colors.Transparent);
+    private readonly SolidColorBrush _bgTintBrush = new(Color.FromArgb(0x66, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _ancInactiveBgBrush = new(Color.FromArgb(0x10, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _ancSubInactiveBgBrush = new(Color.FromArgb(0x0C, 0x00, 0x00, 0x00));
+    private Avalonia.Media.Imaging.Bitmap? _backgroundBitmap;
+    private string _backgroundCacheKey = "";
+
+    // 电量图标 path（从 OPPO 官方 App 提取，复合路径）
+    private const string IconLeftData   = "M6,12C9.314,12 12,9.314 12,6C12,2.686 9.314,0 6,0C2.686,0 0,2.686 0,6C0,9.314 2.686,12 6,12Z";
+    private const string IconLData       = "M3.963,9.543H8.604V8.337H5.458V2.461H3.963V9.543Z";
+    private const string IconCaseData   = "M7.976,1.523H7.992H11.039H11.055H11.056C11.394,1.523 11.58,1.523 11.739,1.532C14.304,1.666 16.444,3.377 17.212,5.716H16.795C16.795,5.716 16.795,5.716 16.795,5.716H13.267C13.165,5.279 12.772,4.954 12.303,4.954H6.665C6.197,4.954 5.804,5.279 5.701,5.716H2.208C2.208,5.716 2.208,5.716 2.208,5.716H1.819C2.587,3.377 4.727,1.666 7.292,1.532C7.451,1.523 7.637,1.523 7.976,1.523H7.976Z M16.676,6.706H17.447C17.477,6.901 17.497,7.099 17.507,7.3C17.516,7.459 17.516,7.645 17.516,7.984V8V8.015C17.516,8.354 17.516,8.54 17.507,8.7C17.344,11.815 14.855,14.304 11.739,14.467C11.58,14.476 11.394,14.476 11.055,14.476H11.039H7.992H7.976C7.637,14.476 7.451,14.476 7.292,14.467C4.176,14.304 1.687,11.815 1.524,8.7C1.516,8.54 1.516,8.354 1.516,8.016V8.015V8V7.984V7.984C1.516,7.645 1.516,7.459 1.524,7.3C1.534,7.099 1.555,6.901 1.584,6.706H2.356C2.356,6.706 2.356,6.707 2.356,6.707H5.787C5.952,7.023 6.283,7.24 6.665,7.24H12.303C12.685,7.24 13.017,7.023 13.182,6.707H16.676C16.676,6.707 16.676,6.706 16.676,6.706Z M9.501,10.287C9.922,10.287 10.263,9.946 10.263,9.525C10.263,9.104 9.922,8.763 9.501,8.763C9.081,8.763 8.74,9.104 8.74,9.525C8.74,9.946 9.081,10.287 9.501,10.287Z";
+    private const string IconRightData  = "M7,14C10.866,14 14,10.866 14,7C14,3.134 10.866,0 7,0C3.134,0 0,3.134 0,7C0,10.866 3.134,14 7,14Z";
+    private const string IconRData       = "M3.992,2.871V11.133H5.726V8.026H6.907L8.934,11.133H11.016L8.708,7.79C9.219,7.602 9.613,7.306 9.89,6.901C10.168,6.488 10.307,6.004 10.307,5.449C10.307,4.931 10.187,4.481 9.947,4.098C9.714,3.708 9.369,3.408 8.911,3.198C8.461,2.98 7.924,2.871 7.301,2.871H3.992Z M8.472,5.449C8.472,6.282 7.969,6.698 6.964,6.698H5.726V4.199H6.964C7.969,4.199 8.472,4.616 8.472,5.449Z";
+    private const string IconChargeData = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
+
+
+    private readonly Dictionary<string, (Ellipse bg, Avalonia.Controls.Shapes.Path icon, TextBlock label)> _ancMainButtons = new();
+    private readonly Dictionary<string, (Button btn, Border bg)> _ancSubButtons = new();
+    private readonly Dictionary<string, string> _ancChildToMain = new();
+
+    private List<CoreAnc> _ancOptions = new();
+    private string _ancMain = "", _ancLevel = "";
+    private string? _ancBuiltForModel;
+    private string _ancSubSignature = "";
+    private bool _refreshPending;
+    private bool _isClosed;
+    private DateTime _ancUserSetAt = DateTime.MinValue;
+
+    private static (int Level, bool Charging)? BatteryLevel(CoreState s, string side) => side switch
+    {
+        "L" => s.Battery.Left is int l ? (l, s.Battery.LeftCharging) : null,
+        "R" => s.Battery.Right is int r ? (r, s.Battery.RightCharging) : null,
+        "C" => s.Battery.Case is int c ? (c, s.Battery.CaseCharging) : null,
+        _ => null,
+    };
+
+    public SmallWindow(HeadsetUiSession pods, Action? onDeactivated = null)
+    {
+        _pods = pods;
+        _onDeactivated = onDeactivated;
+        InitializeComponent();
+
+        Log.D("UI", "SmallWindow: 打开");
+        _pods.StateChanged += OnStateChanged;
+        // 窗口关闭时取消订阅，避免对已关闭窗口的控件操作 + 释放引用
+        Closed += (_, _) =>
+        {
+            Log.D("UI", "SmallWindow: 关闭");
+            _isClosed = true;
+            _pods.StateChanged -= OnStateChanged;
+            DisposeBackgroundBitmap();
+        };
+        Deactivated += (_, _) =>
+        {
+            try { _onDeactivated?.Invoke(); }
+            catch (Exception ex) { Log.D("UI", $"SmallWindow Deactivated 回调异常（可忽略）: {ex.Message}"); }
+        };
+
+        // 电池图标 path
+        IconCase.Data  = StreamGeometry.Parse(IconCaseData);
+        IconLeftCircle.Data  = StreamGeometry.Parse(IconLeftData);
+        IconLeftLetter.Data  = StreamGeometry.Parse(IconLData);
+        IconRightCircle.Data = StreamGeometry.Parse(IconRightData);
+        IconRightLetter.Data = StreamGeometry.Parse(IconRData);
+        var chargeGeo = StreamGeometry.Parse(IconChargeData);
+        LeftChargeBolt.Data = chargeGeo;
+        RightChargeBolt.Data = chargeGeo;
+        CaseChargeBolt.Data = chargeGeo;
+
+        // 加载官方充电盒产品图
+        try
+        {
+            var bmp = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_case.png");
+            if (bmp != null) BatteryImage.Source = bmp;
+        }
+        catch { }
+
+        RefreshAppearance();
+        SafeRefresh();
+    }
+
+    public void RefreshAppearance()
+    {
+        if (_isClosed)
+            return;
+        ApplyAcrylicBlur();
+        ApplyWindowChrome();
+        ApplyTheme();
+    }
+
+    private void ApplyAcrylicBlur()
+    {
+        if (!SettingsManager.GetBool("AcrylicBlur", false))
+            return;
+
+        TransparencyLevelHint = new List<WindowTransparencyLevel>
+        {
+            WindowTransparencyLevel.AcrylicBlur,
+            WindowTransparencyLevel.Transparent
+        };
+        Background = Avalonia.Media.Brushes.Transparent;
+        if (OperatingSystem.IsWindows())
+            BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
+        Log.D("UI", "SmallWindow: 应用 Acrylic 模糊");
+    }
+
+    private void ApplyWindowChrome()
+    {
+        if (SettingsManager.GetBool("AdvancedRender", false))
+            EnableAdvancedRenderChrome();
+        else
+            DisableAdvancedRenderChrome();
+    }
+
+    private void EnableAdvancedRenderChrome()
+    {
+        IsTitleBarVisible = false;
+        CustomTitleBar.IsVisible = true;
+        Log.D("UI", "SmallWindow: 关闭 Chrome 标题栏 -> true");
+    }
+
+    private void DisableAdvancedRenderChrome()
+    {
+        IsTitleBarVisible = true;
+        CustomTitleBar.IsVisible = false;
+        Log.D("UI", "SmallWindow: 关闭 Chrome 标题栏 -> false");
+    }
+
+    private void TitleBarDrag_PointerPressed(object? s, Avalonia.Input.PointerPressedEventArgs e)
+        => BeginMoveDrag(e);
+
+    private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "SmallWindow: 点击自定义关闭按钮");
+        Close();
+    }
+
+    private void ApplyTheme()
+    {
+        var theme = SukiTheme.GetInstance();
+        var activeTheme = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Default
+            ? Avalonia.Application.Current?.ActualThemeVariant
+            : theme.ActiveBaseTheme;
+        var isLight = activeTheme == Avalonia.Styling.ThemeVariant.Light;
+        var transparencyPct = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
+        var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255);
+        var hasCustomBackground = HasCustomBackgroundEnabled();
+
+        var acrylicBlur = SettingsManager.GetBool("AcrylicBlur", false);
+        if (acrylicBlur)
+        {
+            Background = Avalonia.Media.Brushes.Transparent;
+        }
+        else
+        {
+            _windowBgBrush.Color = isLight ? Color.FromRgb(0xE5, 0xE5, 0xEA) : Colors.Transparent;
+            Background = _windowBgBrush;
+        }
+
+        if (isLight)
+        {
+            var cardBase = hasCustomBackground ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0xF5, 0xF5, 0xF5);
+            _cardBgBrush.Color = Color.FromArgb(alpha, cardBase.R, cardBase.G, cardBase.B);
+            _cardBorderBrush.Color = Color.FromArgb(0x15, 0x00, 0x00, 0x00);
+            _bgTintBrush.Color = Color.FromArgb(0x36, 0xFF, 0xFF, 0xFF);
+            BatteryCard.BorderBrush = _cardBorderBrush;
+            AncCard.BorderBrush = _cardBorderBrush;
+        }
+        else
+        {
+            var glassAlpha = (byte)Math.Clamp(alpha * 0.35, 9, 255);
+            _cardBgBrush.Color = Color.FromArgb(glassAlpha, 0x1C, 0x1C, 0x1E);
+            _bgTintBrush.Color = Color.FromArgb(0x66, 0x00, 0x00, 0x00);
+            BatteryCard.BorderBrush = null;
+            AncCard.BorderBrush = null;
+        }
+
+        BatteryCard.Background = _cardBgBrush;
+        AncCard.Background = _cardBgBrush;
+        BgTint.Background = _bgTintBrush;
+        ApplySavedBackground();
+    }
+
+    private static bool HasCustomBackgroundEnabled()
+    {
+        var key = SettingsManager.GetString("BgCurrent");
+        return !SettingsManager.GetBool("AcrylicBlur", false)
+               && !string.IsNullOrWhiteSpace(key)
+               && key != "default"
+               && System.IO.File.Exists(key);
+    }
+
+    private void ApplySavedBackground()
+    {
+        var key = SettingsManager.GetString("BgCurrent");
+        if (SettingsManager.GetBool("AcrylicBlur", false) || string.IsNullOrWhiteSpace(key) || key == "default" || !System.IO.File.Exists(key))
+        {
+            Log.D("UI", "SmallWindow: 自定义背景未启用或被 Acrylic 禁用");
+            BgImage.Source = null;
+            BgImage.IsVisible = false;
+            BgTint.IsVisible = false;
+            DisposeBackgroundBitmap();
+            return;
+        }
+
+        var blur = Math.Clamp(SettingsManager.GetInt("BgBlur", 0), 0, 20);
+        var cacheKey = key + "|" + blur;
+        if (_backgroundCacheKey != cacheKey)
+        {
+            DisposeBackgroundBitmap();
+            _backgroundBitmap = MainWindow.LoadSmallSharedBackgroundBitmap(key, 420, blur);
+            _backgroundCacheKey = cacheKey;
+        }
+
+        BgImage.Source = _backgroundBitmap;
+        BgImage.IsVisible = _backgroundBitmap != null;
+        BgTint.IsVisible = _backgroundBitmap != null;
+    }
+
+    private void DisposeBackgroundBitmap()
+    {
+        BgImage.Source = null;
+        _backgroundBitmap?.Dispose();
+        _backgroundBitmap = null;
+        _backgroundCacheKey = "";
+    }
+
+    public void SafeRefresh()
+    {
+        if (_isClosed || _refreshPending)
+            return;
+
+        _refreshPending = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            _refreshPending = false;
+            if (_isClosed)
+                return;
+
+            RefreshUi(_pods.State, _pods.Caps);
+        });
+    }
+
+    private void OnStateChanged() => SafeRefresh();
+
+    private void RefreshUi(CoreState s, CoreCaps caps)
+    {
+        // 标题栏显示设备名
+        Title = (s.Connection == ConnectionState.Connected || s.Connection == ConnectionState.Identifying) && caps.IsSupported ? caps.ModelName : "OPPO Pods";
+
+        // 电量：未连接时不显示 -% 占位，避免断开后小 UI 继续像有设备一样占位
+        var showBattery = (s.Connection is ConnectionState.Connected or ConnectionState.Identifying) && (s.Battery.Left is not null || s.Battery.Right is not null || s.Battery.Case is not null);
+        SetBatLabel(LeftLabel, LeftChargeBolt, showBattery ? BatteryLevel(s, "L") : null, showBattery);
+        SetBatLabel(RightLabel, RightChargeBolt, showBattery ? BatteryLevel(s, "R") : null, showBattery);
+        SetBatLabel(CaseLabel, CaseChargeBolt, showBattery ? BatteryLevel(s, "C") : null, showBattery);
+
+        // ANC（使用通用 Syncer 映射设备回读的 modeKey → UI 选中态）
+        // Mode 初始为 null；`is not "?"` 对 null 仍为 true，会进 SyncAncFromState 抛 NRE。
+        // 保护窗口用秒，与 MainWindow 一致（原先 TotalMilliseconds>3 只有 3ms，几乎无保护）。
+        if (!string.IsNullOrEmpty(s.Anc.Mode)
+            && s.Anc.Mode != "?"
+            && (DateTime.Now - _ancUserSetAt).TotalSeconds > 3)
+            SyncAncFromState(s.Anc.Mode);
+        AncCard.IsVisible = caps.AncOptions.Count > 0 && (s.Connection == ConnectionState.Connected || s.Connection == ConnectionState.Identifying);
+        if (AncCard.IsVisible)
+        {
+            BuildAncUi(caps);
+            HighlightAnc();
+        }
+    }
+
+    // ===== 电量标签 =====
+    private static void SetBatLabel(TextBlock label, Control chargeBolt, (int Level, bool Charging)? bat, bool showPlaceholder = true)
+    {
+        if (bat is not { } b)
+        {
+            label.Text = showPlaceholder ? "-%" : "";
+            chargeBolt.IsVisible = false;
+            return;
+        }
+
+        label.Text = $"{b.Level}%";
+        chargeBolt.IsVisible = b.Charging;
+    }
+
+    // ===== ANC =====
+    private void BuildAncUi(CoreCaps caps)
+    {
+        var modelKey = caps.ModelId + "|" + caps.ModelName;
+        if (_ancBuiltForModel == modelKey) return;
+        _ancBuiltForModel = modelKey;
+        _ancOptions = caps.AncOptions.ToList();
+
+        _ancMainButtons.Clear();
+        _ancChildToMain.Clear();
+        AncMainRow.Children.Clear();
+        AncMainRow.ColumnDefinitions.Clear();
+        AncSubRow.Children.Clear();
+        AncSubRow.ColumnDefinitions.Clear();
+        _ancSubButtons.Clear();
+        _ancSubSignature = "";
+        AncSubRow.IsVisible = false;
+
+        int col = 0;
+        for (int i = 0; i < _ancOptions.Count; i++)
+        {
+            var opt = _ancOptions[i];
+            if (i > 0) { AncMainRow.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(10))); col++; }
+            var (panel, bg, icon, label) = MakeAncIconButton(opt, 46, 22, 10);
+            AncMainRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            Grid.SetColumn(panel, col);
+            AncMainRow.Children.Add(panel);
+            _ancMainButtons[opt.Key] = (bg, icon, label);
+            col++;
+            foreach (var child in opt.Children) _ancChildToMain[child.Key] = opt.Key;
+        }
+    }
+
+    private void PopulateAncSub(CoreAnc container)
+    {
+        var signature = container.Key + ":" + string.Join("|", container.Children.Select(c => $"{c.Key};{c.Label}"));
+        if (_ancSubSignature == signature)
+            return;
+
+        foreach (var (_, (btn, _)) in _ancSubButtons)
+            btn.Click -= AncSub_Click;
+
+        AncSubRow.Children.Clear();
+        AncSubRow.ColumnDefinitions.Clear();
+        _ancSubButtons.Clear();
+        _ancSubSignature = signature;
+
+        int col = 0;
+        for (int i = 0; i < container.Children.Count; i++)
+        {
+            var child = container.Children[i];
+            if (i > 0)
+            {
+                AncSubRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+                var sep = new Border { Width = 1, Background = BrushGray, Opacity = 0.12 };
+                Grid.SetColumn(sep, col);
+                AncSubRow.Children.Add(sep);
+                col++;
+            }
+            var corner = container.Children.Count == 1 ? new CornerRadius(5)
+                : i == 0 ? new CornerRadius(5, 0, 0, 5)
+                : i == container.Children.Count - 1 ? new CornerRadius(0, 5, 5, 0)
+                : new CornerRadius(0);
+            var btn = new Button
+            {
+                Content = DeviceUiLabels.AncLabel(child.Key), Tag = child, MinWidth = 60, Height = 26,
+                BorderThickness = new Thickness(0), Padding = new Thickness(8, 0),
+                Background = Brushes.Transparent, Focusable = false,
+                Foreground = BrushGray, FontSize = 13,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            };
+            btn.Click += AncSub_Click;
+            var bg = new Border { CornerRadius = corner, Padding = new Thickness(0),
+                Background = Brushes.Transparent, Child = btn };
+            AncSubRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+            Grid.SetColumn(bg, col);
+            AncSubRow.Children.Add(bg);
+            _ancSubButtons[child.Key] = (btn, bg);
+            col++;
+        }
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的 ANC 主/子按钮文字（由 MainWindow 在语言切换时调用）。</summary>
+    internal void RefreshAncLabels()
+    {
+        foreach (var (key, (_, _, label)) in _ancMainButtons)
+        {
+            var t = DeviceUiLabels.AncLabel(key);
+            label.Text = t;
+            label.FontSize = t.Length > 10 ? 8 : 10;
+        }
+        foreach (var (key, (btn, _)) in _ancSubButtons)
+            btn.Content = DeviceUiLabels.AncLabel(key);
+    }
+
+    private (Control panel, Ellipse bg, Avalonia.Controls.Shapes.Path icon, TextBlock label) MakeAncIconButton(
+        CoreAnc opt, int circleSize, int iconSize, int fontSize)
+    {
+        var bg = new Ellipse { Width = circleSize, Height = circleSize,
+            Fill = Brushes.Transparent };
+        var icon = new Path
+        {
+            Data = StreamGeometry.Parse(AncIcons.GetAncIcon(opt.Key)),
+            Width = iconSize, Height = iconSize, Fill = BrushGray,
+            Stretch = Stretch.Uniform
+        };
+        var clickArea = new Ellipse
+        {
+            Width = circleSize, Height = circleSize,
+            Fill = Brushes.Transparent,
+            Tag = opt, Cursor = new Cursor(StandardCursorType.Hand)
+        };
+        clickArea.PointerPressed += (s, _) =>
+        {
+            if (s is Ellipse el && el.Tag is CoreAnc o) SwitchAncMain(o);
+        };
+
+        var grid = new Grid { Width = circleSize, Height = circleSize };
+        grid.Children.Add(bg);
+        grid.Children.Add(icon);
+        grid.Children.Add(clickArea);
+
+        var labelText = DeviceUiLabels.AncLabel(opt.Key);
+        var label = new TextBlock
+        {
+            Text = labelText, FontSize = labelText.Length > 10 ? Math.Max(8, fontSize - 2) : fontSize,
+            Foreground = BrushGray, TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(grid);
+        panel.Children.Add(label);
+        return (panel, bg, icon, label);
+    }
+
+    private void AncSub_Click(object? s, RoutedEventArgs e)
+    {
+        if (s is Button btn && btn.Tag is CoreAnc opt) SwitchAncSub(opt);
+    }
+
+    private void HighlightAnc()
+    {
+        foreach (var (key, (bg, icon, label)) in _ancMainButtons)
+        {
+            var active = key == _ancMain;
+            bg.Fill   = active ? BrushAccent : _ancInactiveBgBrush;
+            icon.Fill = active ? BrushWhite : BrushGray;
+        }
+        foreach (var (key, (btn, bg)) in _ancSubButtons)
+        {
+            var active = key == _ancLevel;
+            bg.Background = active ? BrushAccent : _ancSubInactiveBgBrush;
+            btn.Foreground = active ? BrushWhite : BrushGray;
+        }
+    }
+
+    private void SwitchAncMain(CoreAnc opt)
+    {
+        if (!_pods.IsConnected) return;
+        _ancUserSetAt = DateTime.Now;
+        _ancMain = opt.Key;
+
+        if (opt.Children.Count > 0)
+        {
+            PopulateAncSub(opt);
+            AncSubRow.IsVisible = true;
+            var target = opt.Children.Any(c => c.Key == _ancLevel) ? _ancLevel : opt.Children[0].Key;
+            _ancLevel = target;
+            Log.D("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 发送子模式 {target}");
+            _pods.SendAnc(target);   // 容器型发子键，非父键
+        }
+        else
+        {
+            AncSubRow.IsVisible = false;
+            _ancLevel = "";
+            Log.D("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}");
+            _pods.SendAnc(opt.Key);  // 叶子型直接发
+        }
+        HighlightAnc();
+    }
+
+    private void SwitchAncSub(CoreAnc opt)
+    {
+        if (!_pods.IsConnected) return;
+        _ancLevel = opt.Key;
+        _ancUserSetAt = DateTime.Now;
+        Log.D("UI", $"SmallWindow: ANC 子模式 -> {opt.Key}");
+        _pods.SendAnc(opt.Key);
+        HighlightAnc();
+    }
+
+    /// <summary>把设备上报的 ANC 模式键映射到 UI 主/子选中态（与 MainWindow 逻辑一致）。</summary>
+    private void SyncAncFromState(string? modeKey)
+    {
+        if (string.IsNullOrEmpty(modeKey) || modeKey == "?")
+            return;
+
+        // 1) 是某个主模式（叶子）？直接选中，收起子行
+        var mainOpt = _ancOptions.FirstOrDefault(o => o.Key == modeKey && o.Children.Count == 0);
+        if (mainOpt != null)
+        {
+            _ancMain = modeKey;
+            _ancLevel = "";
+            AncSubRow.IsVisible = false;
+            return;
+        }
+        // 2) 是某容器主模式的子模式？选中其父，展开子行并选中该子模式
+        if (_ancChildToMain.TryGetValue(modeKey, out var parentKey))
+        {
+            var container = _ancOptions.FirstOrDefault(o => o.Key == parentKey);
+            if (container != null)
+            {
+                _ancMain = parentKey;
+                _ancLevel = modeKey;
+                PopulateAncSub(container);
+                AncSubRow.IsVisible = true;
+            }
+        }
+    }
+}

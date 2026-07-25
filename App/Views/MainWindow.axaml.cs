@@ -1,0 +1,3071 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Net.Http;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Avalonia;
+using OppoPodsManager.Localization;
+using Avalonia.Animation;
+using Avalonia.Animation.Easings;
+using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
+using Avalonia.VisualTree;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+using Avalonia.Threading;
+using SkiaSharp;
+using SukiUI;
+using SukiUI.Controls;
+using SukiUI.Enums;
+using SukiUI.Toasts;
+
+using OppoPodsManager.Core.Devices;
+using OppoPodsManager.Infrastructure;
+using OppoPodsManager.Core.Connections;
+using OppoPodsManager.Util;
+using CoreCaps = OppoPodsManager.Core.Devices.DeviceCapabilities;
+using CoreState = OppoPodsManager.Core.Devices.HeadsetState;
+using CoreFeature = OppoPodsManager.Core.Devices.DeviceFeature;
+using CoreAnc = OppoPodsManager.Core.Devices.AncOption;
+using CoreMulti = OppoPodsManager.Core.Devices.MultiDeviceEntry;
+
+namespace OppoPodsManager;
+
+// 资源路径常量
+file static class AppConst
+{
+    public const string IconConnected = "avares://OppoPodsManager/Assets/tuopan.ico";
+    public const string IconDisconnected = "avares://OppoPodsManager/Assets/tuopandis.png";
+}
+
+// 从嵌入资源加载图标（适用于 Avalonia + AOT）
+
+// AssetHelper moved to Views/AssetHelper.cs (public, shared with SmallWindow)
+
+
+
+public partial class MainWindow : SukiWindow
+{
+    private sealed class PriorityDeviceOption
+    {
+        public string Address { get; init; } = "";
+        public string DisplayName { get; init; } = "";
+        public bool IsAutomatic { get; init; }
+        public override string ToString() => DisplayName;
+    }
+
+    // UI binds state and forwards intents; control lives in HeadsetDesktopController.
+    private readonly HeadsetDesktopController _controller;
+    private HeadsetUiSession _pods => _controller.Session;
+    private readonly List<(ulong addr, string name)> _earbudDevices = new();
+    private bool _suppressEarbudSelection;
+#if WINDOWS
+    private bool _bluetoothChangeScheduled;
+#endif
+    private ulong _selectedEarbudAddress;
+#if WINDOWS
+    private readonly OppoPodsManager.Platforms.Windows.WindowsBluetoothConnectionWatcher _bluetoothWatcher = new();
+#endif
+    private string _ancMain = "", _ancLevel = "";
+    /// <summary>记住每个父模式上次选的子模式（如 降噪→深度），切换回来时恢复。</summary>
+    private readonly Dictionary<string, string> _ancLastSub = new();
+    private DateTime _ancUserSetAt = DateTime.MinValue;
+
+    // ANC 动态 UI（按 JSON 生成）：键 → (圆形边框, 图标路径, 文字标签)
+    private readonly Dictionary<string, (Ellipse bg, Path icon, TextBlock label)> _ancMainButtons = new();
+    private readonly Dictionary<string, (Button btn, Border bg)> _ancSubButtons = new();
+    private readonly Dictionary<string, string> _ancChildToMain = new();  // 子模式键 → 所属主模式键
+    private List<CoreAnc> _ancOptions = new();                          // 当前型号的 ANC 选项
+    private string _ancBuiltForModel = "";                               // 已构建 UI 的型号（避免重复重建）
+    private string _ancSubSignature = "";
+    private DateTime _featureUserSetAt = DateTime.MinValue;
+    private WindowIcon? _iconConnected, _iconDisconnected;
+    private TrayIcon? _trayIcon;
+    private SmallWindow? _smallWindow;
+    private DateTime _smallWindowShownAt = DateTime.MinValue;
+    private readonly LogManager _logManager = new();
+    private readonly LogTraceListener _logTraceListener;
+    private readonly ObservableCollection<string> _renderedLogEntries = new();
+    private int _renderedLogVersion = -1;
+    private DispatcherTimer? _trayClickTimer;
+    private DispatcherTimer? _logRefreshTimer;
+    private bool _logAutoScroll = true;
+    private bool _logScrollPending;
+    private ContextMenu? _openMultiDeviceMenu;
+    private bool _syncingConnectionStrategy;
+    private PriorityDeviceOption? _pendingPrioritySelection;
+    private string _priorityOptionsSignature = "";
+    /// <summary>日志显示模式：true=简化版（翻译+合并），false=完整版（原始行）。</summary>
+    private bool _logSimplified = true;
+    private ScrollViewer? _logScrollViewer;
+    private DispatcherTimer? _eqDebounceTimer;
+    private DispatcherTimer? _bgApplyDebounceTimer;
+    private bool _stateRefreshPending;
+    private string _trayMenuSignature = "";
+    private IImage? _backgroundImageSource;
+    private string _backgroundCacheKey = "";
+    private bool _realClose;
+    private bool _runtimeUiDisposed;
+    private bool _initializingSettings;
+    private string _currentPage = "";
+    private string? _bgSelected; // 当前选中的背景: "default" | filepath
+    private readonly List<string> _bgHistory = new(); // 历史背景图片路径
+    private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _backgroundBitmapCache = new();
+    private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _bgThumbCache = new();
+    /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
+    private readonly Dictionary<NativeMenuItem, (string key, string parentKey, bool isChild)> _trayAncMap = new();
+    internal static ISukiToastManager ToastManager = new SukiToastManager();
+    private string? _modelOverride;
+    private string? _cachedModelName; // 缓存连接成功后的型号名，避免传输层 DeviceName 波动导致状态栏闪烁
+    private DateTime _connectionStatusStartedAt = DateTime.MinValue;
+    private bool _findDeviceActive;
+    private bool _wasConnected;
+    private bool _lowBatteryAlerted;
+    private bool _criticalBatteryAlerted;
+    private bool _applyingAppearancePreset;
+    private List<string> _allModelNames = new();
+
+    // 缓存画刷
+    private static SolidColorBrush BrushGreen { get; } = new(Color.FromRgb(0x4C, 0xAF, 0x50));
+    private static SolidColorBrush BrushRed { get; } = new(Color.FromRgb(0xFF, 0x55, 0x55));
+    private static readonly SolidColorBrush BrushTransparent = new SolidColorBrush(Colors.Transparent);
+    // 主题自适应：浅色模式用暗色，深色模式用亮色
+    private SolidColorBrush BrushGray => _isLightTheme ? _brushGrayLight : _brushGrayDark;
+    private SolidColorBrush BrushWhite => _isLightTheme ? _brushDark : _brushWhiteDark;
+    private static readonly SolidColorBrush _brushGrayDark = new(Color.FromRgb(0xCC, 0xCC, 0xCC));
+    private static readonly SolidColorBrush _brushGrayLight = new(Color.FromRgb(0x55, 0x55, 0x55));
+    private static readonly SolidColorBrush _brushWhiteDark = new SolidColorBrush(Colors.White);
+    private static readonly SolidColorBrush _brushDark = new(Color.FromRgb(0x1A, 0x1A, 0x1A));
+    private static readonly SolidColorBrush BrushAccent = new(Color.FromRgb(0x60, 0x90, 0xFF));
+    private static readonly SolidColorBrush BrushWhitePure = new SolidColorBrush(Colors.White);
+    private readonly SolidColorBrush _glassCardBgBrush = new(Colors.White);
+    private readonly SolidColorBrush _sidebarSelectedBgBrush = new(Color.FromArgb(0x0C, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _dialogOverlayBgBrush = new(Color.FromArgb(0x50, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _textPanelButtonBgBrush = new(Color.FromArgb(0x0A, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _textPanelButtonHoverBgBrush = new(Color.FromArgb(0x12, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _textPanelButtonPressedBgBrush = new(Color.FromArgb(0x1C, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _windowBackgroundBrush = new(Color.FromRgb(0xE5, 0xE5, 0xEA));
+    private readonly SolidColorBrush _sidebarBackgroundBrush = new(Colors.White);
+    private readonly SolidColorBrush _deviceCurrentBgBrush = new(Color.FromArgb(0x12, 0x4C, 0xAF, 0x50));
+    private static readonly SolidColorBrush BrushBatteryLow = new(Color.FromRgb(0xFF, 0x55, 0x55));
+    private static readonly SolidColorBrush BrushBatteryMid = new(Color.FromRgb(0xFF, 0xB0, 0x20));
+    private static readonly SolidColorBrush BrushBatteryHigh = new(Color.FromRgb(0x4C, 0xD9, 0x64));
+    // 复用画刷：状态文字、圆圈边框、圆圈背景、ANC 强调色（浅色主题）
+    private readonly SolidColorBrush _brushLightGreenLight = new(Color.FromRgb(0x2E, 0x7D, 0x32));
+    private readonly SolidColorBrush _brushLightGreenDark = new(Color.FromRgb(0x88, 0xCC, 0x88));
+    private readonly SolidColorBrush _brushLightRedLight = new(Color.FromRgb(0xC6, 0x28, 0x28));
+    private readonly SolidColorBrush _brushLightRedDark = new(Color.FromRgb(0xFF, 0x88, 0x88));
+    private readonly SolidColorBrush _brushCircleStrokeLight = new(Color.FromArgb(0x20, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _brushCircleStrokeDark = new(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+    private readonly SolidColorBrush _brushCircleStrokeInactiveLight = new(Color.FromArgb(0x0C, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _brushCircleStrokeInactiveDark = new(Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF));
+    private readonly SolidColorBrush _brushCircleGrayLight = new(Color.FromArgb(0x15, 0x00, 0x00, 0x00));
+    private readonly SolidColorBrush _brushCircleGrayDark = new(Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF));
+    private readonly SolidColorBrush _brushAccentLight = new(Color.FromRgb(0x25, 0x63, 0xEB));
+    private SolidColorBrush BrushLightGreen => _isLightTheme ? _brushLightGreenLight : _brushLightGreenDark;
+    private SolidColorBrush BrushLightRed => _isLightTheme ? _brushLightRedLight : _brushLightRedDark;
+    private SolidColorBrush BrushCircleStroke => _isLightTheme ? _brushCircleStrokeLight : _brushCircleStrokeDark;
+    private SolidColorBrush BrushCircleStrokeInactive => _isLightTheme ? _brushCircleStrokeInactiveLight : _brushCircleStrokeInactiveDark;
+    private bool _themeResourceBrushesRegistered;
+    private bool _isLightTheme;
+    private readonly List<IDisposable> _linguaSubs = new();
+    private string _statusDisconnected = "";
+    private string _statusConnected = "";
+    private string _statusIdentifying = "";
+    private string _statusUnidentified = "";
+    private string _findDevice = "";
+    private string _stopFindDevice = "";
+    private string _checkUpdate = "";
+    private string _checking = "";
+
+    // ========== ANC 矢量图标 Path Data（从 OPPO 官方 Android App 提取）==========
+    private const string IconClose = "M12,1.3C16.253,1.3 19.7,4.747 19.7,9C19.7,10.798 19.083,12.453 18.05,13.764C17.934,13.91 17.876,13.983 17.81,14.027C17.678,14.116 17.51,14.136 17.36,14.081C17.286,14.054 17.212,13.996 17.066,13.881C16.92,13.766 16.848,13.707 16.804,13.642C16.715,13.509 16.694,13.341 16.75,13.19C16.778,13.116 16.835,13.043 16.95,12.898C17.796,11.825 18.3,10.472 18.3,9C18.3,5.521 15.479,2.7 12,2.7C9.764,2.7 7.801,3.866 6.684,5.623L8.373,7.313C9.009,5.947 10.394,5 12,5C14.209,5 16,6.791 16,9C16,10.607 15.052,11.989 13.686,12.625L16.161,15.101C18.31,15.498 20.11,17.047 20.789,19.185L21.041,19.98L23.53,22.47C23.823,22.763 23.823,23.237 23.53,23.53C23.237,23.823 22.763,23.823 22.47,23.53L2.47,3.53C2.177,3.237 2.177,2.763 2.47,2.47C2.763,2.177 3.237,2.177 3.53,2.47L5.673,4.612C7.063,2.611 9.378,1.3 12,1.3ZM19.941,23H3.737C2.87,23 2.245,22.166 2.489,21.334L3.084,19.309C3.834,16.754 6.179,15 8.841,15H11.941L19.941,23ZM5.705,8.764C5.702,8.842 5.7,8.921 5.7,9C5.7,10.472 6.204,11.825 7.05,12.898C7.165,13.043 7.223,13.116 7.25,13.19C7.305,13.341 7.285,13.509 7.196,13.642C7.152,13.707 7.08,13.766 6.934,13.881C6.788,13.996 6.714,14.054 6.64,14.081C6.49,14.136 6.322,14.116 6.189,14.027C6.124,13.983 6.066,13.91 5.95,13.764C4.917,12.453 4.3,10.798 4.3,9C4.3,8.488 4.35,7.988 4.445,7.504L5.705,8.764Z";
+    private const string IconNoise = "M15.072,15C17.687,15 20,16.694 20.791,19.185L21.465,21.307C21.731,22.145 21.105,23 20.226,23H3.739C2.872,23 2.247,22.166 2.491,21.334L3.086,19.309C3.836,16.754 6.181,15 8.843,15H15.072ZM12,1.25C16.28,1.25 19.75,4.72 19.75,9C19.75,10.809 19.129,12.476 18.089,13.795C17.945,13.978 17.873,14.069 17.786,14.117C17.67,14.182 17.533,14.199 17.405,14.163C17.31,14.136 17.219,14.064 17.036,13.92C16.853,13.776 16.762,13.704 16.713,13.617C16.648,13.501 16.632,13.363 16.668,13.235C16.695,13.14 16.767,13.049 16.911,12.866C17.75,11.802 18.25,10.461 18.25,9C18.25,5.548 15.452,2.75 12,2.75C8.548,2.75 5.75,5.548 5.75,9C5.75,10.461 6.25,11.802 7.089,12.866C7.233,13.049 7.305,13.14 7.332,13.235C7.368,13.363 7.352,13.501 7.287,13.617C7.238,13.704 7.147,13.776 6.964,13.92C6.781,14.064 6.689,14.136 6.594,14.163C6.466,14.199 6.33,14.182 6.214,14.117C6.127,14.069 6.055,13.978 5.911,13.795C4.871,12.476 4.25,10.809 4.25,9C4.25,4.72 7.72,1.25 12,1.25ZM12,5C14.209,5 16,6.791 16,9C16,11.209 14.209,13 12,13C9.791,13 8,11.209 8,9C8,6.791 9.791,5 12,5Z";
+    private const string IconAdaptive = "M15.07,15C17.685,15 19.998,16.693 20.789,19.185L21.463,21.307C21.729,22.145 21.103,23 20.224,23H3.737C2.87,23 2.245,22.165 2.489,21.333L3.084,19.309C3.834,16.754 6.178,15 8.841,15H15.07ZM12,5C14.209,5 16,6.791 16,9C16,11.209 14.209,13 12,13C9.791,13 8,11.209 8,9C8,6.791 9.791,5 12,5ZM20.669,6.22C20.761,5.882 21.239,5.882 21.331,6.22C21.523,6.925 22.075,7.476 22.78,7.668C23.118,7.76 23.118,8.239 22.78,8.331C22.075,8.523 21.523,9.074 21.331,9.779C21.239,10.117 20.761,10.117 20.669,9.779C20.477,9.074 19.926,8.523 19.221,8.331C18.883,8.239 18.883,7.76 19.221,7.668C19.926,7.476 20.477,6.925 20.669,6.22ZM17.448,0.533C17.601,-0.029 18.4,-0.029 18.553,0.533C18.872,1.709 19.79,2.628 20.966,2.947C21.529,3.1 21.529,3.899 20.966,4.052C19.79,4.371 18.872,5.29 18.553,6.466C18.4,7.029 17.601,7.029 17.448,6.466C17.129,5.29 16.21,4.371 15.034,4.052C14.471,3.899 14.471,3.1 15.034,2.947C16.21,2.628 17.129,1.709 17.448,0.533Z";
+    private const string IconTransparency = "M15.07,15C17.685,15 19.998,16.694 20.789,19.185L21.463,21.307C21.729,22.145 21.103,23 20.224,23H3.737C2.87,23 2.245,22.166 2.489,21.334L3.084,19.309C3.834,16.754 6.179,15 8.841,15H15.07ZM12,5C14.209,5 16,6.791 16,9C16,11.209 14.209,13 12,13C9.791,13 8,11.209 8,9C8,6.791 9.791,5 12,5ZM5.15,10.755C5.661,10.544 6.246,10.786 6.457,11.296C6.668,11.806 6.425,12.391 5.915,12.602C5.405,12.814 4.821,12.571 4.609,12.061C4.398,11.551 4.64,10.966 5.15,10.755ZM17.543,11.296C17.754,10.786 18.339,10.544 18.85,10.755C19.36,10.966 19.602,11.551 19.391,12.061C19.179,12.572 18.594,12.814 18.084,12.602C17.574,12.391 17.332,11.806 17.543,11.296ZM5,8C5.552,8 6,8.448 6,9C6,9.552 5.552,10 5,10C4.448,10 4,9.552 4,9C4,8.448 4.448,8 5,8ZM19,8C19.552,8 20,8.448 20,9C20,9.552 19.552,10 19,10C18.448,10 18,9.552 18,9C18,8.448 18.448,8 19,8ZM4.609,5.938C4.821,5.428 5.405,5.186 5.915,5.397C6.425,5.609 6.668,6.194 6.457,6.704C6.246,7.214 5.661,7.456 5.15,7.245C4.64,7.034 4.398,6.449 4.609,5.938ZM18.084,5.397C18.594,5.186 19.179,5.428 19.391,5.938C19.602,6.449 19.36,7.034 18.85,7.245C18.339,7.456 17.754,7.214 17.543,6.704C17.332,6.194 17.574,5.609 18.084,5.397ZM6.343,3.343C6.733,2.952 7.366,2.953 7.757,3.343C8.147,3.733 8.147,4.367 7.757,4.758C7.366,5.148 6.733,5.148 6.343,4.758C5.952,4.367 5.952,3.733 6.343,3.343ZM16.242,3.343C16.633,2.952 17.267,2.952 17.657,3.343C18.048,3.733 18.048,4.367 17.657,4.758C17.267,5.148 16.633,5.148 16.242,4.758C15.852,4.367 15.852,3.733 16.242,3.343ZM8.938,1.609C9.449,1.398 10.034,1.64 10.245,2.15C10.456,2.661 10.214,3.246 9.704,3.457C9.194,3.668 8.609,3.425 8.397,2.915C8.186,2.405 8.428,1.821 8.938,1.609ZM13.755,2.15C13.966,1.64 14.551,1.398 15.061,1.609C15.571,1.821 15.814,2.405 15.602,2.915C15.391,3.425 14.806,3.668 14.296,3.457C13.786,3.246 13.544,2.661 13.755,2.15ZM12,1C12.552,1 13,1.448 13,2C13,2.552 12.552,3 12,3C11.448,3 11,2.552 11,2C11,1.448 11.448,1 12,1Z";
+
+    /// <summary>按模式键取对应图标 path。</summary>
+    private static string GetAncIcon(string key) => key switch
+    {
+        "Off" => IconClose,
+        "Transparency" => IconTransparency,
+        "Adaptive" => IconAdaptive,
+        _ => IconNoise   // NC / Smart / Light / Medium / Deep 等降噪子模式共用降噪图标
+    };
+
+    // Feather Icons：设置(齿轮) & 信息
+    private const string IconFeatherSettings = "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z";
+    private const string IconFeatherInfo = "M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM11 7h2v2h-2V7zm0 4h2v6h-2v-6z";
+
+    // CheckBox 脏检查状态。无设备回读时按 false（关闭）显示，不用三态中间态。
+    private bool _prevSpatialSound;
+    private string _spatialModesSignature = "";
+    private bool _prevGameMode;
+    private bool _prevGameSound;
+    private bool _prevDualDevice;
+    private bool _prevBassEngine;
+    private bool _prevVocalEnhance;
+    private bool _prevHearingEnhance;
+    private bool _prevLongPowerMode;
+    private bool _prevWearDetection;
+    private bool _prevSpineHealth;
+    private string? _prevSpatialMode;
+
+    // 三级联动：品牌 → 子系列 → 机型
+    private readonly ObservableCollection<string> _brandList = new();
+    private readonly ObservableCollection<string> _seriesList = new();
+    private readonly ObservableCollection<string> _modelList = new();
+    private readonly ObservableCollection<LanguageOption> _languageList = new();
+    private bool _refreshingComboBoxes;
+    private Dictionary<string, Dictionary<string, List<string>>> _brandTree = new();
+
+    
+    private static bool IsStateConnected(CoreState s) =>
+        HeadsetDesktopController.IsStateConnected(s);
+
+    private static bool FeatureOn(CoreState s, CoreFeature feature) =>
+        HeadsetDesktopController.FeatureOn(s, feature);
+
+    /// <summary>
+    /// 同步勾选：设备有回读用回读值，否则视为关闭。
+    /// </summary>
+    private static void SyncFeatureCheckbox(
+        CoreState s,
+        CoreFeature feature,
+        ref bool prev,
+        Action<bool> apply)
+    {
+        var on = s.FeatureStates.TryGetValue(feature, out var v) && v;
+        if (prev == on)
+            return;
+        prev = on;
+        apply(on);
+    }
+
+    private static (int Lvl, bool Chg)? BatteryLevel(CoreState s, string side) => side switch
+    {
+        "L" => s.Battery.Left is int l ? (l, s.Battery.LeftCharging) : null,
+        "R" => s.Battery.Right is int r ? (r, s.Battery.RightCharging) : null,
+        "C" => s.Battery.Case is int c ? (c, s.Battery.CaseCharging) : null,
+        _ => null,
+    };
+
+    public MainWindow()
+    {
+        _controller = App.DesktopController
+            ?? throw new InvalidOperationException("DesktopController not initialized");
+        try
+        {
+            Log.D("UI", "MainWindow 构造开始");
+        InitializeComponent();
+
+        // 版本号统一取自 csproj 的 <Version>（经程序集元数据），避免 XAML 硬编码。
+        // GetName().Version 在 AOT 下可用（与 DeviceProfileLoader 读取资源同源），
+        // 末位 Revision 为 0 时舍去，保持 "v主.次.修订" 三段格式。
+        var asmVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+        VersionText.Text = asmVer != null
+            ? $"v{asmVer.Major}.{asmVer.Minor}.{asmVer.Build}"
+            : "v?";
+
+        AdaptToPlatform();
+        AddHandler(PointerPressedEvent, CloseFloatingMenusOnBlankClick, RoutingStrategies.Tunnel, handledEventsToo: true);
+        NavHome.Classes.Add("selected");
+        LbLog.ItemsSource = _renderedLogEntries;
+
+        // 挂载调试日志监听器，捕获 Log.D/Ex 输出到 UI 日志面板
+        _logManager.CleanOldLogs(2);
+        _logTraceListener = new LogTraceListener(_logManager);
+        Trace.Listeners.Add(_logTraceListener);
+            Log.D("UI", "InitializeComponent OK");
+
+        // Wire events programmatically (Avalonia 12 compatibility)
+            CbSpatial.IsCheckedChanged += CbSpatial_Changed;
+            CbGame.IsCheckedChanged += CbGame_Changed;
+            CbGameSound.IsCheckedChanged += CbGameSound_Changed;
+        CbDualDevice.IsCheckedChanged += CbDualDevice_Changed;
+        CbBassEngine.IsCheckedChanged += CbBassEngine_Changed;
+        CbVocalEnhance.IsCheckedChanged += CbVocalEnhance_Changed;
+        CbHearingEnhance.IsCheckedChanged += CbHearingEnhance_Changed;
+        CbLongPower.IsCheckedChanged += CbLongPower_Changed;
+        CbWearDetection.IsCheckedChanged += CbWearDetection_Changed;
+        CbSpineHealth.IsCheckedChanged += CbSpineHealth_Changed;
+        CbTray.IsCheckedChanged += CbTray_Changed;
+        CbAuto.IsCheckedChanged += CbAuto_Changed;
+        CbAutoUpdate.IsCheckedChanged += CbAutoUpdate_Changed;
+        CbPriorityDevice.SelectionChanged += CbPriorityDevice_Changed;
+        CbEq.SelectionChanged += CbEq_SelectionChanged;
+        CbBrand.SelectionChanged += CbBrand_Changed;
+        CbSeries.SelectionChanged += CbSeries_Changed;
+        CbModel.SelectionChanged += CbModel_Changed;
+        CbTheme.SelectionChanged += CbTheme_Changed;
+        CbLanguage.SelectionChanged += CbLanguage_Changed;
+        CbDevice.SelectionChanged += CbDevice_Changed;
+        TbCustomName.TextChanged += TbCustomName_Changed;
+
+        // EQ 滑块事件
+        EqSlider62.PropertyChanged += EqSlider_Changed;
+        EqSlider250.PropertyChanged += EqSlider_Changed;
+        EqSlider1k.PropertyChanged += EqSlider_Changed;
+        EqSlider4k.PropertyChanged += EqSlider_Changed;
+        EqSlider8k.PropertyChanged += EqSlider_Changed;
+        EqSlider16k.PropertyChanged += EqSlider_Changed;
+        // EQ 预设列表（左右分栏：系统预设 / 自定义）
+        LbEqBuiltinPresets.SelectionChanged += EqBuiltinPresets_Changed;
+        LbEqCustomPresets.SelectionChanged += EqCustomPresets_Changed;
+
+
+        // 初始化多语言字符串
+        _linguaSubs.Add(LanguageManager.Instance.Status_Disconnected.Subscribe(v => { if (v != null) _statusDisconnected = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Status_Connected.Subscribe(v => { if (v != null) _statusConnected = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Status_Identifying.Subscribe(v => { if (v != null) _statusIdentifying = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Status_Unidentified.Subscribe(v => { if (v != null) _statusUnidentified = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Feature_FindDevice.Subscribe(v => { if (v != null) _findDevice = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Feature_StopFindDevice.Subscribe(v => { if (v != null) _stopFindDevice = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Settings_CheckUpdate.Subscribe(v => { if (v != null) _checkUpdate = v; }));
+        _linguaSubs.Add(LanguageManager.Instance.Settings_Checking.Subscribe(v => { if (v != null) _checking = v; }));
+
+        // 初始加载自定义 EQ 预设列表
+        RefreshEqPresetList();
+
+        // 多设备下拉
+        // 多设备下拉
+        SyncMultiDeviceList();
+
+        // 主题：默认跟随系统
+        var themeIndex = SettingsManager.GetInt("Theme", 0);
+        ApplyTheme(themeIndex);
+        CbTheme.SelectedIndex = themeIndex;
+
+        BackgroundAnimationEnabled = false;
+
+        // 透明度预设
+        CbTransparencyPreset.SelectedIndex = 0;
+        CbTransparencyPreset.SelectionChanged += (_, _) =>
+        {
+            if (_refreshingComboBoxes) return;
+            ApplyTransparencyPreset(CbTransparencyPreset.SelectedIndex);
+        };
+
+        // 透明度：0 = 完全不透明，90 = 几乎透明
+        var opacityVal = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
+        SlOpacity.Value = opacityVal;
+        TbOpacity.Text = $"{opacityVal}%";
+        SlOpacity.ValueChanged += (_, _) =>
+        {
+            var v = (int)SlOpacity.Value;
+            TbOpacity.Text = $"{v}%";
+            SettingsManager.SetInt("CardOpacity", v);
+            if (!_applyingAppearancePreset) CbTransparencyPreset.SelectedIndex = 0;
+            RefreshCardOpacity();
+            RefreshSmallWindowAppearance();
+        };
+        BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
+
+        // 开机自启静默启动：只保留托盘，不显示主窗口，也不在任务栏生成最小化残影。
+        if (App.IsMinimizedStartup())
+            ShowInTaskbar = false;
+
+        // 固定在屏幕右下角（已取消，使用默认居中）
+
+        // 托盘图标
+        _iconConnected = AssetHelper.LoadIcon(AppConst.IconConnected);
+        _iconDisconnected = AssetHelper.LoadIcon(AppConst.IconDisconnected);
+        SetupTrayIcon();
+        // Setup SukiUI toast host
+        Hosts = [new SukiToastHost { Manager = ToastManager }];
+
+        // Load battery: three official product images + charging bolt paths
+        LeftBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_left.png");
+        RightBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_right.png");
+        CaseBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_case.png");
+
+        // Load touch control card images (same as battery)
+        DiTouchLeftImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_left.png");
+        DiTouchRightImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_right.png");
+
+        const string iconCharge = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
+        var chargeGeo = StreamGeometry.Parse(iconCharge);
+        LeftChargeBolt.Data = chargeGeo;
+        RightChargeBolt.Data = chargeGeo;
+        CaseChargeBolt.Data = chargeGeo;
+        // 先填充默认 EQ 列表
+        foreach (var kv in (_pods.Caps.EqualizerPresets ?? new Dictionary<string, byte>())) CbEq.Items.Add(kv.Key);
+
+        _initializingSettings = true;
+        try
+        {
+            InitializeLanguageSelection();
+            CbTray.IsChecked = SettingsManager.GetBool("TrayEnabled", false);
+            CbAuto.IsChecked = SettingsManager.GetBool("AutoStart", false);
+            // 用 SetString/GetString 避免 SetBool(false) 删除条目导致默认值恢复
+            var autoUpdate = SettingsManager.GetString("AutoCheckUpdate");
+            CbAutoUpdate.IsChecked = autoUpdate != "false"; // 首次 null → true
+
+            // 弹窗时长
+            var durIdx = SettingsManager.GetInt("ToastDuration", 2);
+            CbToastDuration.SelectedIndex = durIdx >= 0 && durIdx <= 5 ? durIdx : 2;
+        }
+        finally
+        {
+            _initializingSettings = false;
+        }
+
+        CbToastDuration.SelectionChanged += (_, _) =>
+        {
+            if (_refreshingComboBoxes || _initializingSettings) return;
+            SettingsManager.SetInt("ToastDuration", CbToastDuration.SelectedIndex);
+            Log.D("UI", $"设置: Toast 时长索引 -> {CbToastDuration.SelectedIndex}");
+        };
+
+        // 背景设置
+        _bgSelected = SettingsManager.GetString("BgCurrent") ?? "default";
+        var hist = SettingsManager.GetStringList("BgHistory");
+        if (hist != null) _bgHistory.AddRange(hist);
+        RefreshBgThumbs();
+        BgThumbDefault.PointerPressed += (_, _) => SelectBackground("default");
+        BgThumbAdd.PointerPressed += (_, _) => _ = BtnBgAdd_Click();
+        ApplySavedBackground();
+
+        // 背景图片显示调节
+        var bgBlur = SettingsManager.GetInt("BgBlur", 0);
+        SlBgBlur.Value = bgBlur;
+        TbBgBlur.Text = bgBlur.ToString();
+        SlBgBlur.ValueChanged += (_, _) =>
+        {
+            var v = (int)SlBgBlur.Value;
+            TbBgBlur.Text = v.ToString();
+            SettingsManager.SetInt("BgBlur", v);
+            var timer = EnsureBackgroundApplyDebounceTimer();
+            timer.Stop();
+            timer.Start();
+            RefreshSmallWindowAppearance();
+        };
+        BtnResetBgBlur.Click += (_, _) => SlBgBlur.Value = 0;
+
+        // 高级自定义设置 (Beta)
+        CbAdvancedRender.IsChecked = SettingsManager.GetBool("AdvancedRender", false);
+        if (CbAdvancedRender.IsChecked == true) EnableAdvancedRender();
+        CbAdvancedRender.IsCheckedChanged += (_, _) =>
+        {
+            var on = CbAdvancedRender.IsChecked == true;
+            SettingsManager.SetBool("AdvancedRender", on);
+            Log.D("UI", $"设置: 高级渲染 -> {on}");
+            if (on) EnableAdvancedRender();
+            else DisableAdvancedRender();
+            RefreshSmallWindowAppearance();
+        };
+
+        // Acrylic 模糊开关
+        CbAcrylicBlur.IsChecked = SettingsManager.GetBool("AcrylicBlur", false);
+        if (CbAcrylicBlur.IsChecked == true)
+            SelectBackground("default");
+        UpdateBackgroundSettingsAvailability(CbAcrylicBlur.IsChecked == true);
+        CbAcrylicBlur.IsCheckedChanged += (_, _) =>
+            ToggleAcrylicBlur(CbAcrylicBlur.IsChecked == true);
+
+
+        // 设备型号选择
+        _allModelNames = _controller.GetModelNames().ToList();
+        _brandTree = BuildBrandTree(_allModelNames);
+
+        CbBrand.ItemsSource = _brandList;
+        CbSeries.ItemsSource = _seriesList;
+        CbModel.ItemsSource = _modelList;
+
+        _brandList.Add(LAutoDetect());
+        foreach (var brand in _brandTree.Keys.OrderBy(b => b)) _brandList.Add(brand);
+
+        _modelOverride = SettingsManager.GetString("ModelOverride");
+        if (string.IsNullOrEmpty(_modelOverride))
+        {
+            CbBrand.SelectedItem = LAutoDetect();
+        }
+        else
+        {
+            var (brand, series) = FindBrandSeries(_modelOverride, _brandTree);
+            CbBrand.SelectedItem = brand ?? LAutoDetect();
+            if (brand != null)
+            {
+                _seriesList.Clear();
+                _seriesList.Add(LAllSeries());
+                foreach (var s in _brandTree[brand].Keys.OrderBy(s => s)) _seriesList.Add(s);
+                CbSeries.SelectedItem = series ?? LAllSeries();
+                _modelList.Clear();
+                _modelList.Add(LAllModels());
+                foreach (var m in _brandTree[brand][series ?? _brandTree[brand].Keys.First()].OrderBy(m => m))
+                    _modelList.Add(m);
+                CbModel.SelectedItem = _modelOverride;
+            }
+        }
+
+
+        var customName = SettingsManager.GetString("CustomName");
+        TbCustomName.Text = customName ?? "";
+        UpdateTitle();
+
+        Closing += OnWindowClosing;
+        Closed += (_, _) =>
+        {
+#if WINDOWS
+            _ = _bluetoothWatcher.DisposeAsync();
+#endif
+            DisposeRuntimeUiResources();
+        };
+#if WINDOWS
+        _bluetoothWatcher.DevicesChanged += OnBluetoothDevicesChanged;
+        _bluetoothWatcher.Start();
+#endif
+        StartDesktopControl();
+        _ = CheckForUpdateAsync(); // 后台检查更新
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "MainWindow 构造", ex);
+            throw;
+        }
+    }
+
+    // Connection helpers live in MainWindow.Connection.cs
+
+    private DispatcherTimer EnsureEqDebounceTimer()
+    {
+        if (_eqDebounceTimer != null)
+            return _eqDebounceTimer;
+
+        _eqDebounceTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(150), DispatcherPriority.Background, (_, _) =>
+        {
+            _eqDebounceTimer?.Stop();
+            SendCurrentCustomEq();
+        });
+        return _eqDebounceTimer;
+    }
+
+    private DispatcherTimer EnsureBackgroundApplyDebounceTimer()
+    {
+        if (_bgApplyDebounceTimer != null)
+            return _bgApplyDebounceTimer;
+
+        _bgApplyDebounceTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(220), DispatcherPriority.Background, (_, _) =>
+        {
+            _bgApplyDebounceTimer?.Stop();
+            ApplySavedBackground();
+        });
+        return _bgApplyDebounceTimer;
+    }
+
+    private void OnStateChanged()
+    {
+        if (_stateRefreshPending)
+            return;
+
+        _stateRefreshPending = true;
+        Dispatcher.UIThread.Post(() =>
+    {
+        try
+        {
+            var s = _pods.State;
+            var caps = _modelOverride != null
+                ? _controller.ForceModel(_modelOverride)
+                : _pods.Caps;
+
+            if (IsStateConnected(s))
+        {
+            StatusDot.Fill = BrushGreen;
+            UpdateConnectionStatusText(caps);
+            StatusText.Foreground = BrushLightGreen;
+            BtnReconnect.IsVisible = false;
+
+            if (caps.HasDualDevice)
+            {
+                RequestSyncMultiDeviceList();
+            }
+
+            if (!_wasConnected && (s.Battery.Left is not null || s.Battery.Right is not null || s.Battery.Case is not null))
+            {
+                _wasConnected = true;
+
+                var initialToastType = GetBatteryToastType(s);
+                if (initialToastType == ToastType.CriticalBattery)
+                {
+                    _criticalBatteryAlerted = true;
+                    _lowBatteryAlerted = true;
+                }
+                else if (initialToastType == ToastType.LowBattery)
+                {
+                    _lowBatteryAlerted = true;
+                }
+                _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), initialToastType, GetToastDuration());
+
+                _controller.QueryEqualizerDetails();  // 首次连接时查询设备端 EQ 列表
+            }
+        }
+        else
+        {
+            _selectedEarbudAddress = 0;
+            _earbudDevices.Clear();
+            _suppressEarbudSelection = true;
+            CbDevice.Items.Clear();
+            CbDevice.IsVisible = false;
+            BtnRefreshDevices.IsVisible = false;
+            _suppressEarbudSelection = false;
+            _controller.SignalReconnect();
+            var wasConnected = _wasConnected;
+            _wasConnected = false;
+            _lowBatteryAlerted = false;
+            _criticalBatteryAlerted = false;
+            _cachedModelName = null; // 断开后清空缓存，下次连接重新获取
+            _connectionStatusStartedAt = DateTime.MinValue;
+
+            StatusDot.Fill = BrushRed;
+            StatusText.Text = _statusDisconnected;
+            StatusText.Foreground = BrushLightRed;
+            StatusDot.IsVisible = true;
+            StatusText.IsVisible = true;
+            BtnReconnect.IsVisible = true;
+            
+            // TrayIcon.SetIcon(this, _iconDisconnected); // 托盘图标切换在 SetupTrayIcon 中处理
+
+            if (wasConnected)
+                _ = ToastWindow.ShowAsync(null, GetDeviceDisplayName(), ToastType.Disconnected, GetToastDuration());
+
+            ResetUi();
+            RebuildTrayMenu();
+            return;
+        }
+
+        // 检测是否需要刷新 EQ 列表（连接后预设可能变化）
+        // 检测 EQ 列表是否需要刷新（设备端条目增减时）
+        var prevCount = _pods.State.DeviceEqualizers.Count;
+        if (CbEq.ItemCount == 0 || prevCount != _lastDeviceEqCount
+            || (caps.EqualizerPresets ?? new Dictionary<string, byte>()).Keys.Any(k => !CbEq.Items.Contains(k))
+            || _pods.State.DeviceEqualizers.Any(e => !string.IsNullOrEmpty(e.Name) && !CbEq.Items.Contains(e.Name)))
+        {
+            RefreshAllEqViews();
+        }
+        _lastDeviceEqCount = prevCount;
+
+        var batL = MergeCharge(BatteryLevel(s, "L"), s.LeftWearing);
+        var batR = MergeCharge(BatteryLevel(s, "R"), s.RightWearing);
+        SetBatLabel(LeftLabel, LeftChargeBolt, LeftBatteryProgress, batL);
+        SetBatLabel(RightLabel, RightChargeBolt, RightBatteryProgress, batR);
+        SetBatLabel(CaseLabel, CaseChargeBolt, CaseBatteryProgress, BatteryLevel(s, "C"));
+
+        var batteryToastType = GetBatteryToastType(s);
+        if (!_criticalBatteryAlerted && batteryToastType == ToastType.CriticalBattery)
+        {
+            _criticalBatteryAlerted = true;
+            _lowBatteryAlerted = true; // 极低电量跳过低电量弹窗
+            _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.CriticalBattery, GetToastDuration());
+        }
+        else if (!_lowBatteryAlerted && batteryToastType == ToastType.LowBattery)
+        {
+            _lowBatteryAlerted = true;
+            _ = ToastWindow.ShowAsync(s, GetDeviceDisplayName(), ToastType.LowBattery, GetToastDuration());
+        }
+
+        var parts = new List<string>();
+        if (batL is { } lb) parts.Add($"L:{lb.Lvl}%{(lb.Chg ? "⚡" : "")}");
+        if (batR is { } rb) parts.Add($"R:{rb.Lvl}%{(rb.Chg ? "⚡" : "")}");
+        if (BatteryLevel(s, "C") is { } cb) parts.Add($"C:{cb.Lvl}%{(cb.Chg ? "⚡" : "")}");
+        UpdateTrayTooltip(parts.Count > 0 ? $"{caps.ModelName}\n{string.Join(" ", parts)}" : caps.ModelName);
+
+        // 佩戴状态 - 即使空也显示占位，排查显示问题
+        var wearParts = new List<string>();
+        if (!string.IsNullOrEmpty(s.LeftWearing)) wearParts.Add(LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Left) + LocalizedWearing(s.LeftWearing));
+        if (!string.IsNullOrEmpty(s.RightWearing)) wearParts.Add(LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Right) + LocalizedWearing(s.RightWearing));
+        WearStatus.Text = wearParts.Count > 0 ? string.Join("  ", wearParts) : "";
+        WearStatus.IsVisible = wearParts.Count > 0;
+
+        // 查找设备：两只耳机均未佩戴时才可用
+        var anyWearing = s.LeftWearing == "已佩戴" || s.RightWearing == "已佩戴"
+                      || s.LeftWearing == "佩戴"   || s.RightWearing == "佩戴";
+        BtnFindDevice.IsVisible = caps.HasFindDevice;
+        BtnFindDevice.IsEnabled = caps.HasFindDevice && IsStateConnected(s) && !anyWearing;
+
+        // Mode 初始为 null；`is not "?"` 对 null 仍为 true，会进 SyncAncFromState 并
+        // 在 _ancChildToMain.TryGetValue(null) 抛 ArgumentNullException，整段 UI 同步中断。
+        if (!string.IsNullOrEmpty(s.Anc.Mode)
+            && s.Anc.Mode != "?"
+            && (DateTime.Now - _ancUserSetAt).TotalSeconds > 3)
+            SyncAncFromState(s.Anc.Mode);
+        HighlightAnc();
+
+        // 智能切换：显示设备实时计算出的档位（如"实时计算：深度"）。
+        // Smart 在容器型设备是子档位(_ancLevel)，在扁平型是主模式(_ancMain)，两者都要判。
+        if ((_ancMain == "Smart" || _ancLevel == "Smart") && !string.IsNullOrEmpty(s.Anc.IntelligentRealtime))
+        {
+            AncRealtimeHint.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Anc_RealtimeHint), AncModeLabel(s.Anc.IntelligentRealtime));
+            AncRealtimeHint.IsVisible = true;
+        }
+        else
+        {
+            AncRealtimeHint.IsVisible = false;
+        }
+
+        if (!string.IsNullOrEmpty(s.Equalizer.Preset)
+            && s.Equalizer.Preset != "?"
+            && CbEq.SelectedItem == null)
+        {
+            _eqCurrentPreset = s.Equalizer.Preset;
+            CbEq.SelectionChanged -= CbEq_SelectionChanged;
+            CbEq.SelectedItem = s.Equalizer.Preset;
+            CbEq.SelectionChanged += CbEq_SelectionChanged;
+        }
+        if ((DateTime.Now - _featureUserSetAt).TotalSeconds > 3)
+        {
+            // 空间声场开关：优先 FeatureStates，否则 SpatialAudioEnabled；无信息=关
+            var spatialOn = s.FeatureStates.TryGetValue(CoreFeature.SpatialAudio, out var sp)
+                ? sp
+                : s.SpatialAudioEnabled;
+            if (_prevSpatialSound != spatialOn)
+            {
+                _prevSpatialSound = spatialOn;
+                SetSpatialCheckedSilent(spatialOn);
+                CbGameSound.IsEnabled = !spatialOn;
+            }
+            if (caps.HasSpatialAudio
+                && !string.IsNullOrEmpty(s.SpatialMode)
+                && s.SpatialMode != _prevSpatialMode)
+            {
+                _prevSpatialMode = s.SpatialMode;
+                SyncSpatialModeFromState(s.SpatialMode);
+            }
+            // 游戏模式：优先 FeatureStates[Gaming]，否则 GamingEnabled；无信息=关
+            var gameOn = s.FeatureStates.TryGetValue(CoreFeature.Gaming, out var g)
+                ? g
+                : s.GamingEnabled;
+            if (_prevGameMode != gameOn)
+            {
+                _prevGameMode = gameOn;
+                SetGameCheckedSilent(gameOn);
+            }
+            SyncFeatureCheckbox(s, CoreFeature.GameSound, ref _prevGameSound, v =>
+            {
+                SetGameSoundCheckedSilent(v);
+                CbSpatial.IsEnabled = !v;
+                SetEqControlsEnabled(!v);
+            });
+            SyncFeatureCheckbox(s, CoreFeature.DualDevice, ref _prevDualDevice, SetDualDeviceCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.BassEngine, ref _prevBassEngine, SetBassEngineCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.VocalEnhance, ref _prevVocalEnhance, SetVocalEnhanceCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.HearingEnhance, ref _prevHearingEnhance, SetHearingEnhanceCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.LongPowerMode, ref _prevLongPowerMode, SetLongPowerCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.WearDetection, ref _prevWearDetection, SetWearDetectionCheckedSilent);
+            SyncFeatureCheckbox(s, CoreFeature.SpineHealth, ref _prevSpineHealth, SetSpineHealthCheckedSilent);
+        }
+
+        if (DeviceInfoPanel.IsVisible) RefreshDeviceInfo();
+
+        // 按钮显隐：严格按 0x0100 位图 ∩ JSON 白名单（caps 已由 OppoCapabilityResolver 求交）
+        ApplyCapabilityVisibility(caps);
+
+        ModelNote.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), caps.ModelName);
+        UpdateTitle();
+        RebuildTrayMenu();
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "OnStateChanged", ex);
+        }
+        finally
+        {
+            _stateRefreshPending = false;
+        }
+    });
+    }
+
+    private static void SetBatLabel(TextBlock label, Control chargeBolt, ProgressBar progress, (int Lvl, bool Chg)? d)
+    {
+        if (d is not { } v)
+        {
+            label.Text = "-%";
+            chargeBolt.IsVisible = false;
+            progress.Value = 0;
+            progress.IsVisible = false;
+            return;
+        }
+
+        label.Text = $"{v.Lvl}%";
+        chargeBolt.IsVisible = v.Chg;
+        progress.Value = v.Lvl;
+        progress.Foreground = v.Lvl <= 20 ? BrushBatteryLow : v.Lvl <= 60 ? BrushBatteryMid : BrushBatteryHigh;
+        progress.IsVisible = true;
+    }
+
+    private static (int Lvl, bool Chg)? MergeCharge((int Lvl, bool Chg)? bat, string wear) =>
+        bat is { } b ? (b.Lvl, b.Chg || wear == "入盒") : null;
+
+    private void CbTray_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_initializingSettings) return;
+        var on = CbTray.IsChecked == true;
+        SettingsManager.SetBool("TrayEnabled", on);
+        Log.D("UI", $"设置: 关闭到托盘 -> {on}");
+    }
+
+    private void CbAuto_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_initializingSettings) return;
+        var on = CbAuto.IsChecked == true;
+        try
+        {
+            using var runKey = Microsoft.Win32.Registry.CurrentUser
+                .OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
+            if (runKey is null) return;
+
+            if (on)
+            {
+                SettingsManager.SetBool("AutoStart", true);
+                var exe = Environment.ProcessPath ?? "";
+                runKey.SetValue("OPPOPods", $"\"{exe}\" --minimized");
+            }
+            else
+            {
+                SettingsManager.SetBool("AutoStart", false);
+                try { runKey.DeleteValue("OPPOPods", throwOnMissingValue: false); } catch { }
+            }
+            Log.D("UI", $"设置: 开机自启 -> {on}");
+        }
+        catch (Exception ex) { Log.Ex("UI", "设置开机自启", ex); }
+    }
+    private void CbAutoUpdate_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_initializingSettings) return;
+        var on = CbAutoUpdate.IsChecked == true;
+        SettingsManager.SetString("AutoCheckUpdate", on ? "true" : "false");
+        Log.D("UI", $"设置: 自动检查更新 -> {on}");
+    }
+
+    /// <summary>按当前型号 caps.AncOptions 动态生成主/子模式圆形图标按钮（型号不变则跳过重建）。</summary>
+    private void BuildAncUi(CoreCaps caps)
+    {
+        var modelKey = caps.ModelId + "|" + caps.ModelName + "|" + string.Join("|", caps.AncOptions.Select(opt =>
+            opt.Children.Count > 0
+                ? $"{opt.Key}:{opt.Label}>" + string.Join(",", opt.Children.Select(c => $"{c.Key}:{c.Label}"))
+                : $"{opt.Key}:{opt.Label}"));
+        if (_ancBuiltForModel == modelKey) return;
+        _ancBuiltForModel = modelKey;
+        _ancOptions = caps.AncOptions.ToList();
+
+        _ancMainButtons.Clear();
+        _ancChildToMain.Clear();
+        AncMainRow.Children.Clear();
+        AncMainRow.ColumnDefinitions.Clear();
+        AncSubRow.Children.Clear();
+        AncSubRow.ColumnDefinitions.Clear();
+        _ancSubButtons.Clear();
+        _ancSubSignature = "";
+        AncSubRow.IsVisible = false;
+
+        // 无 ANC 选项或未连接 → 显示占位文字，隐藏按钮行
+        if (_ancOptions.Count == 0)
+        {
+            AncPlaceholderText.IsVisible = true;
+            AncMainRow.IsVisible = false;
+            return;
+        }
+        AncPlaceholderText.IsVisible = false;
+        AncMainRow.IsVisible = true;
+
+        int col = 0;
+        for (int i = 0; i < _ancOptions.Count; i++)
+        {
+            var opt = _ancOptions[i];
+            if (i > 0) AddSpacer(AncMainRow, ref col, 16);
+            var (panel, bg, stroke, icon, label) = MakeAncIconButton(opt, 56, 28, 11, AncMain_Click);
+            AddToRow(AncMainRow, panel, ref col);
+            _ancMainButtons[opt.Key] = (bg, icon, label);
+
+            foreach (var child in opt.Children)
+                _ancChildToMain[child.Key] = opt.Key;
+        }
+        HighlightAnc();
+    }
+
+    /// <summary>填充子模式行（纯文字按钮，不带图标）。</summary>
+    private void PopulateAncSub(CoreAnc container)
+    {
+        var signature = container.Key + ":" + string.Join("|", container.Children.Select(c => $"{c.Key};{c.Label}"));
+        if (_ancSubSignature == signature && _ancSubButtons.Count == container.Children.Count)
+            return;
+
+        foreach (var (_, (btn, _)) in _ancSubButtons)
+            btn.Click -= AncSub_Click;
+
+        AncSubRow.Children.Clear();
+        AncSubRow.ColumnDefinitions.Clear();
+        _ancSubButtons.Clear();
+        _ancSubSignature = signature;
+
+        int col = 0;
+        for (int i = 0; i < container.Children.Count; i++)
+        {
+            var child = container.Children[i];
+            if (i > 0) AddSeparator(AncSubRow, ref col);
+            var corner = FirstLast(i, container.Children.Count, 5);
+            var (btn, bg) = MakeTextButton(DeviceUiLabels.AncLabel(child.Key), child, 72, 28, 13, corner, AncSub_Click);
+            AddToRow(AncSubRow, bg, ref col);
+            _ancSubButtons[child.Key] = (btn, bg);
+        }
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的 ANC 主/子按钮文字。</summary>
+    private void RefreshAncLabels()
+    {
+        foreach (var (key, (_, _, label)) in _ancMainButtons)
+        {
+            var t = DeviceUiLabels.AncLabel(key);
+            label.Text = t;
+            label.FontSize = t.Length > 10 ? 9 : 11;
+        }
+        foreach (var (key, (btn, _)) in _ancSubButtons)
+            btn.Content = DeviceUiLabels.AncLabel(key);
+    }
+
+    private static bool ProbeEarbudCommunication(object probe) => false;
+
+    /// <summary>创建图标+文字按钮：Ellipse 圆形背景+描边 + 矢量图标 + 文字。</summary>
+    private (Control panel, Ellipse bg, Ellipse stroke, Path icon, TextBlock label) MakeAncIconButton(
+        CoreAnc opt, int circleSize, int iconSize, int fontSize,
+        EventHandler<Avalonia.Interactivity.RoutedEventArgs> onClick)
+    {
+        // 背景圆（选中时填充主题色）
+        var bg = new Ellipse
+        {
+            Width = circleSize, Height = circleSize,
+            Fill = BrushTransparent
+        };
+        // 矢量图标：24×24 原始尺寸，Grid 居中
+        var icon = new Path
+        {
+            Data = Avalonia.Media.StreamGeometry.Parse(GetAncIcon(opt.Key)),
+            Width = 24, Height = 24,
+            Fill = BrushGray,
+            Stretch = Avalonia.Media.Stretch.None,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        icon.Tag = opt;
+        // 透明按钮覆盖整层
+        var clickBtn = new Button
+        {
+            Width = circleSize, Height = circleSize,
+            Background = BrushTransparent, BorderThickness = new Thickness(0),
+            Tag = opt,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand)
+        };
+        clickBtn.Click += onClick;
+
+        // 层叠：背景圆 → 图标 → 透明按钮
+        var grid = new Grid { Width = circleSize, Height = circleSize };
+        var hoverScale = new ScaleTransform(1, 1);
+        grid.RenderTransform = hoverScale;
+        grid.RenderTransformOrigin = new Avalonia.RelativePoint(0.5, 0.5, Avalonia.RelativeUnit.Relative);
+        grid.Transitions = new Transitions
+        {
+            new TransformOperationsTransition { Property = Grid.RenderTransformProperty, Duration = TimeSpan.FromMilliseconds(180), Easing = new CubicEaseOut() }
+        };
+        grid.PointerEntered += (_, _) => { hoverScale.ScaleX = 1.08; hoverScale.ScaleY = 1.08; };
+        grid.PointerExited += (_, _) => { hoverScale.ScaleX = 1; hoverScale.ScaleY = 1; };
+        grid.Children.Add(bg);
+        grid.Children.Add(icon);
+        grid.Children.Add(clickBtn);
+
+        var labelText = DeviceUiLabels.AncLabel(opt.Key);
+        var label = new TextBlock
+        {
+            Text = labelText,
+            FontSize = labelText.Length > 10 ? Math.Max(9, fontSize - 2) : fontSize,
+            Foreground = BrushGray,
+            TextAlignment = Avalonia.Media.TextAlignment.Center,
+            Margin = new Thickness(0, 6, 0, 0),
+            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+        };
+
+        var panel = new StackPanel();
+        panel.Children.Add(grid);
+        panel.Children.Add(label);
+
+        // bg 用于填充，icon 用于图标+描边
+        return (panel, bg, bg, icon, label);
+    }
+
+    private void AddToRow(Grid row, Control c, ref int col)
+    {
+        row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        Grid.SetColumn(c, col);
+        row.Children.Add(c);
+        col++;
+    }
+
+    private static void AddSpacer(Grid row, ref int col, int width)
+    {
+        row.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(width)));
+        col++;
+    }
+
+    private void AddSeparator(Grid row, ref int col)
+    {
+        row.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        var sep = new Border { Width = 1, Background = BrushGray, Opacity = 0.12 };
+        Grid.SetColumn(sep, col);
+        row.Children.Add(sep);
+        col++;
+    }
+
+    private static CornerRadius FirstLast(int i, int count, double r)
+    {
+        if (count == 1) return new CornerRadius(r);
+        if (i == 0) return new CornerRadius(r, 0, 0, r);
+        if (i == count - 1) return new CornerRadius(0, r, r, 0);
+        return new CornerRadius(0);
+    }
+
+    private (Button, Border) MakeTextButton(string label, CoreAnc opt, int w, int h, int fontSize, CornerRadius corner, EventHandler<Avalonia.Interactivity.RoutedEventArgs> onClick)
+    {
+        var btn = new Button
+        {
+            Content = label, Tag = opt, MinWidth = w, Height = h,
+            BorderThickness = new Thickness(0), Padding = new Thickness(8, 0),
+            Background = BrushTransparent, Focusable = false,
+            Foreground = BrushGray, FontSize = fontSize,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        };
+        btn.Click += onClick;
+        var bg = new Border { CornerRadius = corner, Padding = new Thickness(0), Background = BrushTransparent, Child = btn };
+        return (btn, bg);
+    }
+
+    private void HighlightAnc()
+    {
+        var circleGray = GetCircleGray();
+        var accent = _isLightTheme ? (IBrush)_brushAccentLight : (IBrush)BrushAccent;
+        foreach (var (key, (bg, icon, label)) in _ancMainButtons)
+        {
+            var active = key == _ancMain;
+            bg.Fill = active ? accent : circleGray;
+            icon.Fill = active ? BrushWhitePure : BrushGray;
+            // 主模式文字不变色
+        }
+        foreach (var (key, (btn, bg)) in _ancSubButtons)
+        {
+            var active = key == _ancLevel;
+            bg.Background = active ? accent : circleGray;
+            btn.Foreground = active ? BrushWhitePure : BrushGray;
+        }
+    }
+
+    private void SwitchAncMain(CoreAnc opt)
+    {
+        if (!_pods.IsConnected) return;
+        Log.D("UI", $"用户操作: ANC 主模式 -> {opt.Key}");
+        _ancUserSetAt = DateTime.Now;
+        _ancMain = opt.Key;
+
+        if (opt.Children.Count > 0)
+        {
+            // 容器型：展开子模式，恢复上次选的子模式（每个父模式独立记忆）
+            PopulateAncSub(opt);
+            AncSubRow.IsVisible = true;
+            var target = _ancLastSub.TryGetValue(opt.Key, out var last)
+                && opt.Children.Any(c => c.Key == last)
+                ? last : opt.Children[0].Key;
+            _ancLevel = target;
+            _controller.SetAnc(target);
+        }
+        else
+        {
+            // 叶子型：直接发送，收起子模式
+            AncSubRow.IsVisible = false;
+            _ancLevel = "";
+            _controller.SetAnc(opt.Key);
+        }
+        HighlightAnc();
+    }
+
+    private void SwitchAncSub(CoreAnc opt)
+    {
+        if (!_pods.IsConnected) return;
+        Log.D("UI", $"用户操作: ANC 子级别 -> {opt.Key}");
+        _ancUserSetAt = DateTime.Now;
+        _ancLevel = opt.Key;
+        _ancLastSub[_ancMain] = opt.Key;
+        _controller.SetAnc(opt.Key);
+        HighlightAnc();
+    }
+
+    private void AncMain_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (s is Button btn && btn.Tag is CoreAnc opt) SwitchAncMain(opt);
+    }
+
+    private void AncSub_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (s is Button btn && btn.Tag is CoreAnc opt) SwitchAncSub(opt);
+    }
+
+    /// <summary>模式键 → 中文显示名（从当前型号 AncOptions 里查主模式或子模式的 Label）。</summary>
+    private string AncModeLabel(string key)
+    {
+        foreach (var o in _ancOptions)
+        {
+            if (o.Key == key) return o.Label;
+            foreach (var c in o.Children)
+                if (c.Key == key) return c.Label;
+        }
+        return key;
+    }
+
+    // 本地化辅助：型号选择 ComboBox 哨兵项（显示与比较共用，必须保持一致）。
+    private static string LAutoDetect() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AutoDetect);
+    private static string LAllSeries() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AllSeries);
+    private static string LAllModels() => LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_AllModels);
+
+    // 佩戴状态：State.WearingL/R 内部保留原始值（MergeCharge/查找设备逻辑依赖中文原值），
+    // 仅在界面显示时本地化，避免破坏充电检测与"佩戴中"判断。
+    private static string LocalizedWearing(string raw) => raw switch
+    {
+        "已断连" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Disconnected),
+        "摘下" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Removed),
+        "佩戴" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_Wearing),
+        "入盒" => LanguageManager.Instance.GetString(LanguageManager.Instance.Wear_InCase),
+        _ => raw
+    };
+
+    /// <summary>把设备上报的 ANC 模式键映射到 UI 主/子选中态（完全按当前型号选项模型）。</summary>
+    private void SyncAncFromState(string? modeKey)
+    {
+        if (string.IsNullOrEmpty(modeKey) || modeKey == "?")
+            return;
+
+        // 1) 是某个主模式（叶子）？直接选中，收起子行
+        var mainOpt = _ancOptions.FirstOrDefault(o => o.Key == modeKey && o.Children.Count == 0);
+        if (mainOpt != null)
+        {
+            _ancMain = modeKey;
+            _ancLevel = "";
+            AncSubRow.IsVisible = false;
+            return;
+        }
+
+        // 2) 是某容器主模式的子模式？选中其父，展开子行并选中该子模式
+        if (_ancChildToMain.TryGetValue(modeKey, out var parentKey))
+        {
+            var container = _ancOptions.FirstOrDefault(o => o.Key == parentKey);
+            if (container != null)
+            {
+                _ancMain = parentKey;
+                _ancLevel = modeKey;
+                _ancLastSub[parentKey] = modeKey;
+                PopulateAncSub(container);
+                AncSubRow.IsVisible = true;
+            }
+        }
+    }
+
+    private void SpatialAudio_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (s is RadioButton rb && rb.IsChecked == true && rb.Tag is string mode && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 空间音频 -> {mode}");
+            _controller.SetSpatialAudio(mode);
+        }
+    }
+
+    private void CbSpatial_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbSpatial.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 空间声场开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            var result = _controller.SetSpatial(on);
+            if (result.DisabledGameSound)
+                SetGameSoundCheckedSilent(false);
+            CbGameSound.IsEnabled = result.GameSoundUiEnabled;
+            SetEqControlsEnabled(result.EqUiEnabled);
+        }
+    }
+
+    private void CbGame_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbGame.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 游戏模式开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetGameMode(on);
+        }
+    }
+
+    private void CbGameSound_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbGameSound.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 游戏音效开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            var result = _controller.SetGameSound(on);
+            if (result.DisabledSpatial)
+                SetSpatialCheckedSilent(false);
+            CbSpatial.IsEnabled = result.SpatialUiEnabled;
+            SetEqControlsEnabled(result.EqUiEnabled);
+        }
+    }
+
+    private void SetEqControlsEnabled(bool enabled)
+    {
+        // 均衡器滑块 + dB 标签
+        EqSlider62.IsEnabled = enabled;
+        EqSlider250.IsEnabled = enabled;
+        EqSlider1k.IsEnabled = enabled;
+        EqSlider4k.IsEnabled = enabled;
+        EqSlider8k.IsEnabled = enabled;
+        EqSlider16k.IsEnabled = enabled;
+        EqDb62.Opacity = enabled ? 0.5 : 0.2;
+        EqDb250.Opacity = enabled ? 0.5 : 0.2;
+        EqDb1k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb4k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb8k.Opacity = enabled ? 0.5 : 0.2;
+        EqDb16k.Opacity = enabled ? 0.5 : 0.2;
+        // 预设列表 + 新建按钮
+        LbEqBuiltinPresets.IsEnabled = enabled;
+        LbEqCustomPresets.IsEnabled = enabled;
+        BtnEqNew.IsEnabled = enabled;
+    }
+
+    private void SetCheckSilent(CheckBox box, EventHandler<RoutedEventArgs> handler, bool value)
+    {
+        box.IsCheckedChanged -= handler;
+        box.IsThreeState = false;
+        box.IsChecked = value;
+        box.IsCheckedChanged += handler;
+    }
+
+    private void SetSpatialCheckedSilent(bool value) =>
+        SetCheckSilent(CbSpatial, CbSpatial_Changed, value);
+
+    private void SetGameCheckedSilent(bool value) =>
+        SetCheckSilent(CbGame, CbGame_Changed, value);
+
+    private void SetGameSoundCheckedSilent(bool value) =>
+        SetCheckSilent(CbGameSound, CbGameSound_Changed, value);
+
+    private void SetDualDeviceCheckedSilent(bool value) =>
+        SetCheckSilent(CbDualDevice, CbDualDevice_Changed, value);
+
+    private void SetBassEngineCheckedSilent(bool value) =>
+        SetCheckSilent(CbBassEngine, CbBassEngine_Changed, value);
+
+    private void SetVocalEnhanceCheckedSilent(bool value) =>
+        SetCheckSilent(CbVocalEnhance, CbVocalEnhance_Changed, value);
+
+    private void SetHearingEnhanceCheckedSilent(bool value) =>
+        SetCheckSilent(CbHearingEnhance, CbHearingEnhance_Changed, value);
+
+    private void SetLongPowerCheckedSilent(bool value) =>
+        SetCheckSilent(CbLongPower, CbLongPower_Changed, value);
+
+    private void SetWearDetectionCheckedSilent(bool value) =>
+        SetCheckSilent(CbWearDetection, CbWearDetection_Changed, value);
+
+    private void SetSpineHealthCheckedSilent(bool value) =>
+        SetCheckSilent(CbSpineHealth, CbSpineHealth_Changed, value);
+
+    private void CbDualDevice_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbDualDevice.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 双设备开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetDualDevice(on);
+        }
+    }
+
+    private void CbBassEngine_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbBassEngine.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 低音引擎开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetBassEngine(on);
+        }
+    }
+
+    private void CbVocalEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbVocalEnhance.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 人声增强开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetVocalEnhance(on);
+        }
+    }
+
+    private void CbHearingEnhance_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbHearingEnhance.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 听力增强开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetHearingEnhance(on);
+        }
+    }
+
+    private void CbLongPower_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbLongPower.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 长续航模式开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetLongPowerMode(on);
+        }
+    }
+
+    private void CbWearDetection_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbWearDetection.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 佩戴检测开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetWearDetection(on);
+        }
+    }
+
+    private void CbSpineHealth_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (CbSpineHealth.IsChecked is { } on && _pods.IsConnected)
+        {
+            Log.D("UI", $"用户操作: 脊柱健康开关 -> {on}");
+            _featureUserSetAt = DateTime.Now;
+            _controller.SetSpineHealth(on);
+        }
+    }
+
+    private void BtnFindDevice_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (!_pods.IsConnected || !_pods.Caps.HasFindDevice) return;
+
+        _findDeviceActive = !_findDeviceActive;
+        Log.D("UI", $"用户操作: 查找耳机 -> {_findDeviceActive}");
+        BtnFindDevice.Content = _findDeviceActive ? _stopFindDevice : _findDevice;
+        _controller.SetFindDevice(_findDeviceActive);
+    }
+
+    private void CbEq_SelectionChanged(object? s, SelectionChangedEventArgs e)
+    {
+        if (CbEq.SelectedItem is not string name || !_pods.IsConnected) return;
+        Log.D("UI", $"用户操作: EQ 预设 -> {name}");
+
+        if ((_pods.Caps.EqualizerPresets ?? new Dictionary<string, byte>()).ContainsKey(name)
+            || _pods.State.DeviceEqualizers.Any(ev => ev.Name == name))
+        {
+            _eqCurrentPreset = name;
+            _controller.SetEqualizer(name);
+            // 同步到 EQ 面板的预设列表
+            SyncCbEqToPanel(name);
+        }
+        else if (_pods.Caps.CustomEqFrequencies.Count > 0)
+        {
+            Log.D("UI", $"EQ预设: 未知内置或设备端预设 \"{name}\"，发送当前滑块值");
+            SendCurrentCustomEq();
+        }
+    }
+
+    private void CbBrand_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (CbBrand.SelectedItem is not string brand || brand == LAutoDetect())
+        {
+            _seriesList.Clear();
+            _modelList.Clear();
+            return;
+        }
+        if (!_brandTree.TryGetValue(brand, out var series)) return;
+
+        _seriesList.Clear();
+        _seriesList.Add(LAllSeries());
+        foreach (var sn in series.Keys.OrderBy(x => x)) _seriesList.Add(sn);
+        CbSeries.SelectedItem = LAllSeries();
+    }
+
+    private void CbSeries_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (CbBrand.SelectedItem is not string brand || !_brandTree.TryGetValue(brand, out var series)) return;
+        var sn = CbSeries.SelectedItem as string ?? LAllSeries();
+
+        _modelList.Clear();
+        _modelList.Add(LAllModels());
+        var models = sn == LAllSeries()
+            ? series.SelectMany(kv => kv.Value).Distinct().OrderBy(x => x).ToList()
+            : series.TryGetValue(sn, out var list) ? list.OrderBy(x => x).ToList() : new();
+        foreach (var m in models) _modelList.Add(m);
+        CbModel.SelectedItem = LAllModels();
+    }
+
+    private void CbModel_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (CbModel.SelectedItem is string model && model != LAllModels())
+        {
+            Log.D("UI", $"用户操作: 手动指定机型 -> {model}");
+            _modelOverride = model;
+            SettingsManager.SetString("ModelOverride", model);
+        _controller.ModelOverride = model;
+            SyncCaps();
+        }
+        else
+        {
+            _modelOverride = null;
+            SettingsManager.SetString("ModelOverride", null);
+        _controller.ModelOverride = null;
+            SyncCaps();
+        }
+    }
+
+    /// <summary>
+    /// 按能力位图解析结果控制主页控件显隐。
+    /// caps 必须是白名单 ∩ 0x0100 求交后的结果，不可仅用静态 JSON。
+    /// </summary>
+    private void ApplyCapabilityVisibility(CoreCaps caps)
+    {
+        BuildAncUi(caps);
+        // 空间音频三模式面板（V2 / 0x012A）
+        SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
+        BuildSpatialAudioUi(caps);
+        // 空间声场开关（V1 / feature 0x1B）
+        CbSpatial.IsVisible = caps.HasSpatialSound;
+        CbDualDevice.IsVisible = caps.HasDualDevice;
+        CbGame.IsVisible = caps.HasGameMode;
+        CbGameSound.IsVisible = caps.HasGameSound;
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        BtnFindDevice.IsVisible = caps.HasFindDevice;
+    }
+
+    private void SyncCaps()
+    {
+        var caps = _modelOverride != null
+            ? _controller.ForceModel(_modelOverride)
+            : _pods.Caps;
+        if (_modelOverride != null)
+            caps = caps.WithSpatialProtocol(_pods.State.SupportedCommands);
+
+        // 统一刷新主页调音 + EQ 面板预设列表
+        RefreshAllEqViews();
+        ApplyCapabilityVisibility(caps);
+
+        ModelNote.Text = _modelOverride == null
+            ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), _pods.Caps.ModelName)
+            : string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelManualSet), caps.ModelName);
+
+        UpdateTitle();
+        if (IsStateConnected(_pods.State))
+        {
+            UpdateConnectionStatusText(caps);
+            StatusText.Foreground = BrushLightGreen;
+            StatusDot.IsVisible = true;
+            StatusText.IsVisible = true;
+            if (caps.HasDualDevice)
+            {
+                StatusDot.IsVisible = false;
+                StatusText.IsVisible = false;
+                RequestSyncMultiDeviceList();
+            }
+        }
+    }
+
+    private void CbTheme_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_refreshingComboBoxes) return;
+        var idx = CbTheme.SelectedIndex;
+        Log.D("UI", $"用户操作: 切换主题 -> {idx}");
+        ApplyTheme(idx);
+        SettingsManager.SetInt("Theme", idx);
+    }
+
+    private void InitializeLanguageSelection()
+    {
+        _languageList.Clear();
+        foreach (var option in LanguageManager.GetAvailableLanguages())
+            _languageList.Add(option);
+
+        CbLanguage.ItemsSource = _languageList;
+        var configured = SettingsManager.GetString("Language");
+        var selected = _languageList.FirstOrDefault(option =>
+            string.Equals(option.CultureCode, configured ?? LanguageManager.AutomaticCultureCode, StringComparison.OrdinalIgnoreCase));
+        CbLanguage.SelectedItem = selected ?? _languageList[0];
+    }
+
+    private void CbLanguage_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_refreshingComboBoxes || _initializingSettings || CbLanguage.SelectedItem is not LanguageOption option)
+            return;
+
+        // SetString(null) removes Language from settings.json: no key means automatic mode.
+        SettingsManager.SetString("Language", option.IsAutomatic ? null : option.CultureCode);
+        LanguageManager.ApplyConfiguredCulture(option.IsAutomatic ? null : option.CultureCode);
+        // 语言列表里的"自动"项在初始化时按启动语言本地化，切换语言后需重新取当前语言的显示文本。
+        // 必须延迟到本次 SelectionChanged 的选择更新结束后再改源集合，否则 Avalonia 抛
+        // "Source collection was modified during selection update"。
+        var autoOption = LanguageManager.GetAvailableLanguages()[0];
+        Dispatcher.UIThread.Post(() =>
+        {
+            _refreshingComboBoxes = true;
+            try
+            {
+                // 先记录当前选中索引。替换首项（自动）后，若该对象正是当前选中项且其
+                // 本地化文本随语言变化（如从 English 切到“自动”会解析成中文“自动”），
+                // record 值不再相等，Avalonia 会判定选中项已离开列表而清空选择——下拉框
+                // 会显示空白。按原索引重新选中即可恢复正确的显示文本。
+                var selIdx = CbLanguage.SelectedIndex;
+                _languageList[0] = autoOption;
+                if (selIdx >= 0 && selIdx < _languageList.Count)
+                    CbLanguage.SelectedIndex = selIdx;
+            }
+            finally
+            {
+                _refreshingComboBoxes = false;
+            }
+        });
+        RefreshLocalizedComboBoxes();
+        RefreshAncLabels();
+        _smallWindow?.RefreshAncLabels();
+        RefreshSpatialAudioLabels();
+        // "恢复已隐藏设备"按钮文字由代码动态设置（带计数），切语言后需重新本地化
+        RefreshRestoreHiddenDevicesButton();
+        // 顶栏连接状态与佩戴状态文字在状态事件里赋值，切语言后需重新刷新一次，
+        // 否则会停留在旧语言直到下次状态变化。
+        OnStateChanged();
+        // 音效页系统预设名按当前语言本地化（DisplayName），切语言后需重建列表以刷新显示。
+        if (_pods?.Caps != null) RefreshAllEqViews();
+        // 托盘菜单/提示含冻结中文（ANC 标签、功能项、显示主页面/退出），强制重建
+        _trayMenuSignature = "";
+        RebuildTrayMenu();
+        // 优先设备下拉的中文选项（自动选择/未知设备/占位符）在策略同步时重建；
+        // 重置签名确保语言切换后使用本地化文本。
+        _priorityOptionsSignature = "";
+        // Force rebuild multi-device list with new language strings
+        _deviceListSignature = "";
+        RequestSyncMultiDeviceList();
+    }
+
+    /// <summary>
+    /// Force ComboBox presenters to re-evaluate the selected item's display text after
+    /// a language change. The {Translate} bindings update ComboBoxItem.Content, but
+    /// Avalonia's ComboBox caches the display in SelectionBoxItem at selection time and
+    /// does not re-read Content when it changes. Re-assigning SelectedIndex forces it to
+    /// re-evaluate from the bound Content.
+    /// </summary>
+    private void RefreshLocalizedComboBoxes()
+    {
+        _refreshingComboBoxes = true;
+
+        RefreshSelectedIndex(CbTheme);
+        RefreshSelectedIndex(CbTransparencyPreset);
+        RefreshSelectedIndex(CbToastDuration);
+        RefreshSelectedIndex(CbTouchLeftClick);
+        RefreshSelectedIndex(CbTouchLeftDouble);
+        RefreshSelectedIndex(CbTouchLeftTriple);
+        RefreshSelectedIndex(CbTouchLeftSlide);
+        RefreshSelectedIndex(CbTouchRightClick);
+        RefreshSelectedIndex(CbTouchRightDouble);
+        RefreshSelectedIndex(CbTouchRightTriple);
+        RefreshSelectedIndex(CbTouchRightSlide);
+        RefreshSelectedIndex(CbLanguage);
+
+        _refreshingComboBoxes = false;
+    }
+
+    private static void RefreshSelectedIndex(ComboBox comboBox)
+    {
+        var idx = comboBox.SelectedIndex;
+        if (idx >= 0)
+        {
+            comboBox.SelectedIndex = -1;
+            comboBox.SelectedIndex = idx;
+        }
+    }
+
+    private void ApplyTheme(int index)
+    {
+        var theme = SukiTheme.GetInstance();
+        switch (index)
+        {
+            case 0:
+                theme.ChangeBaseTheme(Avalonia.Styling.ThemeVariant.Default);
+                _isLightTheme = DetectSystemLightTheme();
+                break;
+            case 1:
+                theme.ChangeBaseTheme(Avalonia.Styling.ThemeVariant.Dark);
+                _isLightTheme = false;
+                break;
+            case 2:
+                theme.ChangeBaseTheme(Avalonia.Styling.ThemeVariant.Light);
+                _isLightTheme = true;
+                break;
+        }
+        RefreshThemeColors();
+    }
+
+    private static bool DetectSystemLightTheme()
+    {
+        var actualTheme = global::Avalonia.Application.Current?.ActualThemeVariant;
+        return actualTheme == Avalonia.Styling.ThemeVariant.Light;
+    }
+
+    private IBrush GetCircleGray() => _isLightTheme ? _brushCircleGrayLight : _brushCircleGrayDark;
+
+    private void RefreshThemeColors(bool refreshState = true)
+    {
+        // 清除之前可能残留的 SukiUI 资源覆盖，让 SukiUI 原生主题系统接管
+        // （按钮、ComboBox 等控件的 Background 绑定到 SukiBackground，
+        //   如果在 Window 级覆盖会导致按钮背景与窗口背景混为一体）
+        Resources.Remove("SukiBackground");
+        Resources.Remove("SukiCardBackground");
+
+        EnsureThemeResourceBrushes();
+
+        // 窗口背景：浅色微灰，深色透明。复用同一个画刷对象，避免频繁替换资源触发 DynamicResource 重建。
+        _windowBackgroundBrush.Color = _isLightTheme
+            ? Color.FromRgb(0xE5, 0xE5, 0xEA)
+            : Colors.Transparent;
+        Background = _windowBackgroundBrush;
+
+        var transparencyPct = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
+        var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255); // 0→255, 90→26
+        var glassAlpha = _isLightTheme ? alpha : (byte)Math.Clamp(alpha * 0.35, 9, 255);
+
+        // 卡片背景：浅色使用白色半透；深色使用深色半透。Linux 下白色半透卡片容易呈现为白底。
+        var cardBase = _isLightTheme ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x1C, 0x1C, 0x1E);
+        _glassCardBgBrush.Color = Color.FromArgb(alpha, cardBase.R, cardBase.G, cardBase.B);
+
+        // 侧边栏底框与卡片背景保持一致，复用画刷对象。
+        _sidebarBackgroundBrush.Color = Color.FromArgb(alpha, cardBase.R, cardBase.G, cardBase.B);
+        SidebarBorder.Background = _sidebarBackgroundBrush;
+
+        // 侧边栏选中高亮：浅色灰底，深色微白
+        _sidebarSelectedBgBrush.Color = _isLightTheme
+            ? Color.FromArgb(0x0C, 0x00, 0x00, 0x00)
+            : Color.FromArgb(0x0A, 0xFF, 0xFF, 0xFF);
+
+        // 弹窗遮罩：深色半透明黑 / 浅色半透明白
+        _dialogOverlayBgBrush.Color = _isLightTheme
+            ? Color.FromArgb(0x50, 0x00, 0x00, 0x00)
+            : Color.FromArgb(0x80, 0x00, 0x00, 0x00);
+
+        // 普通文字按钮背景板：浅色用微黑，深色用微白，保留轻量层次感。
+        _textPanelButtonBgBrush.Color = _isLightTheme
+            ? Color.FromArgb(0x14, 0x00, 0x00, 0x00)
+            : Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF);
+        _textPanelButtonHoverBgBrush.Color = _isLightTheme
+            ? Color.FromArgb(0x20, 0x00, 0x00, 0x00)
+            : Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF);
+        _textPanelButtonPressedBgBrush.Color = _isLightTheme
+            ? Color.FromArgb(0x2A, 0x00, 0x00, 0x00)
+            : Color.FromArgb(0x3A, 0xFF, 0xFF, 0xFF);
+
+        // 重置对话框确认按钮颜色，避免主题切换后残留
+        if (DialogConfirmBtn.IsVisible)
+            DialogConfirmBtn.Background = Brushes.Transparent;
+
+        HighlightAnc();
+        var s = _pods.State;
+        StatusDot.Fill = IsStateConnected(s) ? BrushGreen : BrushRed;
+        StatusText.Foreground = IsStateConnected(s) ? BrushLightGreen : BrushLightRed;
+        if (refreshState && !_realClose) OnStateChanged();
+    }
+
+    private void EnsureThemeResourceBrushes()
+    {
+        if (_themeResourceBrushesRegistered)
+            return;
+
+        Resources["GlassCardBg"] = _glassCardBgBrush;
+        Resources["SidebarSelectedBg"] = _sidebarSelectedBgBrush;
+        Resources["DialogOverlayBg"] = _dialogOverlayBgBrush;
+        Resources["TextPanelButtonBg"] = _textPanelButtonBgBrush;
+        Resources["TextPanelButtonHoverBg"] = _textPanelButtonHoverBgBrush;
+        Resources["TextPanelButtonPressedBg"] = _textPanelButtonPressedBgBrush;
+        _themeResourceBrushesRegistered = true;
+    }
+
+    private void ApplyTransparencyPreset(int idx)
+    {
+        if (idx <= 0) return;
+        var card = idx switch
+        {
+            1 => 0,  // 清晰
+            3 => 90, // 通透
+            _ => 50, // 平衡
+        };
+        _applyingAppearancePreset = true;
+        try
+        {
+            SlOpacity.Value = card;
+        }
+        finally
+        {
+            _applyingAppearancePreset = false;
+        }
+    }
+
+    private void RefreshCardOpacity()
+    {
+        RefreshThemeColors(refreshState: false); // 只更新复用画刷颜色，不触发完整状态刷新链路
+    }
+
+    private static void UpdateGlassCards(ScrollViewer sv, IBrush bg)
+    {
+        if (sv.Content is StackPanel sp)
+            foreach (var child in sp.Children)
+                if (child is Border b && b.Classes.Contains("glassCard"))
+                    b.Background = bg;
+    }
+
+    private void TbCustomName_Changed(object? s, TextChangedEventArgs e)
+    {
+        SettingsManager.SetString("CustomName",
+            string.IsNullOrWhiteSpace(TbCustomName.Text) ? null : TbCustomName.Text.Trim());
+        UpdateTitle();
+    }
+
+    /// <summary>
+    /// 获取稳定的设备型号名：连接后缓存首次探测到的有效名称，
+    /// 避免传输层 DeviceName 波动（如电脑蓝牙主机名 vs 耳机名）导致状态栏闪烁。
+    /// </summary>
+    private string GetStableModelName()
+    {
+        if (_modelOverride != null)
+            return _controller.ForceModel(_modelOverride).ModelName;
+
+        var caps = _pods.Caps;
+        var current = caps.ModelName;
+
+        // 只缓存“已被型号库识别/适配”的耳机型号。
+        // 这样初始预判如果拿到“xxx 的电脑”，也不会被状态栏显示或缓存。
+        if (IsStateConnected(_pods.State) && caps.IsSupported && IsValidModelName(current))
+            _cachedModelName = current;
+
+        if (!string.IsNullOrEmpty(_cachedModelName))
+            return _cachedModelName;
+
+        return IsValidModelName(current) ? current : LanguageManager.Instance.GetString(LanguageManager.Instance.Common_DefaultDeviceName);
+    }
+
+    private static bool IsValidModelName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        if (name == "Unknown" || name == LanguageManager.Instance.GetString(LanguageManager.Instance.Common_UnknownDevice)) return false;
+        if (name.Contains("电脑") || name.Contains("计算机") || name.Contains("Computer", StringComparison.OrdinalIgnoreCase)) return false;
+        return true;
+    }
+
+    private void UpdateConnectionStatusText(CoreCaps caps)
+    {
+        if (!IsStateConnected(_pods.State))
+        {
+            _connectionStatusStartedAt = DateTime.MinValue;
+            StatusText.Text = _statusDisconnected;
+            return;
+        }
+
+        if (_connectionStatusStartedAt == DateTime.MinValue)
+            _connectionStatusStartedAt = DateTime.Now;
+
+        var model = GetStableModelName();
+        if (caps.IsSupported && model != LanguageManager.Instance.GetString(LanguageManager.Instance.Common_DefaultDeviceName))
+        {
+            StatusText.Text = string.Format(_statusConnected, model);
+            return;
+        }
+
+        // 连接初期等待 productId 精确识别，避免把蓝牙主机名/电脑名显示到顶部状态栏。
+        StatusText.Text = DateTime.Now - _connectionStatusStartedAt < TimeSpan.FromSeconds(2)
+            ? _statusIdentifying
+            : _statusUnidentified;
+    }
+
+    /// <summary>
+    /// 获取设备显示名称：优先使用自定义名称，否则回退到稳定缓存的型号名。
+    /// 与 UpdateTitle 保持一致的优先级逻辑。
+    /// </summary>
+    private string GetDeviceDisplayName()
+    {
+        var custom = (TbCustomName.Text ?? "").Trim();
+        if (!string.IsNullOrEmpty(custom)) return custom;
+        return GetStableModelName();
+    }
+
+    /// <summary>根据用户设置获取弹窗时长（毫秒）。默认=5000ms。</summary>
+    private int GetToastDuration()
+    {
+        var idx = SettingsManager.GetInt("ToastDuration", 2);
+        return idx switch { 0 => 3000, 1 => 4000, 3 => 6000, 4 => 7000, 5 => 8000, _ => 5000 };
+    }
+
+    private static ToastType GetBatteryToastType(CoreState state)
+    {
+        // 电量提示统一看左右耳；充电盒低电不单独触发低电警告，避免首次连接跳过普通弹窗。
+        var left = BatteryLevel(state, "L")?.Lvl;
+        var right = BatteryLevel(state, "R")?.Lvl;
+        if ((left is <= 10) || (right is <= 10)) return ToastType.CriticalBattery;
+        if ((left is > 10 and <= 20) || (right is > 10 and <= 20)) return ToastType.LowBattery;
+        return ToastType.Battery;
+    }
+
+    private void UpdateTitle()
+    {
+        var name = GetDeviceDisplayName();
+        Title = name;
+
+        var s = _pods.State;
+        var parts = new List<string>();
+        var bl = MergeCharge(BatteryLevel(s, "L"), s.LeftWearing);
+        var br = MergeCharge(BatteryLevel(s, "R"), s.RightWearing);
+        if (bl is { } lb) parts.Add($"L:{lb.Lvl}%{(lb.Chg ? "⚡" : "")}");
+        if (br is { } rb) parts.Add($"R:{rb.Lvl}%{(rb.Chg ? "⚡" : "")}");
+        if (BatteryLevel(s, "C") is { } cb) parts.Add($"C:{cb.Lvl}%{(cb.Chg ? "⚡" : "")}");
+        UpdateTrayTooltip(parts.Count > 0 ? $"{name}\n{string.Join(" ", parts)}" : name);
+    }
+
+    private void NavHome_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("home");
+    private void NavEq_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("eq");
+    private void NavDeviceInfo_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("deviceinfo");
+    private void NavPersonal_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("personal");
+    private void NavLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("log");
+    private void NavSettings_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("settings");
+
+    private void ShowPage(string page)
+    {
+        if (_currentPage != page)
+        {
+            Log.D("UI", $"页面切换: {_currentPage} -> {page}");
+            _currentPage = page;
+        }
+        MainPanel.IsVisible = page == "home";
+        EqPanel.IsVisible = page == "eq";
+        if (page == "eq" && _pods.IsConnected) _controller.QueryEqualizerDetails();
+        DeviceInfoPanel.IsVisible = page == "deviceinfo";
+        PersonalPanel.IsVisible = page == "personal";
+        SettingsPanel.IsVisible = page == "settings";
+        LogPanel.IsVisible = page == "log";
+        AboutPanel.IsVisible = page == "about";
+
+        NavHome.Classes.Remove("selected");
+        NavEq.Classes.Remove("selected");
+        NavDeviceInfo.Classes.Remove("selected");
+        NavPersonal.Classes.Remove("selected");
+        NavSettings.Classes.Remove("selected");
+
+        if (page == "home") NavHome.Classes.Add("selected");
+        else if (page == "eq") NavEq.Classes.Add("selected");
+        else if (page == "deviceinfo") NavDeviceInfo.Classes.Add("selected");
+        else if (page == "personal") NavPersonal.Classes.Add("selected");
+        else NavSettings.Classes.Add("selected");
+
+        if (page != "log")
+        {
+            _logRefreshTimer?.Stop();
+            _logScrollPending = false;
+            _logAutoScroll = true;
+        }
+        if (page == "deviceinfo") RefreshDeviceInfo();
+        if (page == "eq") RefreshEqPresetList();
+        if (page == "log") RefreshLogView();
+    }
+
+    private void About_Click(object? s, RoutedEventArgs e) => ShowPage("about");
+    private void AboutBack_Click(object? s, RoutedEventArgs e) => ShowPage("settings");
+
+    /// <summary>平台适配：根据保存的设置，在构造阶段应用渲染管线配置。</summary>
+    private void AdaptToPlatform()
+    {
+        if (SettingsManager.GetBool("AcrylicBlur", false))
+        {
+            TransparencyLevelHint = new List<WindowTransparencyLevel>
+            {
+                WindowTransparencyLevel.AcrylicBlur,
+                WindowTransparencyLevel.Transparent
+            };
+            Background = Avalonia.Media.Brushes.Transparent;
+            SidebarFullBg.IsVisible = true;
+            SidebarBorder.Background = Avalonia.Media.Brushes.Transparent;
+
+            if (OperatingSystem.IsWindows())
+                BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
+        }
+        if (SettingsManager.GetBool("AdvancedRender", false))
+            EnableAdvancedRender();
+    }
+
+    /// <summary>Acrylic 模糊开/关（仅保存设置，需重启生效）。</summary>
+    private void ToggleAcrylicBlur(bool on)
+    {
+        SettingsManager.SetBool("AcrylicBlur", on);
+        Log.D("UI", $"设置: Acrylic 模糊 -> {on}");
+        if (on)
+            SelectBackground("default");
+        UpdateBackgroundSettingsAvailability(on);
+
+        ToastManager.CreateToast()
+            .WithTitle(on
+                ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabled)
+                : LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicDisabled))
+            .WithContent(on
+                ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabledMsg)
+                : LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicDisabledMsg))
+            .Dismiss().After(TimeSpan.FromSeconds(3)).Queue();
+    }
+
+    private void UpdateBackgroundSettingsAvailability(bool acrylicBlurEnabled)
+    {
+        var enabled = !acrylicBlurEnabled;
+        BackgroundSettingsContent.IsEnabled = enabled;
+        BackgroundSettingsContent.Opacity = enabled ? 1 : 0.45;
+        BgThumbDefault.Classes.Set("selected", true);
+    }
+
+    /// <summary>启用高级渲染：关 SukiWindow Chrome + 简易标题栏 + AcrylicBlur。</summary>
+    private void EnableAdvancedRender()
+    {
+        IsTitleBarVisible = false;
+        CustomTitleBar.IsVisible = true;
+        SidebarFullBg.IsVisible = true;
+        SidebarBorder.Background = Avalonia.Media.Brushes.Transparent;
+        RootGrid.Margin = new Thickness(0, 32, 0, 0);
+    }
+
+    private void DisableAdvancedRender()
+    {
+        IsTitleBarVisible = true;
+        CustomTitleBar.IsVisible = false;
+        SidebarFullBg.IsVisible = false;
+        SidebarBorder.Background = _sidebarBackgroundBrush;
+        RootGrid.Margin = default;
+    }
+
+    private void TitleBarDrag_PointerPressed(object? s, Avalonia.Input.PointerPressedEventArgs e)
+        => BeginMoveDrag(e);
+
+    private void CustomMin_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "窗口操作: 最小化");
+        WindowState = WindowState.Minimized;
+    }
+
+    private void CustomMax_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        var nextState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        Log.D("UI", $"窗口操作: 切换窗口状态 -> {nextState}");
+        WindowState = nextState;
+    }
+
+    private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "窗口操作: 点击关闭按钮");
+        Close();
+    }
+
+    // ===== 背景设置 =====
+    private void BtnBgLeft_Click(object? s, RoutedEventArgs e)
+        => BgThumbScroller.Offset = BgThumbScroller.Offset.WithX(Math.Max(0, BgThumbScroller.Offset.X - 200));
+
+    private void BtnBgRight_Click(object? s, RoutedEventArgs e)
+        => BgThumbScroller.Offset = BgThumbScroller.Offset.WithX(
+            Math.Min(BgThumbScroller.Extent.Width - BgThumbScroller.Viewport.Width,
+                     BgThumbScroller.Offset.X + 200));
+
+    private async Task BtnBgAdd_Click()
+    {
+        if (CbAcrylicBlur.IsChecked == true)
+            return;
+
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage == null) return;
+        var files = await storage.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_Title),
+            FileTypeFilter = new List<Avalonia.Platform.Storage.FilePickerFileType>
+            {
+                new(LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_FilterName)) { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" } }
+            },
+            AllowMultiple = false,
+        });
+        if (files is { Count: > 0 })
+            AddBgHistory(files[0].Path.LocalPath);
+    }
+
+    /// <summary>选中背景（default=默认, 路径=图片）。会高亮对应缩略图并实时应用到窗口。</summary>
+    private void SelectBackground(string key)
+    {
+        if (CbAcrylicBlur.IsChecked == true && key != "default")
+            return;
+
+        Log.D("UI", key == "default" ? "背景: 选择默认背景" : "背景: 选择自定义背景");
+        _bgSelected = key;
+        SettingsManager.SetString("BgCurrent", key == "default" ? null : key);
+        BgThumbDefault.Classes.Set("selected", key == "default");
+        foreach (var child in BgThumbList.Children)
+        {
+            Border? img = null;
+            if (child is Border b && b != BgThumbDefault && b != BgThumbAdd)
+                img = b;
+            else if (child is Panel p && p.Children.Count > 0)
+                img = p.Children[0] as Border;
+            if (img != null)
+                img.Classes.Set("selected", img.Tag as string == key);
+        }
+
+        ApplySavedBackground();
+        RefreshSmallWindowAppearance();
+    }
+
+    private void ApplySavedBackground()
+    {
+        var key = _bgSelected;
+        if (key == "default" || string.IsNullOrEmpty(key) || !System.IO.File.Exists(key))
+        {
+            SetSukiBackgroundStyle(SukiBackgroundStyle.Bubble);
+            SetBackgroundImageSource(null, "");
+            ClearBackgroundBitmapCache(keepKey: null);
+            BgFullImage.IsVisible = false;
+            return;
+        }
+
+        SetSukiBackgroundStyle(SukiBackgroundStyle.Flat);
+        var blur = Math.Clamp(SettingsManager.GetInt("BgBlur", 0), 0, 20);
+        var cacheKey = BuildBackgroundCacheKey(key, blur);
+        SetBackgroundImageSource(GetOrCreateBackgroundBitmap(key, blur, cacheKey), cacheKey);
+        ClearBackgroundBitmapCache(keepKey: cacheKey);
+        BgFullImage.IsVisible = true;
+        ApplyBackgroundAdjustments();
+    }
+
+    private void SetBackgroundImageSource(IImage? source, string cacheKey)
+    {
+        var old = _backgroundImageSource;
+        var oldKey = _backgroundCacheKey;
+        if (ReferenceEquals(old, source))
+            return;
+
+        BgFullImage.Source = source;
+        _backgroundImageSource = source;
+        _backgroundCacheKey = cacheKey;
+
+        // 缓存内的背景图不能在切换时释放；非缓存旧图才直接 Dispose。
+        if (old is IDisposable disposable && (string.IsNullOrEmpty(oldKey) || !_backgroundBitmapCache.ContainsKey(oldKey)))
+            disposable.Dispose();
+    }
+
+    private string BuildBackgroundCacheKey(string path, int blur)
+    {
+        var lastWrite = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
+        var targetWidth = GetBackgroundTargetWidth();
+        return $"{path}|{lastWrite}|w={targetWidth}|b={blur}";
+    }
+
+    private Avalonia.Media.Imaging.Bitmap GetOrCreateBackgroundBitmap(string path, int blur, string cacheKey)
+    {
+        if (_backgroundBitmapCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var bitmap = LoadBackgroundBitmap(path, blur);
+        _backgroundBitmapCache[cacheKey] = bitmap;
+        return bitmap;
+    }
+
+    private void ClearBackgroundBitmapCache(string? keepKey)
+    {
+        foreach (var (key, bitmap) in _backgroundBitmapCache.ToList())
+        {
+            if (key == keepKey)
+                continue;
+            bitmap.Dispose();
+            _backgroundBitmapCache.Remove(key);
+        }
+    }
+
+    private int GetBackgroundTargetWidth()
+    {
+        var windowWidth = Bounds.Width > 0 ? Bounds.Width : 900;
+        // 限制背景处理尺寸，避免 2K/4K 图片在前台产生过大的 Skia/Avalonia/GPU 峰值。
+        return Math.Clamp((int)Math.Ceiling(windowWidth * 1.1), 900, 1440);
+    }
+
+    private Avalonia.Media.Imaging.Bitmap LoadBackgroundBitmap(string path, int blur)
+    {
+        var targetWidth = GetBackgroundTargetWidth();
+        if (blur <= 0)
+        {
+            using var fs = System.IO.File.OpenRead(path);
+            return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(fs, targetWidth, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        }
+
+        return LoadBlurredBackgroundBitmap(path, targetWidth, blur);
+    }
+
+    internal static Avalonia.Media.Imaging.Bitmap LoadSmallSharedBackgroundBitmap(string path, int targetWidth, int blur)
+    {
+        if (blur <= 0)
+        {
+            using var fs = System.IO.File.OpenRead(path);
+            return Avalonia.Media.Imaging.Bitmap.DecodeToWidth(fs, targetWidth, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        }
+
+        return LoadBlurredBackgroundBitmap(path, targetWidth, blur);
+    }
+
+    private static Avalonia.Media.Imaging.Bitmap LoadBlurredBackgroundBitmap(string path, int targetWidth, int blur)
+    {
+        using var codec = SKCodec.Create(path);
+        if (codec == null)
+            return new Avalonia.Media.Imaging.Bitmap(path);
+
+        var srcInfo = codec.Info;
+        var scale = targetWidth / (double)Math.Max(1, srcInfo.Width);
+        var targetHeight = Math.Max(1, (int)Math.Round(srcInfo.Height * scale));
+        var scaledSize = codec.GetScaledDimensions((float)Math.Min(1.0, scale));
+        if (scaledSize.Width <= 0 || scaledSize.Height <= 0)
+            scaledSize = new SKSizeI(targetWidth, targetHeight);
+
+        var decodeInfo = new SKImageInfo(scaledSize.Width, scaledSize.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using var source = new SKBitmap(decodeInfo);
+        var result = codec.GetPixels(decodeInfo, source.GetPixels());
+        if (result is not SKCodecResult.Success and not SKCodecResult.IncompleteInput)
+            return new Avalonia.Media.Imaging.Bitmap(path);
+
+        var info = new SKImageInfo(targetWidth, targetHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
+        using var surface = SKSurface.Create(info);
+        var canvas = surface.Canvas;
+        canvas.Clear(SKColors.Transparent);
+
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            ImageFilter = SKImageFilter.CreateBlur(blur, blur)
+        };
+        var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear);
+        using var sourceImage = SKImage.FromBitmap(source);
+        canvas.DrawImage(sourceImage, new SKRect(0, 0, targetWidth, targetHeight), sampling, paint);
+        canvas.Flush();
+
+        using var image = surface.Snapshot();
+        using var data = image.Encode(SKEncodedImageFormat.Png, 85);
+        using var stream = data.AsStream();
+        return new Avalonia.Media.Imaging.Bitmap(stream);
+    }
+
+    private void ApplyBackgroundAdjustments()
+    {
+    }
+
+    private void SetSukiBackgroundStyle(SukiBackgroundStyle style)
+    {
+        if (BackgroundStyle != style)
+            BackgroundStyle = style;
+    }
+
+    private static readonly string BgFolder = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "OppoPodsManager", "Background");
+
+    /// <summary>添加历史背景缩略图到列表（去重、复制到本地、最多保留 10 张）。</summary>
+    private void AddBgHistory(string filePath)
+    {
+        // 复制到本地 Background 文件夹，防止原文件被移动/删除
+        try
+        {
+            if (!System.IO.Directory.Exists(BgFolder))
+                System.IO.Directory.CreateDirectory(BgFolder);
+            var ext = System.IO.Path.GetExtension(filePath) ?? ".png";
+            var dest = System.IO.Path.Combine(BgFolder, $"{Guid.NewGuid():N}{ext}");
+            System.IO.File.Copy(filePath, dest, overwrite: true);
+            filePath = dest;
+        }
+        catch { /* 复制失败则仍用原路径 */ }
+
+        // 去重。被挤出历史的本地缓存图要同步释放缩略图缓存，避免反复添加背景导致 Bitmap 缓存越积越多。
+        foreach (var old in _bgHistory.Where(p => p == filePath).ToList())
+        {
+            _bgHistory.Remove(old);
+            RemoveBackgroundThumb(old);
+        }
+
+        _bgHistory.Insert(0, filePath);
+        while (_bgHistory.Count > 10)
+        {
+            var removed = _bgHistory[^1];
+            _bgHistory.RemoveAt(_bgHistory.Count - 1);
+            RemoveBackgroundThumb(removed);
+            TryDeleteManagedBackgroundFile(removed);
+        }
+        RefreshBgThumbs();
+        SettingsManager.SetStringList("BgHistory", _bgHistory);
+        SelectBackground(filePath);
+    }
+
+    /// <summary>重建缩略图列表（默认 + 历史），添加按钮独立放在标题行。</summary>
+    private void RefreshBgThumbs()
+    {
+        // 清除旧历史缩略图（保留默认缩略图）
+        for (int i = BgThumbList.Children.Count - 1; i >= 0; i--)
+        {
+            var c = BgThumbList.Children[i];
+            if ((c is Border b && b == BgThumbDefault) || c == null)
+                continue;
+            BgThumbList.Children.RemoveAt(i);
+        }
+        foreach (var path in _bgHistory)
+        {
+            var img = new Border
+            {
+                Width = 90, Height = 60, CornerRadius = new Avalonia.CornerRadius(8),
+                Classes = { "bgThumb" }, Tag = path,
+            };
+            try
+            {
+                if (System.IO.File.Exists(path))
+                    img.Background = new Avalonia.Media.ImageBrush(GetOrCreateBackgroundThumb(path))
+                    {
+                        Stretch = Stretch.UniformToFill
+                    };
+                else
+                    img.Background = Avalonia.Media.Brushes.DimGray;
+            }
+            catch { img.Background = Avalonia.Media.Brushes.DimGray; }
+            img.PointerPressed += (_, _) => SelectBackground(path);
+
+            // 删除按钮（悬停时出现在右上角）
+            var delBtn = new Border
+            {
+                Width = 18, Height = 18, CornerRadius = new Avalonia.CornerRadius(9),
+                Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(200, 40, 40)),
+                IsVisible = false,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+                Margin = new Thickness(0, 2, 2, 0),
+                Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+                Child = new TextBlock
+                {
+                    Text = "✕", FontSize = 11,
+                    Foreground = Avalonia.Media.Brushes.White,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                },
+            };
+            delBtn.PointerPressed += (_, e) =>
+            {
+                e.Handled = true; // 阻止点击穿透
+                _bgHistory.Remove(path);
+                RemoveBackgroundThumb(path);
+                // 清理本地文件
+                try { if (System.IO.File.Exists(path)) System.IO.File.Delete(path); } catch { }
+                SettingsManager.SetStringList("BgHistory", _bgHistory);
+                if (_bgSelected == path) SelectBackground("default");
+                RefreshBgThumbs();
+            };
+
+            var wrapper = new Panel { Width = 90, Height = 60, Cursor = img.Cursor };
+            wrapper.Children.Add(img);
+            wrapper.Children.Add(delBtn);
+            wrapper.PointerEntered += (_, _) => delBtn.IsVisible = true;
+            wrapper.PointerExited += (_, _) => delBtn.IsVisible = false;
+
+            BgThumbList.Children.Add(wrapper);
+        }
+        SelectBackground(_bgSelected ?? "default");
+    }
+
+    private Avalonia.Media.Imaging.Bitmap GetOrCreateBackgroundThumb(string path)
+    {
+        var lastWrite = System.IO.File.GetLastWriteTimeUtc(path).Ticks;
+        var key = $"{path}|{lastWrite}|thumb=128";
+        if (_bgThumbCache.TryGetValue(key, out var cached))
+            return cached;
+
+        RemoveBackgroundThumb(path);
+        using var fs = System.IO.File.OpenRead(path);
+        var thumb = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(fs, 128, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        _bgThumbCache[key] = thumb;
+        return thumb;
+    }
+
+    private void RemoveBackgroundThumb(string path)
+    {
+        foreach (var (key, bitmap) in _bgThumbCache.ToList())
+        {
+            if (!key.StartsWith(path + "|", StringComparison.OrdinalIgnoreCase))
+                continue;
+            bitmap.Dispose();
+            _bgThumbCache.Remove(key);
+        }
+    }
+
+    private static void TryDeleteManagedBackgroundFile(string path)
+    {
+        try
+        {
+            var fullPath = System.IO.Path.GetFullPath(path);
+            var bgRoot = System.IO.Path.GetFullPath(BgFolder);
+            if (fullPath.StartsWith(bgRoot + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && System.IO.File.Exists(fullPath))
+            {
+                System.IO.File.Delete(fullPath);
+            }
+        }
+        catch { }
+    }
+
+    private void ClearBackgroundThumbCache()
+    {
+        foreach (var bitmap in _bgThumbCache.Values)
+            bitmap.Dispose();
+        _bgThumbCache.Clear();
+    }
+
+    private async void BtnFeedback_Click(object? s, RoutedEventArgs e)
+    {
+        _confirmTcs = new TaskCompletionSource<bool>();
+        _promptTcs = null;
+
+        DialogTitle.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_FeedbackTitle);
+        DialogMessage.FontSize = 13;
+        DialogMessage.Text = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_FeedbackMessage);
+        DialogInput.IsVisible = false;
+        DialogCancelBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_Cancel);
+        DialogCancelBtn.IsVisible = true;
+        DialogSkipBtn.Content = "GitLab";
+        DialogSkipBtn.IsVisible = true;
+        DialogConfirmBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_Confirm);
+        DialogOverlay.IsVisible = true;
+
+        var ok = await _confirmTcs.Task;
+        if (!ok) return;
+
+        ExportFeedback("https://github.com/Zhaoyi-ya/OppoPodsManager/issues/new");
+    }
+
+    private void ExportFeedback(string url)
+    {
+        try
+        {
+            var os = RuntimeInformation.OSDescription;
+            var ver = VersionText.Text ?? "unknown";
+            var model = string.IsNullOrEmpty(_pods.Caps.ModelName) ? "unknown" : _pods.Caps.ModelName;
+            var connected = IsStateConnected(_pods.State);
+            var stateText = connected ? "connected" : "disconnected";
+            var bat = connected
+                ? $"L{_pods.State.Battery.Left ?? -1}% R{_pods.State.Battery.Right ?? -1}% C{_pods.State.Battery.Case ?? -1}%"
+                : "N/A";
+            var date = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+
+            var header = $"""
+--- 系统信息 ---
+版本: {ver}
+操作系统: {os}
+设备型号: {model}
+连接状态: {stateText}
+电量: {bat}
+
+""";
+
+            var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var fileName = $"OPPOPods_feedback_{date}.zip";
+            var filePath = System.IO.Path.Combine(desktop, fileName);
+
+            _logManager.ExportLogsAsZip(filePath, header);
+
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+            _ = Dispatcher.UIThread.InvokeAsync(async () =>
+                await ShowCheckResultDialog(
+                    string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_FeedbackExported), fileName),
+                    LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_FeedbackTitle)));
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "ExportFeedback", ex);
+        }
+    }
+
+    private void OpenUrl_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (s is Button btn && btn.Tag is string url)
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+    }
+
+    // ========== EQ 调节 ==========
+
+// EQ fields/methods live in MainWindow.Equalizer.cs
+
+    public void AppendLog(string tag, string msg)
+    {
+        _logManager.AppendLog(tag, msg);
+    }
+
+    /// <summary>可合并的轮询发送行（只合并发送，不合并收到）。</summary>
+    private static readonly HashSet<string> _mergePatterns = new()
+    {
+        "查询电量", "查询电池详情", "查询降噪", "查询降噪状态",
+        "查询功能开关", "查询预设数据", "查询所有预设", "查询多设备",
+        "查询固件", "查询空间音效", "注册通知", "查询多设备列表",
+    };
+
+    /// <summary>刷新日志列表视图（支持简化版/完整版切换）。</summary>
+    private void RefreshLogView()
+    {
+        var lines = _logManager.GetRecentLines(out var version);
+        if (version == _renderedLogVersion && _renderedLogEntries.Count > 0)
+            return;
+
+        var display = _logSimplified ? BuildSimplifiedLogLines(lines) : lines;
+
+        _renderedLogEntries.Clear();
+        foreach (var line in display)
+            _renderedLogEntries.Add(line);
+        _renderedLogVersion = version;
+
+        // 自动跟随最新日志
+        if (_logAutoScroll && _logScrollViewer != null && !_logScrollPending)
+        {
+            _logScrollPending = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _logScrollPending = false;
+                if (_logScrollViewer != null)
+                    _logScrollViewer.Offset = new Vector(_logScrollViewer.Offset.X,
+                        _logScrollViewer.Extent.Height);
+            }, DispatcherPriority.Loaded);
+        }
+    }
+
+    private static List<string> BuildSimplifiedLogLines(IEnumerable<string> lines)
+    {
+        var entries = new List<string>();
+        foreach (var line in lines)
+        {
+            var t = TranslateLog(line);
+            if (t.Length > 0)
+                entries.Add(t);
+        }
+
+        var merged = new List<string>();
+        var pollBuf = new List<string>();
+        string? pollTs = null;
+
+        void FlushPoll()
+        {
+            if (pollBuf.Count == 0)
+                return;
+
+            var summary = pollBuf.Count <= 2
+                ? string.Join("，", pollBuf)
+                : $"后台轮询发送（{string.Join("、", pollBuf.Distinct())}，共{pollBuf.Count}次）";
+            merged.Add($"{pollTs}  {summary}");
+            pollBuf.Clear();
+            pollTs = null;
+        }
+
+        foreach (var entry in entries)
+        {
+            var ts = entry.Length >= 12 ? entry[..12].TrimEnd() : "";
+            var msg = entry.Length > 13 ? entry[14..] : entry;
+            if (_mergePatterns.Contains(msg))
+            {
+                pollBuf.Add(msg);
+                pollTs ??= ts;
+            }
+            else
+            {
+                FlushPoll();
+                merged.Add(entry);
+            }
+        }
+        FlushPoll();
+        return merged;
+    }
+
+    // EQ panel helpers live in MainWindow.Equalizer.cs
+
+    // ---- 设备详情 ----
+
+    /// <summary>刷新设备详情页（固件、编解码器）。</summary>
+    private void RefreshDeviceInfo()
+    {
+        var caps = _modelOverride != null
+            ? _controller.ForceModel(_modelOverride)
+            : _pods.Caps;
+
+        DiDeviceName.Text = caps.ModelName;
+        DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
+        DiCodec.Text = DeviceUiLabels.CodecName(_pods.State.CodecType);
+
+        // 耳机操控卡片仍在开发中，当前版本强制隐藏。
+        DiTouchCard.IsVisible = false;
+    }
+
+    /// <summary>固件版本 CSV → 显示格式：138.138.105。</summary>
+    private static string FormatFirmware(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "-";
+        var parts = raw.Split(',');
+        if (parts.Length < 3) return raw;
+
+        var versions = new Dictionary<int, string>();
+        for (int i = 0; i + 2 < parts.Length; i += 3)
+        {
+            if (int.TryParse(parts[i], out var devType) && int.TryParse(parts[i + 2], out var val))
+                versions[devType] = val.ToString();
+        }
+        // 按设备类型排序输出
+        var ordered = versions.OrderBy(kv => kv.Key).Select(kv => kv.Value);
+        return string.Join(".", ordered);
+    }
+
+    // ---- 浮层对话框（Avalonia 原生遮罩，不创建新窗口）----
+
+    private TaskCompletionSource<string?>? _promptTcs;
+    private TaskCompletionSource<bool>? _confirmTcs;
+    private string _updatePendingVersion = ""; // 当前提示的新版本号，供跳过使用
+
+    /// <summary>浮层命名输入。</summary>
+    private async Task<string?> ShowPromptDialog(string title, string defaultText = "", string hint = "")
+    {
+        _promptTcs = new TaskCompletionSource<string?>();
+        _confirmTcs = null;
+
+        DialogTitle.Text = title;
+        DialogMessage.Text = string.IsNullOrEmpty(hint) ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_InputPresetName) : hint;
+        DialogInput.IsVisible = true;
+        DialogInput.Text = defaultText;
+        DialogCancelBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_Cancel);
+        DialogCancelBtn.Background = Brushes.Transparent;
+        DialogCancelBtn.IsVisible = true;
+        DialogConfirmBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_Save);
+        DialogConfirmBtn.Background = Brushes.Transparent;
+        DialogConfirmBtn.IsVisible = true;
+        DialogOverlay.IsVisible = true;
+        Log.D("UI", $"对话框: 打开输入框 -> {title}");
+        DialogInput.Focus();
+        DialogInput.SelectAll();
+
+        return await _promptTcs.Task;
+    }
+
+    /// <summary>浮层确认对话框。</summary>
+    private async Task<bool> ShowConfirmDialog(string title, string message)
+    {
+        _confirmTcs = new TaskCompletionSource<bool>();
+        _promptTcs = null;
+
+        DialogTitle.Text = title;
+        DialogMessage.Text = message;
+        DialogInput.IsVisible = false;
+        DialogCancelBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_Cancel);
+        DialogCancelBtn.Background = Brushes.Transparent;
+        DialogCancelBtn.IsVisible = true;
+        DialogConfirmBtn.Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_ConfirmDelete);
+        DialogConfirmBtn.Background = new SolidColorBrush(Color.Parse("#CCE81123"));
+        DialogConfirmBtn.IsVisible = true;
+        DialogOverlay.IsVisible = true;
+        Log.D("UI", $"对话框: 打开确认框 -> {title}");
+
+        return await _confirmTcs.Task;
+    }
+
+    private void DialogSkip_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DialogSkipBtn.Content is string label && label == "GitLab")
+        {
+            DialogOverlay_Close();
+            _confirmTcs?.TrySetResult(false);
+            ExportFeedback("https://jihulab.com/zhaoyi-ya-group/oppo-pods-manager/-/work_items/new");
+            return;
+        }
+        SettingsManager.SetString("SkippedVersion", _updatePendingVersion);
+        DialogOverlay_Close();
+        _confirmTcs?.TrySetResult(false);
+    }
+
+    private void DialogOverlay_Close()
+    {
+        DialogOverlay.IsVisible = false;
+        DialogSkipBtn.IsVisible = false;
+        DialogMirrorBtn.IsVisible = false;
+    }
+
+    private void DialogMirror_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "对话框: 国内下载");
+        DialogOverlay_Close();
+        _confirmTcs?.TrySetResult(false);
+        Process.Start(new ProcessStartInfo(DOWNLOAD_MIRROR_URL) { UseShellExecute = true });
+    }
+
+    private void DialogCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "对话框: 取消");
+        DialogOverlay_Close();
+        _promptTcs?.TrySetResult(null);
+        _confirmTcs?.TrySetResult(false);
+    }
+
+    private void DialogConfirm_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "对话框: 确认");
+        DialogOverlay_Close();
+
+        if (_promptTcs != null)
+        {
+            var text = DialogInput.Text?.Trim();
+            _promptTcs.TrySetResult(string.IsNullOrEmpty(text) ? null : text);
+        }
+        else if (_confirmTcs != null)
+        {
+            _confirmTcs.TrySetResult(true);
+        }
+    }
+
+    // Lifecycle helpers (Reconnect/ResetUi/Quit) live in MainWindow.Connection.cs
+
+    private void CloseFloatingMenusOnBlankClick(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Source is not Visual source)
+            return;
+
+        if (IsInsideFloatingMenuTrigger(source))
+            return;
+
+        CloseOpenComboBoxes();
+        CloseOpenDeviceContextMenus();
+    }
+
+    private static bool IsInsideFloatingMenuTrigger(Visual source)
+    {
+        foreach (var visual in source.GetSelfAndVisualAncestors())
+        {
+            if (visual is ComboBox or ComboBoxItem or MenuItem or Avalonia.Controls.ContextMenu)
+                return true;
+        }
+
+        return false;
+    }
+
+    private void CloseOpenComboBoxes()
+    {
+        foreach (var comboBox in this.GetVisualDescendants().OfType<ComboBox>())
+            comboBox.IsDropDownOpen = false;
+    }
+
+    // Multi-device list helpers live in MainWindow.MultiDevice.cs
+    // Tray helpers live in MainWindow.Tray.cs
+
+    private void SyncUi() => OnStateChanged();
+
+    private void BuildSpatialAudioUi(CoreCaps caps)
+    {
+        if (!caps.HasSpatialAudio)
+        {
+            SpatialAudioModes.Children.Clear();
+            _spatialModesSignature = "";
+            return;
+        }
+
+        var supported = caps.SpatialTypes.Where(type => type is >= 0 and <= 2).Distinct().OrderBy(type => type).ToArray();
+        var signature = string.Join(',', supported);
+        if (_spatialModesSignature == signature) return;
+
+        SpatialAudioModes.Children.Clear();
+        foreach (var type in supported)
+        {
+            var (mode, label) = type switch
+            {
+                1 => ("Fixed", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeFixed)),
+                2 => ("Track", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeHeadTrack)),
+                _ => ("Off", LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeOff)),
+            };
+            var button = new RadioButton
+            {
+                Content = label,
+                Tag = mode,
+                GroupName = "SpatialAudioMode",
+                Margin = new Thickness(8, 2),
+            };
+            button.IsCheckedChanged += SpatialAudio_Changed;
+            SpatialAudioModes.Children.Add(button);
+        }
+        _spatialModesSignature = signature;
+        SyncSpatialModeFromState(_pods.State.SpatialMode);
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的空间音频单选项文字。</summary>
+    private void RefreshSpatialAudioLabels()
+    {
+        foreach (var c in SpatialAudioModes.Children)
+        {
+            if (c is not RadioButton rb || rb.Tag is not string mode) continue;
+            rb.Content = mode switch
+            {
+                "Fixed" => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeFixed),
+                "Track" => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeHeadTrack),
+                _ => LanguageManager.Instance.GetString(LanguageManager.Instance.SpatialAudio_ModeOff),
+            };
+        }
+    }
+
+    /// <summary>按设备回读的空间音频三模式（0x812A）静默勾选对应单选项，不触发 SendSpatialAudio。</summary>
+    private void SyncSpatialModeFromState(string mode)
+    {
+        foreach (var c in SpatialAudioModes.Children)
+            if (c is RadioButton rb && rb.Tag is string tag)
+            {
+                bool shouldCheck = tag == mode;
+                if (rb.IsChecked == shouldCheck) continue;
+                rb.IsCheckedChanged -= SpatialAudio_Changed;
+                rb.IsChecked = shouldCheck;
+                rb.IsCheckedChanged += SpatialAudio_Changed;
+            }
+    }
+
+    // ========== 品牌/系列/机型树构建 ==========
+
+    private static Dictionary<string, Dictionary<string, List<string>>> BuildBrandTree(List<string> allNames)
+    {
+        var tree = new Dictionary<string, Dictionary<string, List<string>>>();
+        var brandKeywords = new Dictionary<string, string[]>
+        {
+            ["OPPO"] = new[] { "OPPO", "Enco" },
+            ["OnePlus"] = new[] { "OnePlus", "Buds" },
+            ["realme"] = new[] { "realme", "Buds" },
+        };
+
+        foreach (var name in allNames)
+        {
+            string brand = "其他";
+            foreach (var (b, keywords) in brandKeywords)
+                if (keywords.Any(k => name.Contains(k, StringComparison.OrdinalIgnoreCase)))
+                { brand = b; break; }
+
+            if (!tree.ContainsKey(brand))
+                tree[brand] = new Dictionary<string, List<string>>();
+
+            var series = ExtractSeries(name);
+            if (!tree[brand].ContainsKey(series))
+                tree[brand][series] = new List<string>();
+            tree[brand][series].Add(name);
+        }
+        return tree;
+    }
+
+    private static string ExtractSeries(string modelName)
+    {
+        // 从型号名提取子系列名（型号名中的第一个单词/数字+字母组合）
+        var parts = modelName.Split(' ', '-', '(', '（');
+        return parts.Length > 0 ? parts[0] : modelName;
+    }
+
+    private static (string? brand, string? series) FindBrandSeries(string modelName, Dictionary<string, Dictionary<string, List<string>>> tree)
+    {
+        foreach (var (brand, series) in tree)
+            foreach (var (sn, models) in series)
+                if (models.Contains(modelName))
+                    return (brand, sn);
+        return (null, null);
+    }
+
+    private void BtnViewLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "日志面板: 打开");
+        RefreshLogView();
+        SettingsPanel.IsVisible = false;
+        LogPanel.IsVisible = true;
+
+        // 首次打开时获取并监听 ListBox 内部 ScrollViewer 的滚动事件
+        if (_logScrollViewer == null)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                _logScrollViewer = FindScrollViewer(LbLog);
+                if (_logScrollViewer != null)
+                {
+                    _logScrollViewer.ScrollChanged += (_, _) =>
+                    {
+                        var sv = _logScrollViewer;
+                        var atBottom = sv.Offset.Y >= sv.Extent.Height - sv.Viewport.Height - 1;
+                        _logAutoScroll = atBottom;
+                    };
+                }
+            }, DispatcherPriority.Loaded);
+        }
+
+        // 启动日志实时刷新定时器
+        _logRefreshTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background,
+            (_, _) => RefreshLogView());
+        _logRefreshTimer.Start();
+    }
+
+    /// <summary>递归遍历 Visual 树寻找第一个 ScrollViewer。</summary>
+    private static ScrollViewer? FindScrollViewer(Visual visual)
+    {
+        if (visual is ScrollViewer sv) return sv;
+        foreach (var child in visual.GetVisualChildren())
+        {
+            var found = FindScrollViewer(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private void BtnLogBack_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "日志面板: 返回设置");
+        _logRefreshTimer?.Stop();
+        _logAutoScroll = true;
+        LogPanel.IsVisible = false;
+        SettingsPanel.IsVisible = true;
+    }
+
+    private async void BtnLogExport_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Log.D("UI", "日志面板: 导出日志");
+        var top = Avalonia.Controls.TopLevel.GetTopLevel(this);
+        if (top == null) return;
+        var storage = top.StorageProvider;
+        if (storage == null || !storage.CanSave) return;
+
+        var file = await storage.SaveFilePickerAsync(new Avalonia.Platform.Storage.FilePickerSaveOptions
+        {
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.Log_ExportTitle),
+            DefaultExtension = "zip",
+            ShowOverwritePrompt = true,
+            SuggestedFileName = $"OPPOPods_logs_{DateTime.Now:yyyyMMdd_HHmmss}.zip"
+        });
+        if (file == null) return;
+
+        try
+        {
+            _logManager.ExportLogsAsZip(file.Path.LocalPath);
+        Log.D("UI", $"日志面板: 导出成功 -> {file.Path.LocalPath}");
+        await ShowCheckResultDialog(
+            string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_ExportSuccess), file.Path.LocalPath),
+            LanguageManager.Instance.GetString(LanguageManager.Instance.Log_ExportZip));
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "ExportFeedback", ex);
+            await ShowCheckResultDialog(
+                string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_ExportError), ex.Message),
+                LanguageManager.Instance.GetString(LanguageManager.Instance.Log_ExportZip));
+        }
+    }
+
+    private void BtnLogToggle_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        _logSimplified = !_logSimplified;
+        Log.D("UI", $"日志面板: 切换显示模式 -> {(_logSimplified ? LanguageManager.Instance.GetString(LanguageManager.Instance.Log_Simplified) : LanguageManager.Instance.GetString(LanguageManager.Instance.Log_FullVersion))}");
+        BtnLogToggle.Content = _logSimplified
+            ? LanguageManager.Instance.GetString(LanguageManager.Instance.Log_Simplified)
+            : LanguageManager.Instance.GetString(LanguageManager.Instance.Log_FullVersion);
+        _renderedLogVersion = -1;
+        RefreshLogView();
+    }
+
+    /// <summary>将技术日志翻译为白话中文，用于 UI 面板显示。</summary>
+    private static string TranslateLog(string raw)
+    {
+        var ts = raw.AsSpan(0, Math.Min(12, raw.Length)).Trim().ToString();
+        foreach (var (pattern, desc) in _logTranslations)
+        {
+            if (!raw.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var extra = ExtractValue(raw);
+            var text = extra.Length > 0 ? $"{desc}：{extra}" : desc;
+            return $"{ts}  {text}";
+        }
+        return "";
+    }
+
+    /// <summary>从原始日志行中提取关键数据。</summary>
+    private static string ExtractValue(string raw)
+    {
+        // ParseAnc / ParseNoiseChange: 模式名
+        var ancMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:ParseAnc|ParseNoiseChange).*?->\s*(\S+)");
+        if (ancMatch.Success)
+            return ancMatch.Groups[1].Value;
+
+        // ParseWearingData: L='xx' R='xx'
+        var wearMatch = System.Text.RegularExpressions.Regex.Match(raw, @"L='([^']+)'\s*R='([^']+)'");
+        if (wearMatch.Success)
+            return $"左{wearingMap.GetValueOrDefault(wearMatch.Groups[1].Value, wearMatch.Groups[1].Value)} 右{wearingMap.GetValueOrDefault(wearMatch.Groups[2].Value, wearMatch.Groups[2].Value)}";
+
+        // 固件版本/编解码器: =xxx
+        var fwMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:固件版本|编解码器)=(\S+)");
+        if (fwMatch.Success) return fwMatch.Groups[1].Value;
+
+        // 空间音频三模式=xx
+        var spaMatch = System.Text.RegularExpressions.Regex.Match(raw, @"空间音频三模式=(\S+)");
+        if (spaMatch.Success) return spaMatch.Groups[1].Value;
+
+        // 用户操作: XXX -> value
+        var uaMatch = System.Text.RegularExpressions.Regex.Match(raw, @"用户操作.*->\s*(.+)");
+        if (uaMatch.Success) return uaMatch.Groups[1].Value.Trim();
+
+        // EQ面板: 切换预设 -> name
+        var eqSwMatch = System.Text.RegularExpressions.Regex.Match(raw, @"切换预设\s*->\s*(.+)");
+        if (eqSwMatch.Success) return eqSwMatch.Groups[1].Value.Trim();
+
+        // SendEq name=xxx
+        var eqNameMatch = System.Text.RegularExpressions.Regex.Match(raw, @"SendEq name=(\S+)");
+        if (eqNameMatch.Success) return eqNameMatch.Groups[1].Value;
+
+        // DeleteEq eqId=N
+        var delEqMatch = System.Text.RegularExpressions.Regex.Match(raw, @"DeleteEq eqId=(\d+)");
+        if (delEqMatch.Success) return $"ID={delEqMatch.Groups[1].Value}";
+
+        // 多设备操作: 操作 addr=XX
+        var multiMatch = System.Text.RegularExpressions.Regex.Match(raw, @"多设备操作:\s*(\S+)\s+addr=(\S+)");
+        if (multiMatch.Success)
+            return $"{multiMatch.Groups[1].Value} {multiMatch.Groups[2].Value}";
+
+        // 连接/切换设备 -> xxx
+        var devMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(?:连接|切换)设备\s*->\s*(.+)");
+        if (devMatch.Success) return devMatch.Groups[1].Value.Trim();
+
+        // 命令超时 cmd=0xXXXX
+        var toMatch = System.Text.RegularExpressions.Regex.Match(raw, @"cmd=0x([0-9A-Fa-f]+)");
+        if (toMatch.Success && raw.Contains("超时"))
+            return $"0x{toMatch.Groups[1].Value}";
+
+        // Connect: OK — name="xxx" / Locate: 命中 name="xxx"
+        var nameMatch = System.Text.RegularExpressions.Regex.Match(raw, """name="([^"]+)""");
+        if (nameMatch.Success) return nameMatch.Groups[1].Value;
+
+        // 精确识别为 xxx
+        var idMatch = System.Text.RegularExpressions.Regex.Match(raw, "精确识别为 (.+)");
+        if (idMatch.Success) return idMatch.Groups[1].Value.Trim();
+
+        // ParseEqAll / ParseMultiConnect: N 个预设/设备
+        var cntMatch = System.Text.RegularExpressions.Regex.Match(raw, @"(\d+)\s*个(?:预设|设备)");
+        if (cntMatch.Success) return $"{cntMatch.Groups[1].Value}个";
+
+        // 枚举到 N 个候选
+        var enumMatch = System.Text.RegularExpressions.Regex.Match(raw, @"枚举到\s*(\d+)\s*个");
+        if (enumMatch.Success) return $"{enumMatch.Groups[1].Value}个";
+
+        // 失败信息
+        var failMatch = System.Text.RegularExpressions.Regex.Match(raw, "失败 -> (.+)");
+        if (failMatch.Success) return failMatch.Groups[1].Value.Trim();
+
+        // 重试剩余次数
+        var retryMatch = System.Text.RegularExpressions.Regex.Match(raw, @"剩余重试\s*(\d+)");
+        if (retryMatch.Success) return $"剩余{retryMatch.Groups[1].Value}次";
+
+        // 拦截不支持的命令 → 型号名
+        var blockMatch = System.Text.RegularExpressions.Regex.Match(raw, @"当前型号\s+(\S+)\s+无此能力");
+        if (blockMatch.Success) return $"{blockMatch.Groups[1].Value}不支持";
+
+        return "";
+    }
+
+    private static readonly Dictionary<string, string> wearingMap = new()
+    {
+        ["佩戴"] = "佩戴", ["摘下"] = "摘下", ["入盒"] = "入盒", ["未知"] = "未知"
+    };
+
+    private static readonly (string pattern, string desc)[] _logTranslations =
+    {
+        // === 连接流程 ===
+        ("FACTORY", "选择蓝牙传输方式"),
+        ("ConnectAsync: 尝试连接", "开始连接耳机"),
+        ("Connect: 开始", "正在扫描蓝牙设备"),
+        ("RfcommFinder: 枚举到", "扫描到蓝牙服务"),
+        ("RfcommFinder: 命中", "找到匹配的耳机服务"),
+        ("Connect: 命中服务", "已匹配到蓝牙服务"),
+        ("StreamSocket 就绪", "蓝牙数据链路已建立"),
+        ("Connect: OK", "蓝牙连接成功"),
+        ("已连接,进入轮询", "连接完成，开始后台同步"),
+        ("初始化完成", "设备初始化已完成"),
+        ("握手命令已发完", "正在等待设备响应"),
+        ("开始握手序列", "开始与耳机交换信息"),
+        // === 设备识别 ===
+        ("精确识别为", "自动识别型号："),
+        ("productId=", "读取设备型号代码"),
+        ("名称预判 Caps=", "预判设备型号："),
+        // === 固件与电池 ===
+        ("固件版本=", "固件版本"),
+        ("编解码器=", "音频编解码器"),
+        ("Send cmd=0x0106", "查询电量"),
+        ("Send cmd=0x010D", "查询电池详情"),
+        ("ParseBattery", "电池数据"),
+        // === ANC 降噪 ===
+        ("Send cmd=0x010C", "查询降噪"),
+        ("ParseAnc:", "当前降噪模式"),
+        ("ParseNoiseChange", "降噪模式变更"),
+        // === EQ 调音 ===
+        ("ParseEqAll:", "预设列表同步"),
+        ("SendQueryEqAll", "查询所有预设"),
+        ("SendEq name=", "切换调音预设"),
+        ("SendCustomEq", "设置自定义均衡器"),
+        ("DeleteEq eqId", "删除自定义预设"),
+        ("Send cmd=0x0122", "查询预设数据"),
+        ("收到 0x8122", "预设数据"),
+        // === 空间音频 ===
+        ("空间音频三模式", "空间音频模式"),
+        // === 多设备 ===
+        ("ParseMultiConnect: 列表更新", "多设备列表"),
+        ("Send cmd=0x0112", "查询多设备"),
+        // === 用户操作 ===
+        ("用户操作: ANC", "降噪切换"),
+        ("用户操作: EQ", "调音切换"),
+        ("用户操作: 空间音频", "空间音频切换"),
+        ("用户操作: 空间声场", "空间声场开关"),
+        ("用户操作: 游戏模式开关", "游戏模式"),
+        ("用户操作: 游戏音效开关", "游戏音效"),
+        ("用户操作: 双设备开关", "双设备连接"),
+        ("用户操作: 切换主题 ->", "切换主题"),
+        ("EQ面板: 切换预设", "EQ面板：切换预设"),
+        ("EQ保存:", "EQ面板：保存预设"),
+        // === 通知与状态 ===
+        ("注册通知完成", "通知注册成功"),
+        ("ParseActiveReport: subType=0x02", "佩戴状态"),
+        ("ParseActiveReport: subType=0x06", "多设备状态"),
+        ("ParseActiveReport: 多连接状态变更", "多设备状态变化"),
+        ("Send cmd=0x0205", "注册通知"),
+        ("ParseWearingData", "佩戴状态"),
+        ("Send cmd=0x010F", "查询功能开关"),
+        ("Send cmd=0x0105", "查询固件"),
+        ("Send cmd=0x0114", "查询空间音效"),
+        // === 能力门控 ===
+        ("拦截不支持的命令", "功能不支持"),
+        // === 配置 ===
+        ("CFG] Load:", "读取配置"),
+        ("CFG] Save:", "保存配置"),
+        // === 命令分发 ===
+        ("命令超时", "命令超时"),
+        ("重发超时命令", "命令重试"),
+        ("设置失败", "命令失败"),
+        ("设置成功", "命令成功"),
+        ("重连", "重新连接"),
+        ("5s 后重试", "5秒后重试连接"),
+        // === UI 事件 ===
+        ("InitializeComponent OK", "界面加载完成"),
+        ("MainWindow 构造开始", "应用启动"),
+        // === 设备发现 ===
+        ("Locate: 命中", "发现设备"),
+        ("Locate: 按名称命中", "按名称找到设备"),
+        ("Locate: 按 SPP UUID 命中", "按蓝牙服务找到设备"),
+        // === 多设备操作 ===
+        ("多设备操作:", "多设备操作"),
+        ("连接/切换设备", "连接设备"),
+        ("连接设备 ->", "连接设备"),
+        // === 异常 ===
+        ("EXCEPTION", "发生异常"),
+    };
+}

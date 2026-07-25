@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>OppoPodsManager.Brands</RootNamespace>
+    <AssemblyName>OppoPodsManager.Brands</AssemblyName>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\OppoPodsManager.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\DeviceModels.json" LogicalName="OppoPodsManager.Brands.Oppo.DeviceModels.json" />
+    <EmbeddedResource Include="Resources\EqModeNames.json" LogicalName="OppoPodsManager.Brands.Oppo.EqModeNames.json" />
+    <EmbeddedResource Include="Resources\EqModeNames.en.json" LogicalName="OppoPodsManager.Brands.Oppo.EqModeNames.en.json" />
+    <EmbeddedResource Include="Resources\EqModeNames.de.json" LogicalName="OppoPodsManager.Brands.Oppo.EqModeNames.de.json" />
+    <EmbeddedResource Include="Resources\EqModeNames.ru.json" LogicalName="OppoPodsManager.Brands.Oppo.EqModeNames.ru.json" />
+  </ItemGroup>
+</Project>

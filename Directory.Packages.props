@@ -1,0 +1,16 @@
+﻿<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Avalonia" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.0.1" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.5" />
+    <PackageVersion Include="Irihi.Lingua" Version="0.6.0" />
+    <PackageVersion Include="SukiUI" Version="7.0.1" />
+    <PackageVersion Include="System.Reactive" Version="7.0.0" />
+    <PackageVersion Include="Tmds.DBus" Version="0.94.2" />
+  </ItemGroup>
+</Project>

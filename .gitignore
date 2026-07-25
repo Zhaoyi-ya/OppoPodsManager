@@ -1,0 +1,26 @@
+## Build outputs
+bin/
+obj/
+publish/
+Network/
+Tests/
+
+## IDE / VS
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vscode/
+.codegraph/
+
+## OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Backup / Temp
+*_backup*/
+*.orig
+*.tmp.vscode/

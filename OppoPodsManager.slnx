@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/Application/">
+    <Project Path="Application/OppoPodsManager.Application.csproj" />
+  </Folder>
+  <Folder Name="/Brands/" />
+  <Folder Name="/Brands/Oppo/">
+    <Project Path="Brands/Oppo/OppoPodsManager.Brands.csproj" />
+  </Folder>
+  <Folder Name="/Core/">
+    <Project Path="Core/OppoPodsManager.Core.csproj" />
+  </Folder>
+  <Folder Name="/Platforms/">
+    <Project Path="Platforms/OppoPodsManager.Platforms.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/OppoPodsManager.Tests/OppoPodsManager.Tests.csproj" />
+  </Folder>
+  <Project Path="OppoPodsManager.csproj" />
+</Solution>
