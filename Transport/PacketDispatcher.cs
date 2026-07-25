@@ -11,6 +11,7 @@ public enum CmdStatus
     Success = 0,
     Timeout = 0x6,   // PacketTimeoutProcessor 超时回送的状态字节
     Failed = 0xFF,   // 链路断开/未连接等本地失败
+    Canceled = 0xFE, // 被同一命令的更新值替换
 }
 
 /// <summary>
@@ -88,8 +89,26 @@ public sealed class PacketDispatcher : IPodTransport
     public void SendTracked(ushort cmd, byte[] payload, Action<CmdStatus, PodFrame?>? onResult = null,
                             int retries = 1, int timeoutMs = DefaultTimeoutMs)
     {
+        SendTrackedCore(cmd, payload, onResult, retries, timeoutMs, replacePending: false);
+    }
+
+    /// <summary>
+    /// 发送同一命令的最新值并丢弃尚未发送的旧值。
+    /// 适用于官方 Melody 采用 latest-wins 语义的设置项，例如 EQ 预设切换。
+    /// 当前已在途的命令仍等待其响应；队列中的旧命令不会再发送。
+    /// </summary>
+    public void SendTrackedLatest(ushort cmd, byte[] payload, Action<CmdStatus, PodFrame?>? onResult = null,
+                                  int retries = 1, int timeoutMs = DefaultTimeoutMs)
+    {
+        SendTrackedCore(cmd, payload, onResult, retries, timeoutMs, replacePending: true);
+    }
+
+    private void SendTrackedCore(ushort cmd, byte[] payload, Action<CmdStatus, PodFrame?>? onResult,
+                                 int retries, int timeoutMs, bool replacePending)
+    {
         var baseCmd = (ushort)(cmd & 0x7FFF);
         bool sendNow;
+        List<Pending>? discarded = null;
         var pending = new Pending
         {
             Cmd = baseCmd,
@@ -105,10 +124,26 @@ public sealed class PacketDispatcher : IPodTransport
                 queue = new Queue<Pending>();
                 _pending[baseCmd] = queue;
             }
+            if (replacePending && queue.Count > 1)
+            {
+                // 保留队首在途请求；其余请求尚未发送，直接作废。
+                // 这样旧响应仍只会完成它对应的在途请求，不会误完成最新请求。
+                discarded = queue.Skip(1).ToList();
+                queue = new Queue<Pending>(new[] { queue.Peek() });
+                _pending[baseCmd] = queue;
+            }
             sendNow = queue.Count == 0;
             queue.Enqueue(pending);
             if (sendNow)
                 pending.DeadlineTicks = Environment.TickCount64 + timeoutMs;
+        }
+        if (discarded != null)
+        {
+            foreach (var old in discarded)
+            {
+                try { old.OnResult?.Invoke(CmdStatus.Canceled, null); }
+                catch (Exception ex) { Log.Ex("DISPATCH", "丢弃过期命令回调", ex); }
+            }
         }
         EnsureSweeper();
         if (sendNow) _inner.Send(cmd, payload);

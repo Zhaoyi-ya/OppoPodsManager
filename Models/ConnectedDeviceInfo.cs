@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager;
 
@@ -39,9 +40,11 @@ public class ConnectedDeviceInfo : INotifyPropertyChanged
     /// <summary>连接状态可读文案。</summary>
     public string ConnectionStatus => ConnectionState switch
     {
-        2 => IsCurrentDevice ? "当前设备" : "已连接",
-        1 => "连接中",
-        _ => "已断开"
+        2 => IsCurrentDevice
+            ? LanguageManager.Instance.GetString(LanguageManager.Instance.Status_CurrentDevice)
+            : LanguageManager.Instance.GetString(LanguageManager.Instance.Status_ConnectedPlain),
+        1 => LanguageManager.Instance.GetString(LanguageManager.Instance.Status_Connecting),
+        _ => LanguageManager.Instance.GetString(LanguageManager.Instance.Status_DisconnectedPlain)
     };
 
     /// <summary>UI 显示名称。</summary>

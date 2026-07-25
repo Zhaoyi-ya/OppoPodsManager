@@ -363,10 +363,11 @@ public partial class SmallWindow : SukiWindow
                 : new CornerRadius(0);
             var btn = new Button
             {
-                Content = child.Label, Tag = child, Width = 60, Height = 26,
-                BorderThickness = new Thickness(0), Padding = new Thickness(0),
+                Content = DeviceProfileLoader.AncLabel(child.Key), Tag = child, MinWidth = 60, Height = 26,
+                BorderThickness = new Thickness(0), Padding = new Thickness(8, 0),
                 Background = Brushes.Transparent, Focusable = false,
-                Foreground = BrushGray, FontSize = 13
+                Foreground = BrushGray, FontSize = 13,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center
             };
             btn.Click += AncSub_Click;
             var bg = new Border { CornerRadius = corner, Padding = new Thickness(0),
@@ -377,6 +378,19 @@ public partial class SmallWindow : SukiWindow
             _ancSubButtons[child.Key] = (btn, bg);
             col++;
         }
+    }
+
+    /// <summary>切换语言后，用实时本地化标签刷新已生成的 ANC 主/子按钮文字（由 MainWindow 在语言切换时调用）。</summary>
+    internal void RefreshAncLabels()
+    {
+        foreach (var (key, (_, _, label)) in _ancMainButtons)
+        {
+            var t = DeviceProfileLoader.AncLabel(key);
+            label.Text = t;
+            label.FontSize = t.Length > 10 ? 8 : 10;
+        }
+        foreach (var (key, (btn, _)) in _ancSubButtons)
+            btn.Content = DeviceProfileLoader.AncLabel(key);
     }
 
     private (Control panel, Ellipse bg, Path icon, TextBlock label) MakeAncIconButton(
@@ -406,10 +420,12 @@ public partial class SmallWindow : SukiWindow
         grid.Children.Add(icon);
         grid.Children.Add(clickArea);
 
+        var labelText = DeviceProfileLoader.AncLabel(opt.Key);
         var label = new TextBlock
         {
-            Text = opt.Label, FontSize = fontSize, Foreground = BrushGray,
-            TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 5, 0, 0)
+            Text = labelText, FontSize = labelText.Length > 10 ? Math.Max(8, fontSize - 2) : fontSize,
+            Foreground = BrushGray, TextAlignment = TextAlignment.Center,
+            Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap
         };
 
         var panel = new StackPanel();

@@ -84,6 +84,24 @@ public interface IPodManager : IDisposable
     /// <summary>双设备/多设备连接总开关（feature 0x11）。</summary>
     void SendDualDevice(bool on);
 
+    /// <summary>低音引擎开关（feature 0x1D）。</summary>
+    void SendBassEngine(bool on);
+
+    /// <summary>人声增强开关（feature 0x09）。</summary>
+    void SendVocalEnhance(bool on);
+
+    /// <summary>听力增强开关（feature 0x0B）。</summary>
+    void SendHearingEnhance(bool on);
+
+    /// <summary>长续航模式开关（feature 0x17）。</summary>
+    void SendLongPowerMode(bool on);
+
+    /// <summary>佩戴检测开关（feature 0x04）。</summary>
+    void SendWearDetection(bool on);
+
+    /// <summary>脊柱健康开关（feature 0x22，SpineLiveMonitor）。</summary>
+    void SendSpineHealth(bool on);
+
     /// <summary>查找耳机。start=true 开始响铃，false 停止响铃。UI 读 Caps.HasFindDevice 决定是否显示。</summary>
     void SendFindDevice(bool start);
 
@@ -114,9 +132,6 @@ public interface IPodManager : IDisposable
 
     /// <summary>清除固定优先连接设备，恢复自动选择（cmd 0x0429 操作 4）。</summary>
     void SendMultiConnectAutoSwitch();
-
-    /// <summary>设置独立的自动切换设备开关（cmd 0x0132：开启=2，关闭=1）。</summary>
-    void SendAutoSwitchLink(bool enabled);
 
     /// <summary>取消配对/解绑指定手持设备。</summary>
     void SendMultiConnectUnpair(string targetAddress);

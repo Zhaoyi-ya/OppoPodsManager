@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager.Models;
 
@@ -47,9 +48,9 @@ public class UserInteractionEventInfo
     /// <summary>Byte0 → 设备侧名称（实测确认：0x02=右耳）。</summary>
     public static string SideName(byte v) => v switch
     {
-        0x01 => "左耳",
-        0x02 => "右耳",
-        _ => $"端({v})"
+        0x01 => LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Left),
+        0x02 => LanguageManager.Instance.GetString(LanguageManager.Instance.Battery_Right),
+        _ => string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_UnknownSide), v)
     };
 
     /// <summary>
@@ -60,18 +61,21 @@ public class UserInteractionEventInfo
     /// </summary>
     public static string ActionName(byte v) => v switch
     {
-        0x00 => "单击",
-        0x02 => "双击",
-        0x03 => "三击",
-        0x04 => "长按",
-        0x07 => "上滑",
-        0x08 => "下滑",
-        _ => $"动作({v})"
+        0x00 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_SingleTap),
+        0x02 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_DoubleTap),
+        0x03 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_TripleTap),
+        0x04 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_LongPress),
+        0x07 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_SlideUp),
+        0x08 => LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_SlideDown),
+        _ => string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_UnknownAction), v)
     };
 
     /// <summary>可读描述，如："右耳 按键(0x06): 长按"。</summary>
     public string Description =>
-        $"{SideName(Byte0)} 按键(0x{Byte1:X2}): {ActionName(Byte2)}" +
+        string.Format("{0} {1}(0x{2:X2}): {3}",
+            SideName(Byte0),
+            LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_Button),
+            Byte1, ActionName(Byte2)) +
         (Byte3 != 0 ? $" +0x{Byte3:X2}" : "") +
         (Byte4 != 0 ? $" ctx=0x{Byte4:X2}" : "") +
         (Options.Count > 0 ? $" opts=[{string.Join(",", Options)}]" : "");

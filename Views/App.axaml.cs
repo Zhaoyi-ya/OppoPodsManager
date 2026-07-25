@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager;
 
@@ -27,6 +28,8 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        LanguageManager.ApplyConfiguredCulture(SettingsManager.GetString("Language"));
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var mainWindow = new MainWindow();

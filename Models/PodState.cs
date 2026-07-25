@@ -36,6 +36,18 @@ public class PodState
     public bool GameSound { get; set; }
     /// <summary>双设备连接开关（0x0403 FeatureDualDevice）。</summary>
     public bool DualDevice { get; set; }
+    /// <summary>低音引擎开关（0x0403 FeatureBassEngine）。</summary>
+    public bool BassEngine { get; set; }
+    /// <summary>人声增强开关（0x0403 FeatureVocalEnhance）。</summary>
+    public bool VocalEnhance { get; set; }
+    /// <summary>听力增强开关（0x0403 FeatureHearingEnhance）。</summary>
+    public bool HearingEnhance { get; set; }
+    /// <summary>长续航模式开关（0x0403 FeatureLongPowerMode）。</summary>
+    public bool LongPowerMode { get; set; }
+    /// <summary>佩戴检测开关（0x0403 FeatureWearDetection）。</summary>
+    public bool WearDetection { get; set; }
+    /// <summary>脊柱健康开关（0x0403 FeatureSpineLiveMonitor）。</summary>
+    public bool SpineHealth { get; set; }
 
     /// <summary>多设备连接列表（由主动轮询同步）。</summary>
     public List<ConnectedDeviceInfo> ConnectedDevices { get; set; } = new();
@@ -46,14 +58,19 @@ public class PodState
     /// <summary>设备端 EQ 预设列表（由 0x8122 getAllEqInfo 响应填充）。</summary>
     public List<EqInfoEntry> DeviceEqEntries { get; set; } = new();
 
-    // ===== 多设备优先/自动切换（0x8132 getMultiConnectPriorityDevice 回读）=====
+    // ===== Multi-connect priority / connection strategy =====
 
-    /// <summary>本会话最近一次成功设置的自动切换设备开关状态。</summary>
-    public bool AutoSwitchLinkEnabled { get; set; }
+    // AutoSwitchLink removed (2026-07-23):
+    // JADX U8.s.h defaults to true, and o9.e.isAutoSwitchLinkOpened() reads from
+    // FeatureSwitchInfo feature 17 (multi-connect enable, always ON for Air5 Pro) +
+    // SharedPreferences + account validation. The device has no readback path for
+    // AutoSwitchLink on SPP — 0x8200 doesn't include event 0x0D, 0x011C returns a
+    // capability bitmap (flags=0x0007, bit3=0), and 0x0132 is priority-device mode.
+    // The 0x0413 write path works but without a read path the UI cannot stay in sync.
 
     /// <summary>
-    /// 是否处于"自动切换"模式（对应 HandheldDeviceInfo.mIsAutoMode）。
-    /// true = 未固定优先连接设备；false = 用户指定优先连接设备（见 <see cref="PriorityDeviceAddress"/>）。
+    /// Whether priority selection is automatic (JADX HandheldDeviceInfo.mIsAutoMode).
+    /// true = no fixed priority device; false = fixed address in <see cref="PriorityDeviceAddress"/>.
     /// </summary>
     public bool MultiConnectAutoMode { get; set; }
 

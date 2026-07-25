@@ -26,6 +26,17 @@
         <Style Selector="CheckBox">
             <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
         </Style>
+        <!-- 长本地化文本（如德语）在 CheckBox / RadioButton 内自动换行，避免溢出卡片。 -->
+        <Style Selector="CheckBox TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="RadioButton TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <!-- 长本地化文本（如德语）在 Button 内容内自动换行，避免长按钮标签被截断。 -->
+        <Style Selector="Button TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
         <Style Selector="ComboBox">
             <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
         </Style>

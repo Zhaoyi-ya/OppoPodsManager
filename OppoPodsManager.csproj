@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Windows 后端使用 windows TFM 以启用 WinRT (Windows.Devices.Bluetooth GATT)；
+    <!-- Windows 后端使用 Windows TFM 以启用 WinRT (Windows.Devices.Bluetooth GATT)；
          其它平台保持纯 net10.0，便于后续 Linux/macOS 后端。 -->
     <TargetFramework Condition="'$(EnableWindowsBackend)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="'$(EnableWindowsBackend)' != 'true'">net10.0</TargetFramework>
@@ -17,6 +17,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>OppoPodsManager</RootNamespace>
     <AssemblyName>OppoPodsManager</AssemblyName>
+    <!-- 唯一版本真源：改这里即可同步程序集版本与软件内显示（XAML/代码从程序集读取）。 -->
+    <Version>1.1.8</Version>
     <ApplicationIcon>Assets\tuopan.ico</ApplicationIcon>
     <SupportedOSPlatformVersion Condition="'$(EnableWindowsBackend)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <NoWarn>CA1416;AVLN3001;IL2104;IL3053</NoWarn>
@@ -30,12 +32,13 @@
     <SelfContained>true</SelfContained>
     <StripSymbols>true</StripSymbols>
     <OptimizationPreference>Size</OptimizationPreference>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Language selection and system-culture fallback require culture data in Release builds. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
     <DebuggerSupport>false</DebuggerSupport>
     <DebugType>none</DebugType>
   </PropertyGroup>
 
-  <!-- Linux 编译符号 + 非 Windows 平台禁用 AOT（Tmds.DBus 依赖动态代码）-->
+  <!-- Linux 编译符号 + 非 Windows 平台禁用 AOT（Tmds.DBus 依赖动态代码） -->
   <PropertyGroup Condition="'$(EnableWindowsBackend)' != 'true'">
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
@@ -63,10 +66,33 @@
     <Compile Remove="Tests\**\*.cs" />
   </ItemGroup>
 
-  <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致）-->
+  <!-- Embedded JSON data（保持 LogicalName 与代码里 GetManifestResourceStream 的名称一致） -->
+  <!-- SDK 默认会把 *.json 当 None，需先 Remove 再 Include，避免 BuildAction 冲突导致资源未嵌入。 -->
   <ItemGroup>
+    <None Remove="Data\DeviceModels.json" />
+    <None Remove="Data\EqModeNames.json" />
+    <None Remove="Data\EqModeNames.en.json" />
+    <None Remove="Data\EqModeNames.ru.json" />
+    <None Remove="Data\EqModeNames.de.json" />
     <EmbeddedResource Include="Data\DeviceModels.json" LogicalName="OppoPodsManager.DeviceModels.json" />
     <EmbeddedResource Include="Data\EqModeNames.json" LogicalName="OppoPodsManager.EqModeNames.json" />
+    <EmbeddedResource Include="Data\EqModeNames.en.json" LogicalName="OppoPodsManager.EqModeNames.en.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Data\EqModeNames.ru.json" LogicalName="OppoPodsManager.EqModeNames.ru.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Data\EqModeNames.de.json" LogicalName="OppoPodsManager.EqModeNames.de.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Irihi.Lingua localization resources -->
+  <ItemGroup>
+    <AdditionalFiles Include="Localization\**\*.json" />
+    <EmbeddedResource Include="Localization\**\*.json">
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Avalonia assets -->
@@ -86,7 +112,9 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.0.1" />
+    <PackageReference Include="Irihi.Lingua" Version="0.6.0" />
     <PackageReference Include="SukiUI" Version="7.0.1" />
+    <PackageReference Include="System.Reactive" Version="7.0.0" />
   </ItemGroup>
 
 <Target Name="RemovePdbAfterPublish" AfterTargets="Publish">
@@ -99,3 +127,4 @@
 	<Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="rm -f &quot;$(_PublishDir)*.pdb&quot;" IgnoreExitCode="true" />
 </Target>
 </Project>
+
