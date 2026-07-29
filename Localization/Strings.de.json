@@ -48,6 +48,11 @@
   "Feature_StopFindDevice": "Suche stoppen",
   "SpatialAudio_Title": "Räumliches Audio",
   "Settings_Title": "Einstellungen",
+  "Settings_ThisDevice": "Dieses Gerät",
+  "Settings_App": "App",
+  "Settings_Tools": "Werkzeuge",
+  "Settings_EntryDeviceHint": "Modell, Steuerung, Verbindung",
+  "Settings_EntryPersonalHint": "Design, Hintergrund, Ohrhörer-Bild",
   "Settings_DeviceModel": "Gerätemodell",
   "Settings_AutoDetect": "Automatische Erkennung",
   "Settings_AllSeries": "(Alle Serien)",
@@ -301,5 +306,14 @@
   "MultiDevice_StatusConnected": "Verbunden",
   "MultiDevice_StatusConnecting": "Verbinde …",
   "MultiDevice_StatusDisconnected": "Getrennt",
-  "MultiDevice_StatusCurrentDevice": "Aktuelles Gerät"
+  "MultiDevice_StatusCurrentDevice": "Aktuelles Gerät",
+  "Personal_CustomEarphone": "Eigene Ohrhörer",
+  "Personal_EarphoneHome": "Startseite",
+  "Personal_EarphoneSmallCard": "Schnellkarte",
+  "Personal_EarphoneLeft": "Links",
+  "Personal_EarphoneRight": "Rechts",
+  "Personal_EarphoneCase": "Etui",
+  "Personal_EarphoneDual": "Beide Ohrhörer",
+  "Personal_EarphoneSelect": "Auswählen",
+  "Personal_EarphoneReset": "Zurücksetzen"
 }

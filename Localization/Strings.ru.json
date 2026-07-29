@@ -48,6 +48,11 @@
   "Feature_StopFindDevice": "Остановить поиск",
   "SpatialAudio_Title": "Пространственное аудио",
   "Settings_Title": "Настройки",
+  "Settings_ThisDevice": "Это устройство",
+  "Settings_App": "Приложение",
+  "Settings_Tools": "Инструменты",
+  "Settings_EntryDeviceHint": "Модель, управление, подключение",
+  "Settings_EntryPersonalHint": "Тема, фон, изображение наушников",
   "Settings_DeviceModel": "Модель устройства",
   "Settings_AutoDetect": "Автоопределение",
   "Settings_AllSeries": "(Все серии)",
@@ -301,5 +306,14 @@
   "MultiDevice_StatusConnected": "Подключено",
   "MultiDevice_StatusConnecting": "Подключение...",
   "MultiDevice_StatusDisconnected": "Отключено",
-  "MultiDevice_StatusCurrentDevice": "Текущее устройство"
+  "MultiDevice_StatusCurrentDevice": "Текущее устройство",
+  "Personal_CustomEarphone": "Свои наушники",
+  "Personal_EarphoneHome": "Главная",
+  "Personal_EarphoneSmallCard": "Быстрая карточка",
+  "Personal_EarphoneLeft": "Левый",
+  "Personal_EarphoneRight": "Правый",
+  "Personal_EarphoneCase": "Чехол",
+  "Personal_EarphoneDual": "Оба наушника",
+  "Personal_EarphoneSelect": "Выбрать",
+  "Personal_EarphoneReset": "Сбросить"
 }

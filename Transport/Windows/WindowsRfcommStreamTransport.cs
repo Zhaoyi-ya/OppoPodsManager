@@ -478,7 +478,11 @@ internal static class RfcommServiceFinder
             {
                 var svc = fresh.Services[0];
                 Log.D("BT", $"RfcommFinder: Uncached SDP svc={svc.ConnectionServiceName}");
-                cached.Dispose();
+                // 注意：不要在此 Dispose(cached)。cached 与返回的 svc 共享同一个底层
+                // BluetoothDevice / RFCOMM 原生对象，提前释放会让 svc 变成已释放状态，
+                // 随后 ConnectAsyncCore 访问 svc.ConnectionHostName / StreamSocket.ConnectAsync
+                // 时抛 ObjectDisposedException，导致“耳机已连电脑、开软件连不上”。
+                // svc 由调用方在连接结束（Close/Cleanup）时统一释放；cached 仅泄漏一个 RCW，可接受。
                 return svc;
             }
         }

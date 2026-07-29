@@ -48,6 +48,11 @@
   "Feature_StopFindDevice": "停止查找",
   "SpatialAudio_Title": "空间音频",
   "Settings_Title": "设置",
+  "Settings_ThisDevice": "本机设备",
+  "Settings_App": "应用",
+  "Settings_Tools": "工具",
+  "Settings_EntryDeviceHint": "型号、操控、连接策略",
+  "Settings_EntryPersonalHint": "主题、背景、耳机图案",
   "Settings_DeviceModel": "设备型号",
   "Settings_AutoDetect": "自动检测",
   "Settings_AllSeries": "（全部子系列）",
@@ -301,5 +306,14 @@
   "MultiDevice_StatusConnected": "已连接",
   "MultiDevice_StatusConnecting": "连接中",
   "MultiDevice_StatusDisconnected": "已断开",
-  "MultiDevice_StatusCurrentDevice": "当前设备"
+  "MultiDevice_StatusCurrentDevice": "当前设备",
+  "Personal_CustomEarphone": "自定义耳机图案",
+  "Personal_EarphoneHome": "首页",
+  "Personal_EarphoneSmallCard": "快捷卡片",
+  "Personal_EarphoneLeft": "左耳",
+  "Personal_EarphoneRight": "右耳",
+  "Personal_EarphoneCase": "充电盒",
+  "Personal_EarphoneDual": "双耳机",
+  "Personal_EarphoneSelect": "选择",
+  "Personal_EarphoneReset": "恢复默认"
 }

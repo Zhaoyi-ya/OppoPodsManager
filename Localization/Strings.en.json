@@ -48,6 +48,11 @@
   "Feature_StopFindDevice": "Stop Finding",
   "SpatialAudio_Title": "Spatial Audio",
   "Settings_Title": "Settings",
+  "Settings_ThisDevice": "This Device",
+  "Settings_App": "App",
+  "Settings_Tools": "Tools",
+  "Settings_EntryDeviceHint": "Model, controls, connection",
+  "Settings_EntryPersonalHint": "Theme, background, earphone art",
   "Settings_DeviceModel": "Device Model",
   "Settings_AutoDetect": "Auto Detect",
   "Settings_AllSeries": "(All Series)",
@@ -301,5 +306,14 @@
   "MultiDevice_StatusConnected": "Connected",
   "MultiDevice_StatusConnecting": "Connecting...",
   "MultiDevice_StatusDisconnected": "Disconnected",
-  "MultiDevice_StatusCurrentDevice": "Current Device"
+  "MultiDevice_StatusCurrentDevice": "Current Device",
+  "Personal_CustomEarphone": "Custom earbuds",
+  "Personal_EarphoneHome": "Home",
+  "Personal_EarphoneSmallCard": "Quick card",
+  "Personal_EarphoneLeft": "Left",
+  "Personal_EarphoneRight": "Right",
+  "Personal_EarphoneCase": "Case",
+  "Personal_EarphoneDual": "Both earbuds",
+  "Personal_EarphoneSelect": "Select",
+  "Personal_EarphoneReset": "Reset"
 }

@@ -86,13 +86,8 @@ public partial class SmallWindow : SukiWindow
         RightChargeBolt.Data = chargeGeo;
         CaseChargeBolt.Data = chargeGeo;
 
-        // 加载官方充电盒产品图
-        try
-        {
-            var bmp = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_case.png");
-            if (bmp != null) BatteryImage.Source = bmp;
-        }
-        catch { }
+        // 加载耳机图案：双耳机 + 充电盒（支持配置目录自定义图片覆盖）
+        LoadEarphoneImages();
 
         RefreshAppearance();
         SafeRefresh();
@@ -106,6 +101,15 @@ public partial class SmallWindow : SukiWindow
         ApplyWindowChrome();
         ApplyTheme();
     }
+
+    private void LoadEarphoneImages()
+    {
+        try { SmallDualImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.SmallDual); } catch { }
+        try { SmallCaseImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.Case); } catch { }
+    }
+
+    /// <summary>自定义耳机图案变化后，重新加载小 UI 的双耳机与充电盒图。</summary>
+    public void RefreshEarphoneImages() => LoadEarphoneImages();
 
     private void ApplyAcrylicBlur()
     {
@@ -187,8 +191,8 @@ public partial class SmallWindow : SukiWindow
         }
         else
         {
-            var glassAlpha = (byte)Math.Clamp(alpha * 0.35, 9, 255);
-            _cardBgBrush.Color = Color.FromArgb(glassAlpha, 0x1C, 0x1C, 0x1E);
+            // 与大 UI 保持一致：暗色卡片直接使用同一 alpha，不再乘 0.35，避免两窗口严重不同步
+            _cardBgBrush.Color = Color.FromArgb(alpha, 0x1C, 0x1C, 0x1E);
             _bgTintBrush.Color = Color.FromArgb(0x66, 0x00, 0x00, 0x00);
             BatteryCard.BorderBrush = null;
             AncCard.BorderBrush = null;

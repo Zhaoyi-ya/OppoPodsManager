@@ -344,14 +344,10 @@ public partial class MainWindow : SukiWindow
         // Setup SukiUI toast host
         Hosts = [new SukiToastHost { Manager = ToastManager }];
 
-        // Load battery: three official product images + charging bolt paths
-        LeftBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_left.png");
-        RightBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_right.png");
-        CaseBatteryImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_case.png");
-
-        // Load touch control card images (same as battery)
-        DiTouchLeftImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_left.png");
-        DiTouchRightImage.Source = AssetHelper.LoadSharedBitmap("avares://OppoPodsManager/Assets/official_right.png");
+        // 电池卡片：经 EarphoneImageProvider 加载（支持自定义图片覆盖）
+        RefreshEarphoneImages();
+        // 构建「自定义耳机图案」个性化设置行
+        BuildEarphoneCustomUi();
 
         const string iconCharge = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
         var chargeGeo = StreamGeometry.Parse(iconCharge);
@@ -912,7 +908,7 @@ public partial class MainWindow : SukiWindow
             if (s.SpineHealth != _prevSpineHealth) { _prevSpineHealth = s.SpineHealth; SetSpineHealthCheckedSilent(s.SpineHealth); }
         }
 
-        if (DeviceInfoPanel.IsVisible) RefreshDeviceInfo();
+        if (DeviceInfoPanel.IsVisible || SettingsPanel.IsVisible) RefreshDeviceInfo();
 
         BuildAncUi(caps);
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
@@ -1763,6 +1759,8 @@ public partial class MainWindow : SukiWindow
         RefreshAncLabels();
         _smallWindow?.RefreshAncLabels();
         RefreshSpatialAudioLabels();
+        // 自定义耳机图案行的文案需随语言重建
+        BuildEarphoneCustomUi();
         // "恢复已隐藏设备"按钮文字由代码动态设置（带计数），切语言后需重新本地化
         RefreshRestoreHiddenDevicesButton();
         // 顶栏连接状态与佩戴状态文字在状态事件里赋值，切语言后需重新刷新一次，
@@ -1865,7 +1863,6 @@ public partial class MainWindow : SukiWindow
 
         var transparencyPct = Math.Clamp(SettingsManager.GetInt("CardOpacity", 50), 0, 90);
         var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255); // 0→255, 90→26
-        var glassAlpha = _isLightTheme ? alpha : (byte)Math.Clamp(alpha * 0.35, 9, 255);
 
         // 卡片背景：浅色使用白色半透；深色使用深色半透。Linux 下白色半透卡片容易呈现为白底。
         var cardBase = _isLightTheme ? Color.FromRgb(0xFF, 0xFF, 0xFF) : Color.FromRgb(0x1C, 0x1C, 0x1E);
@@ -2062,9 +2059,8 @@ public partial class MainWindow : SukiWindow
 
     private void NavHome_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("home");
     private void NavEq_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("eq");
-    private void NavDeviceInfo_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("deviceinfo");
-    private void NavPersonal_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("personal");
     private void NavLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("log");
+    private void NavPersonal_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("personal");
     private void NavSettings_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("settings");
 
     private void ShowPage(string page)
@@ -2085,13 +2081,11 @@ public partial class MainWindow : SukiWindow
 
         NavHome.Classes.Remove("selected");
         NavEq.Classes.Remove("selected");
-        NavDeviceInfo.Classes.Remove("selected");
         NavPersonal.Classes.Remove("selected");
         NavSettings.Classes.Remove("selected");
 
         if (page == "home") NavHome.Classes.Add("selected");
         else if (page == "eq") NavEq.Classes.Add("selected");
-        else if (page == "deviceinfo") NavDeviceInfo.Classes.Add("selected");
         else if (page == "personal") NavPersonal.Classes.Add("selected");
         else NavSettings.Classes.Add("selected");
 
@@ -2101,7 +2095,7 @@ public partial class MainWindow : SukiWindow
             _logScrollPending = false;
             _logAutoScroll = true;
         }
-        if (page == "deviceinfo") RefreshDeviceInfo();
+        if (page == "deviceinfo" || page == "settings") RefreshDeviceInfo();
         if (page == "eq") RefreshEqPresetList();
         if (page == "log") RefreshLogView();
     }
@@ -3097,9 +3091,6 @@ public partial class MainWindow : SukiWindow
         DiDeviceName.Text = caps.ModelName;
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
         DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
-
-        // 耳机操控卡片仍在开发中，当前版本强制隐藏。
-        DiTouchCard.IsVisible = false;
     }
 
     /// <summary>固件版本 CSV → 显示格式：138.138.105。</summary>
@@ -3880,6 +3871,168 @@ public partial class MainWindow : SukiWindow
             catch (ObjectDisposedException) { }
             catch (InvalidOperationException) { }
         });
+    }
+
+    // ===== 自定义耳机图案 =====
+    private readonly Dictionary<EarphoneSlot, Image> _earphonePreviews = new();
+
+    /// <summary>应用/重应用首页与设备详情页的耳机图案（支持配置目录自定义图片覆盖）。</summary>
+    private void RefreshEarphoneImages()
+    {
+        LeftBatteryImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeLeft);
+        RightBatteryImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeRight);
+        CaseBatteryImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.Case);
+        DiTouchLeftImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeLeft);
+        DiTouchRightImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeRight);
+    }
+
+    /// <summary>自定义耳机图案变更后，刷新已打开的小 UI。</summary>
+    private void RefreshSmallWindowEarphoneImages()
+    {
+        if (_smallWindow == null)
+            return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            try { _smallWindow?.RefreshEarphoneImages(); }
+            catch (ObjectDisposedException) { }
+            catch (InvalidOperationException) { }
+        });
+    }
+
+    /// <summary>构建「自定义耳机图案」卡片：充电盒（首页 & 快捷卡片共用）+ 首页（左/右）+ 快捷卡片（双耳机），水平排布。</summary>
+    private void BuildEarphoneCustomUi()
+    {
+        EarphoneCustomContent.Children.Clear();
+        _earphonePreviews.Clear();
+
+        foreach (var slot in new[] { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight, EarphoneSlot.SmallDual })
+            EarphoneCustomContent.Children.Add(MakeEarphoneCell(slot));
+    }
+
+    private StackPanel MakeEarphoneCell(EarphoneSlot slot)
+    {
+        var labelKey = slot switch
+        {
+            EarphoneSlot.HomeLeft  => LanguageManager.Instance.Personal_EarphoneLeft,
+            EarphoneSlot.HomeRight => LanguageManager.Instance.Personal_EarphoneRight,
+            EarphoneSlot.SmallDual => LanguageManager.Instance.Personal_EarphoneDual,
+            EarphoneSlot.Case      => LanguageManager.Instance.Personal_EarphoneCase,
+            _ => LanguageManager.Instance.Personal_EarphoneCase
+        };
+        var labelText = LanguageManager.Instance.GetString(labelKey);
+
+        var preview = new Image
+        {
+            Width = 52, Height = 52, Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+        };
+        preview.Source = EarphoneImageProvider.GetBitmap(slot);
+        _earphonePreviews[slot] = preview;
+
+        var previewWrap = new Border
+        {
+            Width = 56, Height = 56, CornerRadius = new CornerRadius(8),
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            Child = preview,
+            Background = _textPanelButtonBgBrush
+        };
+
+        var label = new TextBlock
+        {
+            Text = labelText, FontSize = 12,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = BrushGray
+        };
+
+        var btnSelect = new Button
+        {
+            Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Personal_EarphoneSelect),
+            Height = 26, FontSize = 12, Padding = new Thickness(0),
+            MinWidth = 92, HorizontalContentAlignment = HorizontalAlignment.Center,
+            Classes = { "TextPanelButton" }
+        };
+        btnSelect.Click += async (_, _) => await PickEarphoneImage(slot);
+
+        var btnReset = new Button
+        {
+            Content = LanguageManager.Instance.GetString(LanguageManager.Instance.Personal_EarphoneReset),
+            Height = 26, FontSize = 12, Padding = new Thickness(0),
+            MinWidth = 92, HorizontalContentAlignment = HorizontalAlignment.Center,
+            Classes = { "TextPanelButton" }
+        };
+        btnReset.Click += (_, _) => ResetEarphoneImage(slot);
+
+        var btnStack = new StackPanel
+        {
+            Orientation = Orientation.Vertical, Spacing = 5,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        btnStack.Children.Add(btnSelect);
+        btnStack.Children.Add(btnReset);
+
+        var cell = new StackPanel
+        {
+            Width = 108, Spacing = 8, Margin = new Thickness(8, 4, 8, 4),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        cell.Children.Add(previewWrap);
+        cell.Children.Add(label);
+        cell.Children.Add(btnStack);
+        return cell;
+    }
+
+    private async Task PickEarphoneImage(EarphoneSlot slot)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage == null) return;
+        var files = await storage.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_Title),
+            FileTypeFilter = new List<Avalonia.Platform.Storage.FilePickerFileType>
+            {
+                new(LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_FilterName))
+                {
+                    Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" }
+                }
+            },
+            AllowMultiple = false,
+        });
+        if (files is not { Count: > 0 }) return;
+        var src = files[0].Path.LocalPath;
+        try
+        {
+            EarphoneImageProvider.SaveCustom(slot, src);
+            RefreshEarphoneImages();
+            RefreshSmallWindowEarphoneImages();
+            RefreshEarphonePreviews();
+            Log.D("UI", $"自定义耳机图已保存 {slot} <- {src}");
+        }
+        catch (Exception ex)
+        {
+            Log.Ex("UI", "保存自定义耳机图失败", ex);
+        }
+    }
+
+    private void ResetEarphoneImage(EarphoneSlot slot)
+    {
+        EarphoneImageProvider.ResetCustom(slot);
+        RefreshEarphoneImages();
+        RefreshSmallWindowEarphoneImages();
+        RefreshEarphonePreviews();
+    }
+
+    private void RefreshEarphonePreviews()
+    {
+        foreach (var (slot, img) in _earphonePreviews)
+        {
+            var old = img.Source;
+            img.Source = EarphoneImageProvider.GetBitmap(slot);
+            if (old is Bitmap oldBmp && !AssetHelper.IsShared(oldBmp))
+                oldBmp.Dispose();
+        }
     }
 
     private void ShowSmallWindow()

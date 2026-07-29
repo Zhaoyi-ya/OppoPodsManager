@@ -42,4 +42,8 @@ public static class AssetHelper
         SharedBitmaps[avaresPath] = bitmap;
         return bitmap;
     }
+
+    /// <summary>该位图是否为共享缓存中的嵌入资源（引用相等判断，用于安全地避免误释放）。</summary>
+    public static bool IsShared(Bitmap? bmp)
+        => bmp != null && SharedBitmaps.ContainsValue(bmp);
 }

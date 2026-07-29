@@ -183,116 +183,56 @@ public sealed class WindowsConnectionTransport : IPodTransport
     {
         if (factories.Count == 0 || !IsCurrent(generation)) return null;
 
-        // Windows 上实际命中率最高的是两条经典路径；GATT 仅在经典路径全部失败后兜底。
-        // 工厂顺序由 CreateTargetAttempts 保证：RFCOMM、Winsock、GATT。
-        var classicFactories = factories.Count > 1
-            ? factories.Take(factories.Count - 1).ToArray()
-            : factories.ToArray();
-        var selected = TryConnectBranches(generation, addr, classicFactories, budget, 0);
-        if (selected != null || factories.Count == classicFactories.Length || !IsCurrent(generation))
-            return selected;
-
-        Log.D("WINCONNECT", $"经典路径均失败，启动 RFCOMM/Winsock/GATT 全路径并行重试 addr={addr:X12}");
-        return TryConnectBranches(generation, addr, factories, budget, 0);
-    }
-
-    private IPodTransport? TryConnectBranches(
-        int generation,
-        ulong addr,
-        IReadOnlyList<Func<IPodTransport>> factories,
-        Stopwatch budget,
-        int channelOffset)
-    {
-        var available = factories
-            .Select((factory, index) => (factory, channel: channelOffset + index))
-            .Where(item => !IsChannelPaused(addr, item.channel))
-            .ToArray();
-        if (available.Length == 0) return null;
-
-        using var raceCts = new CancellationTokenSource();
-        var branches = available
-            .Select(item => StartBranch(() => TrySingle(
-                generation, addr, item.channel, item.factory, budget, raceCts.Token)))
-            .ToArray();
-        var pending = branches.ToList();
-
-        while (pending.Count > 0 && IsCurrent(generation))
+        // 顺序尝试各传输：RFCOMM(首选) → Winsock SPP → GATT。
+        // 从同一本地蓝牙射频并发发起多个 RFCOMM 连接会造成本地 RFCOMM 通道分配冲突
+        // (WSAEADDRINUSE=10048 “地址已被使用”)，导致本应成功的 RFCOMM 连接失败。
+        // 因此必须串行：前一个传输的 Connect() 返回并彻底释放后，再尝试下一个。
+        for (int i = 0; i < factories.Count; i++)
         {
-            var remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
-            var deadline = Task.Delay(remainingMs);
-            var completed = Task.WhenAny(pending.Cast<Task>().Append(deadline)).GetAwaiter().GetResult();
-            if (ReferenceEquals(completed, deadline))
+            if (!IsCurrent(generation)) return null;
+            if (budget.ElapsedMilliseconds >= _connectBudgetMs)
             {
                 LastError = $"Windows 连接总超时（{_connectBudgetMs}ms）";
-                raceCts.Cancel();
-                CancelAndWaitForBranches(pending, null);
                 return null;
             }
 
-            var branch = (Task<AttemptResult>)completed;
-            pending.Remove(branch);
-            var result = branch.GetAwaiter().GetResult();
-            if (result.Transport == null)
+            var transport = factories[i]();
+            if (!TryAddConnecting(generation, transport))
             {
-                if (!string.IsNullOrEmpty(result.Error)) LastError = result.Error;
+                ReleaseLocked(transport);
                 continue;
             }
 
-            raceCts.Cancel();
-            CancelAndWaitForBranches(pending, result.Transport);
-            return result.Transport;
+            var remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
+            Log.D("WINCONNECT", $"顺序尝试 {transport.GetType().Name} addr={addr:X12}，预算剩余={remainingMs}ms");
+            bool ok;
+            try
+            {
+                ok = transport.Connect();
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                LastError = Log.DescribeException(ex);
+                Log.Ex("WINCONNECT", transport.GetType().Name + ".Connect", ex);
+            }
+            RemoveConnecting(transport);
+
+            if (ok && IsCurrent(generation))
+                return transport;
+
+            if (IsCurrent(generation))
+                RecordChannelFailure(addr, i);
+            ReleaseLocked(transport);
         }
 
-        raceCts.Cancel();
-        CancelAndWaitForBranches(pending, null);
+        LastError ??= "所有 Windows 蓝牙连接方式均失败";
         return null;
     }
 
-    private AttemptResult TrySingle(
-        int generation,
-        ulong addr,
-        int channel,
-        Func<IPodTransport> factory,
-        Stopwatch budget,
-        CancellationToken cancellationToken)
-    {
-        if (cancellationToken.IsCancellationRequested || !IsCurrent(generation))
-            return new AttemptResult(null, "连接已取消");
-
-        var attempt = factory();
-        if (!TryAddConnecting(generation, attempt))
-        {
-            ReleaseLocked(attempt);
-            return new AttemptResult(null, "连接已取消");
-        }
-
-        var remainingMs = (int)Math.Max(1, _connectBudgetMs - budget.ElapsedMilliseconds);
-        try
-        {
-            Log.D("WINCONNECT", $"并行尝试 {attempt.GetType().Name} addr={addr:X12}，总预算剩余={remainingMs}ms");
-            var ok = attempt.Connect();
-            RemoveConnecting(attempt);
-            if (ok && !cancellationToken.IsCancellationRequested && IsCurrent(generation))
-                return new AttemptResult(attempt, null);
-
-            var error = attempt.LastError;
-            RemoveConnecting(attempt);
-            if (!cancellationToken.IsCancellationRequested && IsCurrent(generation))
-                RecordChannelFailure(addr, channel);
-            ReleaseLocked(attempt);
-            return new AttemptResult(null, error);
-        }
-        catch (Exception ex)
-        {
-            var error = Log.DescribeException(ex);
-            Log.Ex("WINCONNECT", attempt.GetType().Name + ".Connect", ex);
-            RemoveConnecting(attempt);
-            if (!cancellationToken.IsCancellationRequested && IsCurrent(generation))
-                RecordChannelFailure(addr, channel);
-            ReleaseLocked(attempt);
-            return new AttemptResult(null, error);
-        }
-    }
+    // 注：原有的并行分支逻辑（TryConnectBranches / TrySingle）已移除。
+    // 从同一本地蓝牙射频并发发起多个 RFCOMM 连接会导致本地 RFCOMM 通道分配冲突
+    // (WSAEADDRINUSE=10048)，使本应成功的 RFCOMM 连接失败。改为 TryConnectTarget 内串行顺序尝试。
 
     private bool IsChannelPaused(ulong addr, int channel)
     {
@@ -327,46 +267,9 @@ public sealed class WindowsConnectionTransport : IPodTransport
         lock (_gate) _connecting.Remove(attempt);
     }
 
-    private void CancelConnectingExcept(IPodTransport? winner)
-    {
-        IPodTransport[] losers;
-        lock (_gate)
-            losers = _connecting.Where(attempt => !ReferenceEquals(attempt, winner)).ToArray();
-        foreach (var loser in losers)
-            try { loser.Close(); } catch { }
-    }
-
-    private void CancelAndWaitForBranches(IEnumerable<Task<AttemptResult>> branches, IPodTransport? winner)
-    {
-        var pending = branches.ToArray();
-        CancelConnectingExcept(winner);
-        try
-        {
-            Task.WaitAll(pending, TimeSpan.FromSeconds(5));
-        }
-        catch (AggregateException)
-        {
-            foreach (var branch in pending)
-                _ = branch.Exception;
-        }
-
-        foreach (var branch in pending)
-        {
-            if (branch.Status == TaskStatus.RanToCompletion
-                && branch.Result.Transport is { } transport
-                && !ReferenceEquals(transport, winner))
-                Release(transport);
-        }
-    }
-
-    private static Task<AttemptResult> StartBranch(Func<AttemptResult> connect) =>
-        Task.Factory.StartNew(
-            connect,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-
-    private sealed record AttemptResult(IPodTransport? Transport, string? Error);
+    // 注：原有的 CancelAndWaitForBranches / StartBranch / AttemptResult 已随并行逻辑一并移除。
+    // 串行尝试天然不存在"中途硬 Dispose 输家分支"的问题，传输自身 Connect() 返回后由
+    // TryConnectTarget 统一 ReleaseLocked，不再需要并行取消协调。
 
     private void Attach(IPodTransport transport)
     {

@@ -4,7 +4,7 @@
     xmlns:local="using:OppoPodsManager"
     xmlns:l10n="using:OppoPodsManager.Localization"
    x:Class="OppoPodsManager.SmallWindow"
-   Title="OPPO Pods" Height="440" Width="300"
+   Title="OPPO Pods" Width="300" SizeToContent="Height" MaxHeight="440"
    WindowStartupLocation="Manual"
    CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
    ShowInTaskbar="False"
@@ -56,44 +56,53 @@
   <Border x:Name="BatteryCard" Padding="16,14"
    Classes="glassCard"
    >
-  <Grid>
-   <Image x:Name="BatteryImage" Height="140"
-    HorizontalAlignment="Center" VerticalAlignment="Center"/>
-   <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Margin="4,2,0,0" Spacing="2">
-   <StackPanel Orientation="Horizontal" Spacing="4">
-    <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
-     Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <TextBlock x:Name="CaseLabel" Text="-%" FontSize="13"
-     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <Path x:Name="CaseChargeBolt" Width="9" Height="9" Stretch="Uniform"
-     Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+   <StackPanel Orientation="Vertical" Spacing="14" HorizontalAlignment="Center">
+    <!-- 双耳机图 + 充电盒图，左右排布，间隔加大 -->
+    <StackPanel Orientation="Horizontal" Spacing="40" HorizontalAlignment="Center" VerticalAlignment="Center">
+     <Image x:Name="SmallDualImage" Height="72" Stretch="Uniform"
+      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+     <Image x:Name="SmallCaseImage" Height="72" Stretch="Uniform"
+      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </StackPanel>
+    <!-- 电量：左耳 / 右耳 / 耳机仓，图片下方横向排布 -->
+    <StackPanel Orientation="Horizontal" Spacing="20" HorizontalAlignment="Center">
+     <!-- 左耳 -->
+     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+      <Grid Width="12" Height="12">
+       <Path x:Name="IconLeftCircle" Width="12" Height="12"
+        Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+       <Path x:Name="IconLeftLetter" Width="12" Height="12"
+        Fill="{DynamicResource SukiText}"/>
+      </Grid>
+      <TextBlock x:Name="LeftLabel" Text="-%" FontSize="13"
+       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      <Path x:Name="LeftChargeBolt" Width="9" Height="9" Stretch="Uniform"
+       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+     </StackPanel>
+     <!-- 右耳 -->
+     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+      <Grid Width="12" Height="12">
+       <Path x:Name="IconRightCircle" Width="12" Height="12"
+        Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+       <Path x:Name="IconRightLetter" Width="12" Height="12"
+        Fill="{DynamicResource SukiText}"/>
+      </Grid>
+      <TextBlock x:Name="RightLabel" Text="-%" FontSize="13"
+       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      <Path x:Name="RightChargeBolt" Width="9" Height="9" Stretch="Uniform"
+       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+     </StackPanel>
+     <!-- 耳机仓 -->
+     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+      <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
+       Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="CaseLabel" Text="-%" FontSize="13"
+       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      <Path x:Name="CaseChargeBolt" Width="9" Height="9" Stretch="Uniform"
+       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+     </StackPanel>
+    </StackPanel>
    </StackPanel>
-   <StackPanel Orientation="Horizontal" Spacing="4">
-    <Grid Width="12" Height="12">
-    <Path x:Name="IconLeftCircle" Width="12" Height="12"
-     Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
-    <Path x:Name="IconLeftLetter" Width="12" Height="12"
-     Fill="{DynamicResource SukiText}"/>
-    </Grid>
-    <TextBlock x:Name="LeftLabel" Text="-%" FontSize="13"
-     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <Path x:Name="LeftChargeBolt" Width="9" Height="9" Stretch="Uniform"
-     Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-   </StackPanel>
-   <StackPanel Orientation="Horizontal" Spacing="4">
-    <Grid Width="12" Height="12">
-    <Path x:Name="IconRightCircle" Width="12" Height="12"
-     Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
-    <Path x:Name="IconRightLetter" Width="12" Height="12"
-     Fill="{DynamicResource SukiText}"/>
-    </Grid>
-    <TextBlock x:Name="RightLabel" Text="-%" FontSize="13"
-     Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-    <Path x:Name="RightChargeBolt" Width="9" Height="9" Stretch="Uniform"
-     Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-   </StackPanel>
-   </StackPanel>
-  </Grid>
   </Border>
 
   <!-- ANC -->
