@@ -313,15 +313,22 @@ public static partial class OppoProtocol
     public static readonly byte[] PayBatchQuery = { 0x0B, 0x05, 0x04, 0x0B, 0x11, 0x13, 0x18, 0x06, 0x1B, 0x1C, 0x27, 0x28 };
 
     /// <summary>
-    /// 按 Melody PollCommandManager.k() 从白名单构造功能状态查询。
-    /// feature 5 始终查询；多设备=17、游戏模式=6、空间音频=27、游戏音效=39/40。
+    /// 按白名单构造 0x810D 批量功能状态查询。
+    /// 关键：白名单里"可能支持"的功能全部纳入探针，让设备用 0x810D 回报它"当前实际支持"的 feature 集合；
+    /// 该回报集合即权威（见 PodManager.RefineCapsFromSupportedCommands）——白名单 true 但设备未回报的 feature 一律隐藏。
+    /// feature 5 始终查询；游戏模式新旧两条协议都探测，以设备回报决定用哪条。
+    /// 脊柱健康(0x22)后端未就绪，不探测、不显示。
     /// </summary>
     public static byte[] BuildFeatureQuery(DeviceCapabilities caps)
     {
         var features = new List<byte> { 0x05 };
-        if (caps.HasDualDevice) features.Add(0x11);
-        // Windows 无 Android LeAudioRepository：始终只读探测新旧游戏 feature，
-        // 再以 0x810D 实际返回结果决定是否显示及使用哪条协议。
+        if (caps.HasDualDevice)        features.Add(0x11);
+        if (caps.HasWearDetection)     features.Add(0x04);
+        if (caps.HasVocalEnhance)      features.Add(0x09);
+        if (caps.HasHearingEnhancement) features.Add(0x0B);
+        if (caps.HasLongPowerMode)     features.Add(0x17);
+        if (caps.HasBassEngine)        features.Add(0x1D);
+        // 游戏模式：新旧两条协议都探测，以设备实际回报决定使用哪条。
         features.Add(FeatureGameLL);
         features.Add(FeatureGameMain);
         if (caps.SpatialTypes.Count > 0) features.Add(0x1B);

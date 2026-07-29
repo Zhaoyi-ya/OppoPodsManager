@@ -50,16 +50,48 @@ public partial class PodManager
         StateChanged?.Invoke();
     }
 
-    /// <summary>能力位图权威覆盖 JSON 白名单：JSON 是"可能支持"，位图是"当前实际支持"。</summary>
+    /// <summary>
+    /// 能力门控：JSON 白名单是"设备可能支持"，设备 0x810D 回报的 feature 集合是"当前实际支持"的权威。
+    /// 三者皆满足才显示/可发送：① JSON 白名单(caps.Has*) ② 设备实际回报(ReportedFeatures) ③ 后端已就绪。
+    /// </summary>
     private void RefineCapsFromSupportedCommands()
     {
-        // 有独立 SET 命令的 feature，位图可精确裁定。
-        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetBassEngine))
-            Caps.HasBassEngine = false;
-        if (!State.SupportedCommands.Contains(OppoProtocol.CmdSetHearingDetect))
-            Caps.HasHearingEnhancement = false;
-        // 脊柱健康暂时禁用（后端未就绪）
+        // 后端就绪门：脊柱健康后端未就绪（仅有占位协议，UI/回读未打通），即使设备/JSON 支持也强制隐藏。
         Caps.HasSpineHealth = false;
+
+        // 0x810D 探针已响应：设备回报的 feature 集合是"当前实际支持"的唯一权威。
+        if (State.FeatureProbeDone)
+        {
+            var reported = State.ReportedFeatures;
+            var probed = State.ProbedFeatures;
+            void ClearIf(byte f, Action clear)
+            {
+                if (probed.Contains(f) && !reported.Contains(f)) clear();
+            }
+            ClearIf(OppoProtocol.FeatureWearDetection,    () => Caps.HasWearDetection = false);
+            ClearIf(OppoProtocol.FeatureDualDevice,       () => Caps.HasDualDevice = false);
+            ClearIf(OppoProtocol.FeatureVocalEnhance,     () => Caps.HasVocalEnhance = false);
+            ClearIf(OppoProtocol.FeatureHearingEnhance,   () => Caps.HasHearingEnhancement = false);
+            ClearIf(OppoProtocol.FeatureLongPowerMode,    () => Caps.HasLongPowerMode = false);
+            ClearIf(OppoProtocol.FeatureBassEngine,       () => Caps.HasBassEngine = false);
+            ClearIf(OppoProtocol.FeatureSpatial,          () => Caps.HasSpatialSound = false);
+            ClearIf(OppoProtocol.FeatureGameSound,        () => Caps.HasGameSound = false);
+            ClearIf(OppoProtocol.FeatureSpineLiveMonitor, () => Caps.HasSpineHealth = false);
+            // 游戏模式：新旧两条 feature 任一回报即视为支持；两者都探测过却都未回报才清除。
+            if ((probed.Contains(OppoProtocol.FeatureGameLL) || probed.Contains(OppoProtocol.FeatureGameMain))
+                && !reported.Contains(OppoProtocol.FeatureGameLL) && !reported.Contains(OppoProtocol.FeatureGameMain))
+                Caps.HasGameMode = false;
+            return;
+        }
+
+        // 探针未响应前的回退：仅能用 0x0100 命令位图中"有独立 SET 命令"的少数功能做粗筛
+        // （通用功能开关 feature 共用 0x0403，无法在命令位图里区分）。
+        var cmds = State.SupportedCommands;
+        if (!cmds.Contains(OppoProtocol.CmdSetBassEngine))    Caps.HasBassEngine = false;
+        if (!cmds.Contains(OppoProtocol.CmdSetHearingDetect)) Caps.HasHearingEnhancement = false;
+        // 注意：查找耳机(HasFindDevice)不设位图粗筛。它无 0x810D 探针 feature，只能信 JSON 白名单，
+        // 且后端已就绪(SendFindDevice/CmdSetFindMode 0x0400)。若在此按 CmdSetFindMode 位图清零，
+        // 会因多数设备不在 0x0100 位图播该命令而误隐藏按钮、且探针分支不会复原 → 故不在回退里清除。
     }
 
     private void ParseBattery(byte[] pkt, int start, int len)
@@ -394,6 +426,9 @@ public partial class PodManager
     {
         var payload = Slice(pkt, start, len);
         var features = OppoProtocol.ParseFeatureStatuses(payload);
+        // 0x810D 回报的 feature 集合 = 设备"当前实际支持"的权威；收到响应后以此为准覆盖 JSON 白名单。
+        State.ReportedFeatures = new HashSet<byte>(features.Keys);
+        State.FeatureProbeDone = true;
         Caps.ResolveGameModeProtocol(features);
         Log.D("RFCOMM", $"功能状态: raw={BitConverter.ToString(payload)}, " +
             $"游戏协议={(Caps.GameModeFeatureId == 0 ? "无" : $"feature 0x{Caps.GameModeFeatureId:X2}")}");
@@ -421,6 +456,8 @@ public partial class PodManager
             else if (feature == OppoProtocol.FeatureSpineLiveMonitor)
                 State.SpineHealth = value != 0;
         }
+        // 探针已响应：用设备实际回报的 feature 集合权威覆盖 JSON 白名单（白名单 true 但未回报 = 不支持，隐藏）。
+        RefineCapsFromSupportedCommands();
         StateChanged?.Invoke();
     }
 

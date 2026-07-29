@@ -918,19 +918,7 @@ public partial class MainWindow : SukiWindow
         // CbGame.IsVisible = caps.HasGameMode;
         // CbGameSound.IsVisible = caps.HasGameSound;
 
-        // 全部占位控件暂不按能力隐藏，全量显示便于验证布局
-        CbSpatial.IsVisible = caps.HasSpatialSound;
-        CbDualDevice.IsVisible = caps.HasDualDevice;
-        CbGame.IsVisible = caps.HasGameMode;
-        CbGameSound.IsVisible = caps.HasGameSound;
-
-        // 以下功能后端已实现（SendFeatureSwitch + 状态回读），按能力显示
-        CbBassEngine.IsVisible = caps.HasBassEngine;
-        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        CbLongPower.IsVisible = caps.HasLongPowerMode;
-        CbWearDetection.IsVisible = caps.HasWearDetection;
-        CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        RefreshFeatureCard(caps, s.Connected);
 
         ModelNote.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), caps.ModelName);
         UpdateTitle();
@@ -1667,20 +1655,7 @@ public partial class MainWindow : SukiWindow
         // CbGame.IsVisible = caps.HasGameMode;
         // CbGameSound.IsVisible = caps.HasGameSound;
 
-        // 全部占位控件暂不按能力隐藏，全量显示便于验证布局
-        CbSpatial.IsVisible = caps.HasSpatialSound;
-        CbDualDevice.IsVisible = caps.HasDualDevice;
-        CbGame.IsVisible = caps.HasGameMode;
-        CbGameSound.IsVisible = caps.HasGameSound;
-
-        // 以下功能后端已实现（SendFeatureSwitch + 状态回读），按能力显示
-        CbBassEngine.IsVisible = caps.HasBassEngine;
-        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
-        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
-        CbLongPower.IsVisible = caps.HasLongPowerMode;
-        CbWearDetection.IsVisible = caps.HasWearDetection;
-        CbSpineHealth.IsVisible = caps.HasSpineHealth;
-        BtnFindDevice.IsVisible = caps.HasFindDevice;
+        RefreshFeatureCard(caps, _pods.State.Connected);
 
         ModelNote.Text = _modelOverride == null
             ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Settings_ModelAutoDetected), _pods.Caps.ModelName)
@@ -1700,6 +1675,31 @@ public partial class MainWindow : SukiWindow
                 RequestSyncMultiDeviceList();
             }
         }
+    }
+
+    /// <summary>
+    /// 首页「功能」卡片：未连接时显示占位文字；连接后仅显示设备真正支持的功能开关。
+    /// 可见性依据 caps.Has*（已由 PodManager.RefineCapsFromSupportedCommands 权威门控）：
+    /// 同时满足 ① JSON 白名单 ② 设备 0x810D 实际回报(ReportedFeatures) ③ 后端已就绪。
+    /// 故"JSON 白名单为 true 但设备位图为 false"的功能不会出现。
+    /// </summary>
+    private void RefreshFeatureCard(DeviceCapabilities caps, bool connected)
+    {
+        FeatureContentPanel.IsVisible = connected;
+        FeaturePlaceholderText.IsVisible = !connected;
+        if (!connected) return;
+
+        CbSpatial.IsVisible = caps.HasSpatialSound;
+        CbDualDevice.IsVisible = caps.HasDualDevice;
+        CbGame.IsVisible = caps.HasGameMode;
+        CbGameSound.IsVisible = caps.HasGameSound;
+        CbBassEngine.IsVisible = caps.HasBassEngine;
+        CbVocalEnhance.IsVisible = caps.HasVocalEnhance;
+        CbHearingEnhance.IsVisible = caps.HasHearingEnhancement;
+        CbLongPower.IsVisible = caps.HasLongPowerMode;
+        CbWearDetection.IsVisible = caps.HasWearDetection;
+        CbSpineHealth.IsVisible = caps.HasSpineHealth;
+        BtnFindDevice.IsVisible = caps.HasFindDevice;
     }
 
     private void CbTheme_Changed(object? s, SelectionChangedEventArgs e)

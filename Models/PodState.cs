@@ -49,6 +49,16 @@ public class PodState
     /// <summary>脊柱健康开关（0x0403 FeatureSpineLiveMonitor）。</summary>
     public bool SpineHealth { get; set; }
 
+    /// <summary>设备经 0x810D 批量功能查询实际回报的 feature 集合——"当前实际支持"的权威来源。
+    /// 白名单(JSON)为 true 但本集合不含的 feature，视为设备并不真正支持，应隐藏。</summary>
+    public HashSet<byte> ReportedFeatures { get; set; } = new();
+
+    /// <summary>本端实际下发的 0x810D 批量查询 feature 列表。用于区分"探测过但设备未回报(不支持)"与"从未探测"。</summary>
+    public HashSet<byte> ProbedFeatures { get; set; } = new();
+
+    /// <summary>0x810D 批量功能查询是否已收到设备响应。收到后应以 <see cref="ReportedFeatures"/> 为权威覆盖 JSON 白名单。</summary>
+    public bool FeatureProbeDone { get; set; }
+
     /// <summary>多设备连接列表（由主动轮询同步）。</summary>
     public List<ConnectedDeviceInfo> ConnectedDevices { get; set; } = new();
 

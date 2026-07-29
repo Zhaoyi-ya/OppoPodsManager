@@ -34,6 +34,7 @@
   "Anc_SubMedium": "Medium",
   "Anc_SubLight": "Light",
   "Feature_Title": "Features",
+  "Feature_Placeholder": "Connect earbuds to see feature options",
   "Feature_DualDevice": "Dual Device Connection",
   "Feature_GameMode": "Game Mode",
   "Feature_GameSound": "Game Sound",

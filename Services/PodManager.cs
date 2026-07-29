@@ -272,7 +272,11 @@ public partial class PodManager : IPodManager
             if (!IsConnectionGenerationCurrent(generation)) return;
 
             // ===== 阶段2：批量功能状态（游戏/双设备/空间音效开关）=====
-            _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.BuildFeatureQuery(Caps));
+            var batchQ = OppoProtocol.BuildFeatureQuery(Caps);
+            State.ProbedFeatures = new HashSet<byte>(batchQ.Skip(1));
+            State.ReportedFeatures.Clear();
+            State.FeatureProbeDone = false;
+            _transport.Send(OppoProtocol.CmdBatchQuery, batchQ);
             Thread.Sleep(80);
 
             // ===== 阶段3：能力门控的状态查询（不支持的型号自动跳过）=====
@@ -706,7 +710,11 @@ public partial class PodManager : IPodManager
                     // 低频：功能开关状态 + 重注册通知 + 多设备列表
                     if (tick % 4 == 0)
                     {
-                        _transport.Send(OppoProtocol.CmdBatchQuery, OppoProtocol.BuildFeatureQuery(Caps));
+                        var batchQ2 = OppoProtocol.BuildFeatureQuery(Caps);
+                        State.ProbedFeatures = new HashSet<byte>(batchQ2.Skip(1));
+                        State.ReportedFeatures.Clear();
+                        State.FeatureProbeDone = false;
+                        _transport.Send(OppoProtocol.CmdBatchQuery, batchQ2);
                         Thread.Sleep(100);
                         _transport.Poll(400);
 
