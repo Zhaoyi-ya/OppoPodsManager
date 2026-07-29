@@ -63,7 +63,8 @@ public sealed class LinuxRfcommStreamTransport : IPodTransport
     private const int MaxIdleTimeouts = 200;
     private const int ReadBufferSize = 512;
 
-    // Probe is now the real battery query (0x0106), encoded per-scan for reliability
+    // 扫描探针使用 ProductId 查询 (0x0103)，与 Windows 完全一致：连接后首条命令必须是
+    // 0x0103，耳机会回 0x8103/0x8100；若先发其它命令（如 0x0106）会占用首条握手导致验证失败。
 
     private readonly IFrameCodec _codec = new SppFrameCodec();
     private readonly List<byte> _framer = new();
