@@ -506,7 +506,7 @@ public partial class MainWindow : SukiWindow
         {
             if (_earbudDevices.Count == 0)
             {
-                Log.D("UI", "ConnectAsync: 当前没有已验证耳机，等待蓝牙设备状态变化");
+                Log.D("UI", $"ConnectAsync: 当前没有已验证耳机(count={_earbudDevices.Count})，等待蓝牙设备状态变化");
                 await WaitForConnectionSignalAsync();
                 continue;
             }
@@ -628,6 +628,7 @@ public partial class MainWindow : SukiWindow
         {
             var generation = Interlocked.Increment(ref _earbudProbeGeneration);
             var discovered = await Task.Run(DeviceDiscovery.ListConnected);
+            Log.D("DIAG", $"Refresh: discovered={discovered.Count}");
             var verified = new List<(ulong addr, string name)>();
 
             foreach (var device in discovered)
@@ -654,9 +655,11 @@ public partial class MainWindow : SukiWindow
 
                 if (connected)
                     verified.Add(device);
+                Log.D("DIAG", $"Refresh: probe device={device.addr:X12} connected={connected} verified={verified.Count}");
             }
 
-            await Dispatcher.UIThread.InvokeAsync(() => ApplyEarbudDevices(verified));
+            Log.D("DIAG", $"Refresh: loop done verified={verified.Count} generation={generation} curGen={Volatile.Read(ref _earbudProbeGeneration)}");
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyEarbudDevices(verified));
         }
         finally
         {
@@ -666,8 +669,12 @@ public partial class MainWindow : SukiWindow
 
     private void ApplyEarbudDevices(IReadOnlyList<(ulong addr, string name)> devices)
     {
+        Log.D("DIAG", $"ApplyEarbudDevices: incoming={devices.Count}");
+        // 先拍快照再 Clear：防止调用方传入 _earbudDevices 自身（InitializeEarbudSelectionAsync L621），
+        // 导致 Clear 后 devices 也变空 → AddRange 加零元素 → 列表永远为空。
+        var snapshot = devices.ToList();
         _earbudDevices.Clear();
-        _earbudDevices.AddRange(devices);
+        _earbudDevices.AddRange(snapshot);
         _suppressEarbudSelection = true;
         CbDevice.Items.Clear();
         foreach (var (_, name) in _earbudDevices)
@@ -781,12 +788,15 @@ public partial class MainWindow : SukiWindow
         }
         else
         {
-            _selectedEarbudAddress = 0;
-            _earbudDevices.Clear();
+            // 断开时不要清空设备列表，也不要重置 _selectedEarbudAddress。
+            // 根因：Linux 没有蓝牙 DeviceWatcher 在断开后重新填充 _earbudDevices，
+            // 一旦在此 Clear，ConnectAsync 会永远卡在「没有已验证耳机」无法重连；
+            // Windows 由 _bluetoothWatcher.DevicesChanged 负责真实移除设备。
+            // 这里只刷新连接状态 UI，设备列表保留供自动重连使用。
+            Log.D("DIAG", $"OnStateChanged: disconnected, _earbudDevices.Count={_earbudDevices.Count} (保留列表供重连)");
             _suppressEarbudSelection = true;
-            CbDevice.Items.Clear();
-            CbDevice.IsVisible = false;
-            BtnRefreshDevices.IsVisible = false;
+            CbDevice.IsVisible = _earbudDevices.Count >= 1;
+            BtnRefreshDevices.IsVisible = _earbudDevices.Count >= 1;
             _suppressEarbudSelection = false;
             if (_reconnectWake.CurrentCount == 0)
                 _reconnectWake.Release();
@@ -1091,27 +1101,13 @@ public partial class MainWindow : SukiWindow
 
     private static bool ProbeEarbudCommunication(IPodTransport probe)
     {
-        var response = 0;
-        void OnFrame(PodFrame frame)
-        {
-            if (frame.Cmd == OppoProtocol.CmdProductIdResp || frame.Cmd == OppoProtocol.CmdCapabilityResp)
-                Interlocked.Exchange(ref response, 1);
-        }
-
-        probe.FrameReceived += OnFrame;
-        try
-        {
-            if (!probe.Connect())
-                return false;
-
-            probe.Send(OppoProtocol.CmdQueryProductId, OppoProtocol.PayEmpty);
-            probe.Poll(1200);
-            return Volatile.Read(ref response) != 0;
-        }
-        finally
-        {
-            probe.FrameReceived -= OnFrame;
-        }
+        // 1.1.3 行为：连上（扫描阶段已确认是 OPPO SPP 设备，回包以 0xAA 帧头开头）即视为可用。
+        // Linux 下耳机对「孤立的 0x0103」不回包，但完整握手（PodManager.ConnectAsync 会发送
+        // 0x0103/0x0100/0x0106/注册通知）能正常交互；若在此要求立即收到 0x8103/0x8100，会假阴性、
+        // 永远连不上。故扫描命中即放行，真正的握手与状态获取交给 PodManager.ConnectAsync。
+        var ok = probe.Connect();
+        Log.D("DIAG", $"ProbeEarbudCommunication: probe.Connect() => {ok}");
+        return ok;
     }
 
     /// <summary>创建图标+文字按钮：Ellipse 圆形背景+描边 + 矢量图标 + 文字。</summary>
