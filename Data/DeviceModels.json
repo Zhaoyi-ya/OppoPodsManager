@@ -13788,7 +13788,8 @@
         "diagnostic": 1,
         "customEqualizer": 1,
         "clickTakePic": 1,
-        "bassEngineSupport": 1
+        "bassEngineSupport": 1,
+        "gameMode": 1
       },
       "name": "OnePlus Buds Ace 2",
       "id": "064C14",
