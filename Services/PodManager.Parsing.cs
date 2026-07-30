@@ -100,9 +100,9 @@ public partial class PodManager
         // SPP fixed-offset format: [00, 04, L_lev, L_chg, R_lev, R_chg, C_lev, C_chg, ...]
         if (len >= 8 && pkt[start] == 0x00 && pkt[start+1] == 0x04)
         {
-            State.Battery["L"] = (pkt[start+2], pkt[start+3] != 0);
-            State.Battery["R"] = (pkt[start+4], pkt[start+5] != 0);
-            State.Battery["C"] = (pkt[start+6], pkt[start+7] != 0);
+            State.Battery["L"] = ResolveBatteryLevel("L", pkt[start+2], pkt[start+3] != 0);
+            State.Battery["R"] = ResolveBatteryLevel("R", pkt[start+4], pkt[start+5] != 0);
+            State.Battery["C"] = ResolveBatteryLevel("C", pkt[start+6], pkt[start+7] != 0);
             Log.D("RFCOMM", $"ParseBattery(SPP): L={pkt[start+2]}/{pkt[start+3]} R={pkt[start+4]}/{pkt[start+5]} C={pkt[start+6]}/{pkt[start+7]}");
             StateChanged?.Invoke();
             return;
@@ -115,7 +115,7 @@ public partial class PodManager
             int level = raw & 0x7F;
             bool charging = (raw & 0x80) != 0;
             var key = idx switch { 1 => "L", 2 => "R", 3 => "C", _ => null };
-            if (key != null) State.Battery[key] = (level, charging);
+            if (key != null) State.Battery[key] = ResolveBatteryLevel(key, level, charging);
         }
         StateChanged?.Invoke();
     }
@@ -234,9 +234,9 @@ public partial class PodManager
         // SPP fixed-offset format: [00, 04, L_lev, L_chg, R_lev, R_chg, C_lev, C_chg, ...]
         if (len >= 8 && pkt[start] == 0x00 && pkt[start+1] == 0x04)
         {
-            State.Battery["L"] = (pkt[start+2], pkt[start+3] != 0);
-            State.Battery["R"] = (pkt[start+4], pkt[start+5] != 0);
-            State.Battery["C"] = (pkt[start+6], pkt[start+7] != 0);
+            State.Battery["L"] = ResolveBatteryLevel("L", pkt[start+2], pkt[start+3] != 0);
+            State.Battery["R"] = ResolveBatteryLevel("R", pkt[start+4], pkt[start+5] != 0);
+            State.Battery["C"] = ResolveBatteryLevel("C", pkt[start+6], pkt[start+7] != 0);
             Log.D("RFCOMM", $"ParseBatteryList(SPP): L={pkt[start+2]}/{pkt[start+3]} R={pkt[start+4]}/{pkt[start+5]} C={pkt[start+6]}/{pkt[start+7]}");
             StateChanged?.Invoke();
             return;
@@ -250,8 +250,18 @@ public partial class PodManager
             int level = raw & 0x7F;
             bool charging = (raw & 0x80) != 0;
             var key = idx switch { 1 => "L", 2 => "R", 3 => "C", _ => null };
-            if (key != null) State.Battery[key] = (level, charging);
+            if (key != null) State.Battery[key] = ResolveBatteryLevel(key, level, charging);
         }
+    }
+
+    /// <summary>
+    /// 解析电量时把 0% 视为“未知/未在位”（设备通常以 0x00 表示不可读，并非真正 0%）。
+    /// 返回 null 让 UI 显示 “-%” 占位，与中文未知占位一致。
+    /// </summary>
+    private (int Level, bool Charging)? ResolveBatteryLevel(string key, int reportedLevel, bool charging)
+    {
+        if (reportedLevel <= 0) return null;
+        return (reportedLevel, charging);
     }
 
     private void ParseNoiseChange(byte[] pkt, int start, int len)
