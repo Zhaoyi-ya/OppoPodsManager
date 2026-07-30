@@ -1,6 +1,6 @@
 name: 功能建议 / Feature Request
 description: 对 OPPO Pods Manager 提出功能建议或改进想法 / Suggest a new feature or improvement for OPPO Pods Manager
-title: "[建议] / [Suggestion] "
+title: "[建议]"
 labels: ["enhancement"]
 body:
   - type: textarea
