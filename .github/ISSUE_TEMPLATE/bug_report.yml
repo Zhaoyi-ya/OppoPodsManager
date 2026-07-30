@@ -1,12 +1,12 @@
-name: 问题反馈
-description: 反馈 OPPO Pods Manager 使用过程中遇到的问题
+name: 问题反馈 / Bug Report
+description: 反馈 OPPO Pods Manager 使用过程中遇到的问题 / Report issues encountered while using OPPO Pods Manager
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: input
     id: os-version
     attributes:
-      label: 系统版本
+      label: 系统版本 / OS Version
       placeholder: Windows 11
     validations:
       required: true
@@ -14,7 +14,7 @@ body:
   - type: input
     id: app-version
     attributes:
-      label: 软件版本
+      label: 软件版本 / App Version
       placeholder: v1.1.4
     validations:
       required: true
@@ -22,7 +22,7 @@ body:
   - type: input
     id: device-model
     attributes:
-      label: 设备型号
+      label: 设备型号 / Device Model
       placeholder: OPPO Enco Free4
     validations:
       required: true
@@ -30,21 +30,21 @@ body:
   - type: dropdown
     id: install-type
     attributes:
-      label: 安装包类型
+      label: 安装包类型 / Installation Type
       options:
         - Windows x64 AOT
-        - Windows x64 单文件
+        - Windows x64 单文件 / Windows x64 Single File
         - Windows arm64
         - Linux
-        - 自行编译
-        - 不确定
+        - 自行编译 / Self-compiled
+        - 不确定 / Not sure
     validations:
       required: true
 
   - type: textarea
     id: problem-description
     attributes:
-      label: 问题描述
+      label: 问题描述 / Problem Description
       placeholder: xxxxx
     validations:
       required: true
@@ -52,8 +52,8 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: 日志文件
-      description: 请选择或拖拽上传日志文件。
-      placeholder: 请选择或拖拽上传日志文件。
+      label: 日志 / Logs
+      description: 请粘贴相关日志 / Please paste relevant logs
+      placeholder: 请粘贴相关日志 / Please paste relevant logs
     validations:
       required: true
