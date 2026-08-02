@@ -8,6 +8,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using SukiUI;
 using SukiUI.Controls;
@@ -104,8 +105,20 @@ public partial class SmallWindow : SukiWindow
 
     private void LoadEarphoneImages()
     {
-        try { SmallDualImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.SmallDual); } catch { }
-        try { SmallCaseImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.Case); } catch { }
+        ReplaceEarphoneImage(SmallDualImage, EarphoneSlot.SmallDual);
+        ReplaceEarphoneImage(SmallCaseImage, EarphoneSlot.Case);
+    }
+
+    private static void ReplaceEarphoneImage(Image image, EarphoneSlot slot)
+    {
+        try
+        {
+            var old = image.Source;
+            image.Source = EarphoneImageProvider.GetBitmap(slot);
+            if (old is Bitmap oldBitmap && !AssetHelper.IsShared(oldBitmap))
+                oldBitmap.Dispose();
+        }
+        catch { }
     }
 
     /// <summary>自定义耳机图案变化后，重新加载小 UI 的双耳机与充电盒图。</summary>

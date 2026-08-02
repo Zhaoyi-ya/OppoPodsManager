@@ -3879,11 +3879,19 @@ public partial class MainWindow : SukiWindow
     /// <summary>应用/重应用首页与设备详情页的耳机图案（支持配置目录自定义图片覆盖）。</summary>
     private void RefreshEarphoneImages()
     {
-        LeftBatteryImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeLeft);
-        RightBatteryImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeRight);
-        CaseBatteryImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.Case);
-        DiTouchLeftImage.Source  = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeLeft);
-        DiTouchRightImage.Source = EarphoneImageProvider.GetBitmap(EarphoneSlot.HomeRight);
+        ReplaceEarphoneImage(LeftBatteryImage, EarphoneSlot.HomeLeft);
+        ReplaceEarphoneImage(RightBatteryImage, EarphoneSlot.HomeRight);
+        ReplaceEarphoneImage(CaseBatteryImage, EarphoneSlot.Case);
+        ReplaceEarphoneImage(DiTouchLeftImage, EarphoneSlot.HomeLeft);
+        ReplaceEarphoneImage(DiTouchRightImage, EarphoneSlot.HomeRight);
+    }
+
+    private static void ReplaceEarphoneImage(Image image, EarphoneSlot slot)
+    {
+        var old = image.Source;
+        image.Source = EarphoneImageProvider.GetBitmap(slot);
+        if (old is Bitmap oldBitmap && !AssetHelper.IsShared(oldBitmap))
+            oldBitmap.Dispose();
     }
 
     /// <summary>自定义耳机图案变更后，刷新已打开的小 UI。</summary>
