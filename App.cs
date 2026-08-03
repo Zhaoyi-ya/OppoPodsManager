@@ -56,7 +56,7 @@ public sealed partial class App : Application
                 [new WindowsRfcommFactory()],
                 [new WindowsBluetoothDiscovery()]);
             // 由品牌管理器提供官方型号目录，启动层只负责把它注入界面。
-            _modelCatalogProvider = new HeadsetCoreService();
+            _modelCatalogProvider = new OppoManager();
             _controlManager = new ControlManager(_frontendState, new DeviceScanner(communication));
             _updateService = new UpdateService(_settings);
             _toastNotifications = new ToastNotificationService(_frontendState, _settings);

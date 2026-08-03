@@ -9,7 +9,7 @@ using OppoPodsManager.Assets.Oplus;
 namespace OppoPodsManager.Control.Oppo;
 
 // 管理单个 OPPO 耳机会话：识别型号、注册通知、维护状态并执行受能力约束的读写。
-public sealed class HeadsetCoreService : IBrandManager
+public sealed class OppoManager : IBrandManager
 {
     // 聚合所有业务状态，向前端发布不可变快照。
     private readonly BusinessState _state = new();
@@ -51,7 +51,7 @@ public sealed class HeadsetCoreService : IBrandManager
     private bool _featureProbeCompleted;
 
     // 使用默认 Melody 协议能力表创建会话管理器。
-    public HeadsetCoreService(CapabilityLoader? capabilityLoader = null, CommandCapabilityMap? commandMap = null)
+    public OppoManager(CapabilityLoader? capabilityLoader = null, CommandCapabilityMap? commandMap = null)
     {
         _capabilityLoader = capabilityLoader ?? new CapabilityLoader(DeviceModelData.LoadCatalog());
         _capabilityReader = new CapabilityReader(commandMap ?? CommandCapabilityMap.MelodyV16);

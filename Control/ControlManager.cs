@@ -162,7 +162,7 @@ public sealed class ControlManager : IAsyncDisposable
         try
         {
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-            var manager = new HeadsetCoreService();
+            var manager = new OppoManager();
             ConnectionLink? link = null;
             try
             {

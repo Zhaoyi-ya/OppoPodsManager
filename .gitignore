@@ -4,7 +4,7 @@ obj/
 publish/
 Network/
 Tests/
-
+*.cmd
 ## IDE / VS
 .vs/
 *.user
