@@ -1,9 +1,0 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>OppoPodsManager.Core</RootNamespace>
-    <AssemblyName>OppoPodsManager.Core</AssemblyName>
-    <IsAotCompatible>true</IsAotCompatible>
-  </PropertyGroup>
-</Project>
