@@ -187,6 +187,7 @@
   "Toast_UpdateMirror": "国内下载",
   "Toast_UpdateDownload": "GitHub 下载",
   "Tray_Tooltip": "OPPO Pods · 单击小窗 / 双击主窗口",
+  "Tray_ShowMini": "显示小窗口",
   "Tray_ShowMain": "显示主页面",
   "Tray_Quit": "退出",
   "MultiDevice_Connect": "连接「{0}」",

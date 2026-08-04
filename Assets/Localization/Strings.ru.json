@@ -187,6 +187,7 @@
   "Toast_UpdateMirror": "Зеркало (Китай)",
   "Toast_UpdateDownload": "Скачать с GitHub",
   "Tray_Tooltip": "OPPO Pods · Один клик — мини-окно / Двойной клик — главное окно",
+  "Tray_ShowMini": "Показать мини-окно",
   "Tray_ShowMain": "Показать главное окно",
   "Tray_Quit": "Выход",
   "MultiDevice_Connect": "Подключить «{0}»",

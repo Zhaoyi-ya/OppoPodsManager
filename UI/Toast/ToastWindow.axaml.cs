@@ -9,7 +9,6 @@ using OppoPodsManager.Assets.Localization;
 using NextSettingsManager = OppoPodsManager.Assets.UserSettings.SettingsManager;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
-using OppoPodsManager.UI.Logging;
 using SukiUI;
 using AvaloniaControl = Avalonia.Controls.Control;
 
@@ -50,8 +49,13 @@ public partial class ToastWindow : Window
     }
 
     // 使用 Next 控制层快照显示 Toast，保持原项目窗口布局和动画不变。
-    public static async Task ShowSnapshotAsync(BusinessSnapshot? snapshot, string deviceName,
+    public static Task ShowSnapshotAsync(BusinessSnapshot? snapshot, string deviceName,
         ToastType type = ToastType.Battery, int durationMs = 5000, NextSettingsManager? settings = null)
+        => RunOnUiThreadAsync(() => ShowSnapshotCoreAsync(snapshot, deviceName, type, durationMs, settings));
+
+    // 在 UI 线程创建窗口并执行 Toast 的完整显示生命周期。
+    private static async Task ShowSnapshotCoreAsync(BusinessSnapshot? snapshot, string deviceName,
+        ToastType type, int durationMs, NextSettingsManager? settings)
     {
         ApplicationLog.Current?.Debug("Toast", $"显示 Next 快照 Toast：type={type}，device={deviceName}，revision={snapshot?.Revision.ToString() ?? ""}。");
         var toast = new ToastWindow();
@@ -95,9 +99,13 @@ public partial class ToastWindow : Window
         bolt.IsVisible = battery?.IsCharging == true;
     }
 
-    public static async Task<UpdateToastAction> ShowUpdateAsync(string version, int durationMs = 10000)
+    public static Task<UpdateToastAction> ShowUpdateAsync(string version, int durationMs = 10000)
+        => RunOnUiThreadAsync(() => ShowUpdateCoreAsync(version, durationMs));
+
+    // 在 UI 线程创建更新 Toast，保证按钮和动画访问不跨线程。
+    private static async Task<UpdateToastAction> ShowUpdateCoreAsync(string version, int durationMs)
     {
-        UiLog.Debug("UI", $"Toast: 显示更新提示 version={version} duration={durationMs}ms");
+        ApplicationLog.Current?.Debug("UI", $"Toast: 显示更新提示 version={version} duration={durationMs}ms");
         var toast = new ToastWindow
         {
             _updateActionTcs = new TaskCompletionSource<UpdateToastAction>()
@@ -122,9 +130,70 @@ public partial class ToastWindow : Window
         return await toast._updateActionTcs.Task;
     }
 
+    // 将后台通知线程上的 Toast 请求安全转发到 Avalonia UI 线程。
+    private static Task RunOnUiThreadAsync(Func<Task> action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            return action();
+
+        var completion = new TaskCompletionSource<object?>
+            (TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    await action();
+                    completion.TrySetResult(null);
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+
+        return completion.Task;
+    }
+
+    // 将返回用户操作结果的 Toast 请求安全转发到 Avalonia UI 线程。
+    private static Task<TResult> RunOnUiThreadAsync<TResult>(Func<Task<TResult>> action)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+            return action();
+
+        var completion = new TaskCompletionSource<TResult>
+            (TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            Dispatcher.UIThread.Post(async () =>
+            {
+                try
+                {
+                    completion.TrySetResult(await action());
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            });
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+
+        return completion.Task;
+    }
+
     private void CompleteUpdateAction(UpdateToastAction action)
     {
-        UiLog.Debug("UI", $"Toast: 更新提示操作 -> {action}");
+        ApplicationLog.Current?.Debug("UI", $"Toast: 更新提示操作 -> {action}");
         _updateActionTcs?.TrySetResult(action);
     }
 

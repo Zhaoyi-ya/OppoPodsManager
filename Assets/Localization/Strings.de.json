@@ -187,6 +187,7 @@
   "Toast_UpdateMirror": "Mirror-Download",
   "Toast_UpdateDownload": "GitHub-Download",
   "Tray_Tooltip": "OPPO Pods · Klick für Mini-Fenster / Doppelklick für Hauptfenster",
+  "Tray_ShowMini": "Mini-Fenster anzeigen",
   "Tray_ShowMain": "Hauptfenster anzeigen",
   "Tray_Quit": "Beenden",
   "MultiDevice_Connect": "„{0}“ verbinden",

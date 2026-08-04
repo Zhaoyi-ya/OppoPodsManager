@@ -32,6 +32,10 @@ public sealed class FeedbackExportService
         }
     }
 
+    // 将反馈日志导出到当前用户桌面，统一桌面路径获取逻辑。
+    public FeedbackExportResult ExportToDesktop(string version, BusinessSnapshot? snapshot)
+        => Export(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), version, snapshot);
+
     // 构建设备反馈所需的简短状态摘要，避免日志导出层依赖界面控件。
     private static string BuildSummary(string version, BusinessSnapshot? snapshot)
     {

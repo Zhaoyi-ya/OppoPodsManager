@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using OppoPodsManager.Control;
 using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Notifications;
 using OppoPodsManager.Assets.UserSettings;
 using OppoPodsManager.Assets.Localization;
 using OppoPodsManager.Control.Oppo.Models;
@@ -79,60 +80,57 @@ internal static class ToastManager
 // 监听 Next 状态快照并沿用原项目的 Toast 生命周期和堆叠逻辑。
 public sealed class ToastNotificationService : IDisposable
 {
-    private readonly FrontendState _frontendState;
+    private readonly NotificationCoordinator _notificationCoordinator;
     private readonly SettingsManager? _settings;
-    private BusinessSnapshot _previous;
 
-    public ToastNotificationService(FrontendState frontendState, SettingsManager? settings = null)
+    public ToastNotificationService(NotificationCoordinator notificationCoordinator, SettingsManager? settings = null)
     {
-        _frontendState = frontendState;
+        _notificationCoordinator = notificationCoordinator;
         _settings = settings;
-        _previous = frontendState.Snapshot;
-        _frontendState.Changed += OnStateChanged;
+        _notificationCoordinator.NotificationRaised += OnNotificationRaised;
     }
 
-    private void OnStateChanged(object? sender, BusinessSnapshot snapshot)
+    // 将控制层已分类的设备通知转换为对应的 Toast 窗口类型。
+    private void OnNotificationRaised(object? sender, DeviceNotificationRequest request)
     {
-        var previous = _previous;
-        _previous = snapshot;
-        if (previous.IsConnected != snapshot.IsConnected)
+        var type = request.Kind switch
         {
-            ApplicationLog.Current?.Info("Toast", $"连接状态变化：before={previous.IsConnected}，after={snapshot.IsConnected}。");
-            _ = ToastWindow.ShowSnapshotAsync(snapshot, GetDeviceName(snapshot),
-                snapshot.IsConnected ? ToastType.Battery : ToastType.Disconnected,
-                GetDuration(), _settings);
-            return;
+            DeviceNotificationKind.Connected => ToastType.Battery,
+            DeviceNotificationKind.Disconnected => ToastType.Disconnected,
+            DeviceNotificationKind.LowBattery => ToastType.LowBattery,
+            DeviceNotificationKind.CriticalBattery => ToastType.CriticalBattery,
+            _ => ToastType.Battery
+        };
+
+        var snapshot = request.Snapshot;
+        ApplicationLog.Current?.Info("Toast", $"渲染设备通知：kind={request.Kind}，type={type}。");
+        _ = ShowSnapshotSafeAsync(snapshot, GetDeviceName(snapshot), type, GetDuration(), _settings);
+    }
+
+    // 记录后台通知触发的 Toast 异常，避免 fire-and-forget 任务静默丢失。
+    private static async Task ShowSnapshotSafeAsync(
+        BusinessSnapshot snapshot,
+        string deviceName,
+        ToastType type,
+        int durationMs,
+        SettingsManager? settings)
+    {
+        try
+        {
+            await ToastWindow.ShowSnapshotAsync(snapshot, deviceName, type, durationMs, settings);
         }
-
-        if (!snapshot.IsConnected)
-            return;
-
-        var previousLevel = LowestBattery(previous);
-        var currentLevel = LowestBattery(snapshot);
-        if (currentLevel is null || currentLevel > 20 || previousLevel is not null && previousLevel <= 20)
-            return;
-
-        ApplicationLog.Current?.Info("Toast", $"低电量通知：before={previousLevel?.ToString() ?? ""}，current={currentLevel}。");
-        _ = ToastWindow.ShowSnapshotAsync(snapshot, GetDeviceName(snapshot),
-            currentLevel <= 5 ? ToastType.CriticalBattery : ToastType.LowBattery,
-            GetDuration(), _settings);
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Toast", "显示状态 Toast 失败。", exception);
+        }
     }
 
     // Toast 使用型号优先的名称，保持与主窗口、托盘和小窗口一致。
     private static string GetDeviceName(BusinessSnapshot snapshot)
         => DeviceText.DeviceName(snapshot.Identity?.ModelName, snapshot.DeviceName);
 
-    private static byte? LowestBattery(BusinessSnapshot snapshot)
-    {
-        var levels = new[] { snapshot.LeftBattery?.Percent, snapshot.RightBattery?.Percent, snapshot.CaseBattery?.Percent }
-            .Where(value => value is not null)
-            .Select(value => value!.Value)
-            .ToArray();
-        return levels.Length == 0 ? null : levels.Min();
-    }
-
     private int GetDuration()
         => Math.Clamp(_settings?.Current.ToastDurationSeconds ?? 5, 3, 8) * 1000;
 
-    public void Dispose() => _frontendState.Changed -= OnStateChanged;
+    public void Dispose() => _notificationCoordinator.NotificationRaised -= OnNotificationRaised;
 }

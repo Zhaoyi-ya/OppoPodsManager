@@ -41,6 +41,30 @@ public sealed class LanguageManager
             new("ru", CultureInfo.GetCultureInfo("ru").NativeName)
         ];
 
+    // 将设置文件中的语言值转换为语言下拉框使用的标准区域标识。
+    public static string NormalizeSelectionCulture(string? configuredCulture)
+    {
+        if (string.IsNullOrWhiteSpace(configuredCulture))
+            return AutomaticCultureCode;
+
+        if (configuredCulture.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
+            return DefaultCultureCode;
+        if (configuredCulture.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            return "en";
+        if (configuredCulture.StartsWith("de", StringComparison.OrdinalIgnoreCase))
+            return "de";
+        if (configuredCulture.StartsWith("ru", StringComparison.OrdinalIgnoreCase))
+            return "ru";
+
+        return DefaultCultureCode;
+    }
+
+    // 将语言选择项转换为设置文件中的稳定语言值，自动项保存为空文化码。
+    public static string ToStoredLanguage(LanguageOption option)
+        => option.IsAutomatic
+            ? AutomaticCultureCode
+            : NormalizeSelectionCulture(option.CultureCode);
+
     // 将用户设置转换为实际使用的文化信息。
     public static CultureInfo ResolveCulture(string? configuredCulture)
     {

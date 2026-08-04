@@ -12,7 +12,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using SukiUI;
 using SukiUI.Controls;
-using OppoPodsManager.UI.Logging;
 using AvaloniaControl = Avalonia.Controls.Control;
 using PathShape = Avalonia.Controls.Shapes.Path;
 using OppoPodsManager.Control;
@@ -77,6 +76,7 @@ public partial class SmallWindow : SukiWindow
     private string _ancSubSignature = "";
     private bool _refreshPending;
     private bool _isClosed;
+    private bool _sukiWindowDisposed;
     private DateTime _ancUserSetAt = DateTime.MinValue;
 
     // 初始化原项目小窗口的控件、事件和视觉资源。
@@ -84,23 +84,25 @@ public partial class SmallWindow : SukiWindow
     {
         InitializeComponent();
 
-        UiLog.Debug("UI", "SmallWindow: 打开");
+        ApplicationLog.Current?.Debug("UI", "SmallWindow: 打开");
         // 窗口关闭时取消订阅，避免对已关闭窗口的控件操作 + 释放引用
         Closed += (_, _) =>
         {
-            UiLog.Debug("UI", "SmallWindow: 关闭");
+            ApplicationLog.Current?.Debug("UI", "SmallWindow: 关闭");
             _isClosed = true;
             if (_frontendState is not null)
                 _frontendState.Changed -= OnNextStateChanged;
             PropertyChanged -= OnWindowPropertyChanged;
             _interactiveSurface?.Dispose();
             _interactiveSurface = null;
+            DisposeWindowImages();
             DisposeBackgroundBitmap();
+            DisposeSukiWindow();
         };
         Deactivated += (_, _) =>
         {
             try { _onDeactivated?.Invoke(); }
-            catch (Exception ex) { UiLog.Debug("UI", $"SmallWindow Deactivated 回调异常（可忽略）: {ex.Message}"); }
+            catch (Exception ex) { ApplicationLog.Current?.Debug("UI", $"SmallWindow Deactivated 回调异常（可忽略）: {ex.Message}"); }
         };
 
         // 电池图标 path
@@ -125,13 +127,14 @@ public partial class SmallWindow : SukiWindow
     public SmallWindow(
         FrontendState frontendState,
         ControlManager controlManager,
+        CommandDispatcher commandDispatcher,
         OppoPodsManager.Assets.UserSettings.SettingsManager? settings = null,
         Action? onDeactivated = null)
     {
         _onDeactivated = onDeactivated;
         _controlManager = controlManager;
-        if (ApplicationLog.Current is { } log)
-            _commandDispatcher = new CommandDispatcher(controlManager, log);
+        // 小窗口只接收应用层命令调度器，不在窗口内构造控制逻辑。
+        _commandDispatcher = commandDispatcher;
         _nextSettings = settings;
         InitializeWindow();
         _frontendState = frontendState;
@@ -267,6 +270,31 @@ public partial class SmallWindow : SukiWindow
         }
     }
 
+    // 关闭小窗时释放其独立的耳机和充电盒位图。
+    private void DisposeWindowImages()
+    {
+        DisposeEarphoneImage(SmallDualImage);
+        DisposeEarphoneImage(SmallCaseImage);
+    }
+
+    // 调用 SukiWindow 自带的释放流程，清理小窗的 Toast host 和渲染资源。
+    private void DisposeSukiWindow()
+    {
+        if (_sukiWindowDisposed)
+            return;
+
+        _sukiWindowDisposed = true;
+        Dispose();
+    }
+
+    // 释放小窗单独创建的耳机位图。
+    private static void DisposeEarphoneImage(Image image)
+    {
+        if (image.Source is Bitmap bitmap && !AssetHelper.IsShared(bitmap))
+            bitmap.Dispose();
+        image.Source = null;
+    }
+
     /// <summary>自定义耳机图案变化后，重新加载小 UI 的双耳机与充电盒图。</summary>
     public void RefreshEarphoneImages() => LoadEarphoneImages();
 
@@ -283,7 +311,7 @@ public partial class SmallWindow : SukiWindow
         Background = Avalonia.Media.Brushes.Transparent;
         if (OperatingSystem.IsWindows())
             BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
-        UiLog.Debug("UI", "SmallWindow: 应用 Acrylic 模糊");
+        ApplicationLog.Current?.Debug("UI", "SmallWindow: 应用 Acrylic 模糊");
     }
 
     private void ApplyWindowChrome()
@@ -298,14 +326,14 @@ public partial class SmallWindow : SukiWindow
     {
         IsTitleBarVisible = false;
         CustomTitleBar.IsVisible = true;
-        UiLog.Debug("UI", "SmallWindow: 关闭 Chrome 标题栏 -> true");
+        ApplicationLog.Current?.Debug("UI", "SmallWindow: 关闭 Chrome 标题栏 -> true");
     }
 
     private void DisableAdvancedRenderChrome()
     {
         IsTitleBarVisible = true;
         CustomTitleBar.IsVisible = false;
-        UiLog.Debug("UI", "SmallWindow: 关闭 Chrome 标题栏 -> false");
+        ApplicationLog.Current?.Debug("UI", "SmallWindow: 关闭 Chrome 标题栏 -> false");
     }
 
     private void TitleBarDrag_PointerPressed(object? s, Avalonia.Input.PointerPressedEventArgs e)
@@ -313,7 +341,7 @@ public partial class SmallWindow : SukiWindow
 
     private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        UiLog.Debug("UI", "SmallWindow: 点击自定义关闭按钮");
+        ApplicationLog.Current?.Debug("UI", "SmallWindow: 点击自定义关闭按钮");
         Close();
     }
 
@@ -377,7 +405,7 @@ public partial class SmallWindow : SukiWindow
         var key = ReadStringSetting("BgCurrent");
         if (ReadBoolSetting("AcrylicBlur", false) || string.IsNullOrWhiteSpace(key) || key == "default" || !System.IO.File.Exists(key))
         {
-            UiLog.Debug("UI", "SmallWindow: 自定义背景未启用或被 Acrylic 禁用");
+            ApplicationLog.Current?.Debug("UI", "SmallWindow: 自定义背景未启用或被 Acrylic 禁用");
             BgImage.Source = null;
             BgImage.IsVisible = false;
             BgTint.IsVisible = false;
@@ -605,14 +633,14 @@ public partial class SmallWindow : SukiWindow
             AncSubRow.IsVisible = true;
             var target = opt.Children.Any(c => c.Key == _ancLevel) ? _ancLevel : opt.Children[0].Key;
             _ancLevel = target;
-            UiLog.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 发送子模式 {target}");
+            ApplicationLog.Current?.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 发送子模式 {target}");
             _ = SetNextAncAsync(target, "ANC 子模式");
         }
         else
         {
             AncSubRow.IsVisible = false;
             _ancLevel = "";
-            UiLog.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}");
+            ApplicationLog.Current?.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}");
             _ = SetNextAncAsync(opt.Key, "ANC 主模式");
         }
         HighlightAnc();
@@ -623,7 +651,7 @@ public partial class SmallWindow : SukiWindow
         if (_frontendState?.Snapshot.IsConnected != true) return;
         _ancLevel = opt.Key;
         _ancUserSetAt = DateTime.Now;
-        UiLog.Debug("UI", $"SmallWindow: ANC 子模式 -> {opt.Key}");
+        ApplicationLog.Current?.Debug("UI", $"SmallWindow: ANC 子模式 -> {opt.Key}");
         _ = SetNextAncAsync(opt.Key, "ANC 子模式");
         HighlightAnc();
     }

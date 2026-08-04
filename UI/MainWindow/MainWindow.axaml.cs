@@ -1,14 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using OppoPodsManager.Assets.Localization;
-using OppoPodsManager.UI.Logging;
-using Log = OppoPodsManager.UI.Logging.UiLog;
+using OppoPodsManager.Assets.UserSettings;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
@@ -26,6 +24,7 @@ using SukiUI.Controls;
 using SukiUI.Enums;
 using SukiUI.Toasts;
 using OppoPodsManager.Control;
+using OppoPodsManager.Control.Desktop;
 using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Control.Oppo.Models;
 using NoiseOptionModel = OppoPodsManager.Control.Oppo.Features.NoiseOptionModel;
@@ -59,7 +58,7 @@ public partial class MainWindow : SukiWindow
     private FrontendState? _frontendState;
     private ControlManager? _controlManager;
     private CommandDispatcher? _commandDispatcher;
-    private readonly UiSettingsStore _uiSettings;
+    private readonly SettingsStore _uiSettings;
     private IDisposable? _interactiveSurface;
 
     private sealed class PriorityDeviceOption
@@ -98,6 +97,7 @@ public partial class MainWindow : SukiWindow
     private IImage? _backgroundImageSource;
     private bool _realClose;
     private bool _runtimeUiDisposed;
+    private bool _sukiWindowDisposed;
     private bool _initializingSettings;
     private string _currentPage = "";
     private string? _bgSelected; // 当前选中的背景: "default" | filepath
@@ -164,9 +164,12 @@ public partial class MainWindow : SukiWindow
     private string _stopFindDevice = "";
     private string _checkUpdate = "";
     private string _checking = "";
-    // 复用控制层更新服务，窗口只负责更新结果的显示和用户操作。
-    private readonly UpdateService _updateService;
-    private readonly bool _ownsUpdateService;
+    // 复用控制层更新协调器，窗口只负责更新结果的显示和用户操作。
+    private readonly UpdateCoordinator? _updateCoordinator;
+    private readonly DesktopLinkService? _desktopLinks;
+    private readonly FeedbackExportService? _feedbackExporter;
+    private readonly Action? _requestApplicationExit;
+    private readonly Func<bool>? _shouldKeepWindowAlive;
 
     private bool _gameSoundCommandPending;
 
@@ -188,16 +191,27 @@ public partial class MainWindow : SukiWindow
     private MainWindow(
         OppoPodsManager.Assets.UserSettings.SettingsManager? nextSettings,
         IBrandManager? modelCatalogProvider = null,
-        UpdateService? updateService = null)
+        CommandDispatcher? commandDispatcher = null,
+        UpdateCoordinator? updateCoordinator = null,
+        DesktopLinkService? desktopLinks = null,
+        FeedbackExportService? feedbackExporter = null,
+        Action? requestApplicationExit = null,
+        Func<bool>? shouldKeepWindowAlive = null)
     {
         _modelCatalogProvider = modelCatalogProvider;
-        _updateService = updateService ?? new UpdateService(nextSettings);
-        _ownsUpdateService = updateService is null;
-        _uiSettings = new UiSettingsStore(nextSettings);
+        // 窗口只保存应用层注入的调度器，不在 UI 内部创建控制逻辑。
+        _commandDispatcher = commandDispatcher;
+        // 更新协调器由应用生命周期注入；AOT 无参构造只负责加载视图资源。
+        _updateCoordinator = updateCoordinator;
+        _desktopLinks = desktopLinks;
+        _feedbackExporter = feedbackExporter;
+        _requestApplicationExit = requestApplicationExit;
+        _shouldKeepWindowAlive = shouldKeepWindowAlive;
+        _uiSettings = new SettingsStore(nextSettings);
         _logManager = ApplicationLog.Current;
         try
         {
-            UiLog.Debug("UI", "MainWindow 构造开始");
+            _logManager?.Debug("UI", "MainWindow 构造开始");
         InitializeComponent();
 
         // 初始化降噪卡片为空状态，未连接设备时仍保留卡片容器。
@@ -217,7 +231,7 @@ public partial class MainWindow : SukiWindow
         NavHome.Classes.Add("selected");
         LbLog.ItemsSource = _renderedLogEntries;
 
-            UiLog.Debug("UI", "InitializeComponent OK");
+            _logManager?.Debug("UI", "InitializeComponent OK");
 
         // Wire events programmatically (Avalonia 12 compatibility)
             CbSpatial.IsCheckedChanged += CbSpatial_Changed;
@@ -337,7 +351,7 @@ public partial class MainWindow : SukiWindow
         {
             if (_refreshingComboBoxes || _initializingSettings) return;
             _uiSettings.SetInt("ToastDuration", ToastDurationSecondsFromIndex(CbToastDuration.SelectedIndex));
-            UiLog.Debug("UI", $"设置: Toast 时长索引 -> {CbToastDuration.SelectedIndex}");
+            _logManager?.Debug("UI", $"设置: Toast 时长索引 -> {CbToastDuration.SelectedIndex}");
         };
 
         // 背景设置
@@ -371,7 +385,7 @@ public partial class MainWindow : SukiWindow
         {
             var on = CbAdvancedRender.IsChecked == true;
             _uiSettings.SetBool("AdvancedRender", on);
-            Log.D("UI", $"设置: 高级渲染 -> {on}");
+            _logManager?.Debug("UI", $"设置: 高级渲染 -> {on}");
             if (on) EnableAdvancedRender();
             else DisableAdvancedRender();
             RefreshSmallWindowAppearance();
@@ -430,19 +444,15 @@ public partial class MainWindow : SukiWindow
         Closing += OnWindowClosing;
         Closed += (_, _) =>
         {
-            if (_frontendState is not null)
-                _frontendState.Changed -= OnNextStateChanged;
-            PropertyChanged -= OnWindowPropertyChanged;
-            _interactiveSurface?.Dispose();
-            _interactiveSurface = null;
             DisposeRuntimeUiResources();
+            DisposeSukiWindow();
         };
         // 启动时明确显示主页，确保未连接设备时仍显示原项目的空降噪卡片。
         ShowPage("home");
         }
         catch (Exception ex)
         {
-            Log.Ex("UI", "MainWindow 构造", ex);
+            _logManager?.Error("UI", "MainWindow 构造", ex);
             throw;
         }
     }
@@ -454,13 +464,17 @@ public partial class MainWindow : SukiWindow
         IBrandManager modelCatalogProvider,
         OppoPodsManager.Assets.UserSettings.SettingsManager settings,
         ApplicationLog log,
-        UpdateService? updateService = null)
-        : this(settings, modelCatalogProvider, updateService)
+        CommandDispatcher commandDispatcher,
+        UpdateCoordinator? updateCoordinator = null,
+        DesktopLinkService? desktopLinks = null,
+        FeedbackExportService? feedbackExporter = null,
+        Action? requestApplicationExit = null,
+        Func<bool>? shouldKeepWindowAlive = null)
+        : this(settings, modelCatalogProvider, commandDispatcher, updateCoordinator, desktopLinks, feedbackExporter, requestApplicationExit, shouldKeepWindowAlive)
     {
         _frontendState = frontendState;
         _controlManager = controlManager;
         _logManager = log;
-        _commandDispatcher = new CommandDispatcher(controlManager, log);
         _frontendState.Changed += OnNextStateChanged;
         PropertyChanged += OnWindowPropertyChanged;
         _logManager.Info("UI", "主窗口已接入 Next 控制层，禁用原项目连接循环。 ");
@@ -913,7 +927,7 @@ public partial class MainWindow : SukiWindow
 
     private async void RefreshDevices_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "用户操作: 刷新多耳机列表");
+        _logManager?.Debug("UI", "用户操作: 刷新多耳机列表");
         if (_controlManager is null)
             return;
 
@@ -980,7 +994,7 @@ public partial class MainWindow : SukiWindow
         if (_initializingSettings) return;
         var on = CbTray.IsChecked == true;
         _uiSettings.SetBool("TrayEnabled", on);
-        Log.D("UI", $"设置: 关闭到托盘 -> {on}");
+        _logManager?.Debug("UI", $"设置: 关闭到托盘 -> {on}");
     }
 
     private void CbAuto_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
@@ -988,14 +1002,14 @@ public partial class MainWindow : SukiWindow
         if (_initializingSettings) return;
         var on = CbAuto.IsChecked == true;
         _uiSettings.SetBool("AutoStart", on);
-        Log.D("UI", $"设置: 开机自启 -> {on}");
+        _logManager?.Debug("UI", $"设置: 开机自启 -> {on}");
     }
     private void CbAutoUpdate_Changed(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (_initializingSettings) return;
         var on = CbAutoUpdate.IsChecked == true;
         _uiSettings.SetBool("AutoCheckUpdate", on);
-        Log.D("UI", $"设置: 自动检查更新 -> {on}");
+        _logManager?.Debug("UI", $"设置: 自动检查更新 -> {on}");
     }
 
     /// <summary>按控制层提供的降噪展示模型生成主/子模式圆形图标按钮。</summary>
@@ -1217,7 +1231,7 @@ public partial class MainWindow : SukiWindow
 
     private void SwitchAncMain(NoiseOptionModel opt)
     {
-        Log.D("UI", $"用户操作: ANC 主模式 -> {opt.Key}");
+        _logManager?.Debug("UI", $"用户操作: ANC 主模式 -> {opt.Key}");
         if (_controlManager?.ActiveManager is null) return;
         _ancMain = opt.Key;
 
@@ -1244,7 +1258,7 @@ public partial class MainWindow : SukiWindow
 
     private void SwitchAncSub(NoiseOptionModel opt)
     {
-        Log.D("UI", $"用户操作: ANC 子级别 -> {opt.Key}");
+        _logManager?.Debug("UI", $"用户操作: ANC 子级别 -> {opt.Key}");
         if (_controlManager?.ActiveManager is null) return;
         _ancLevel = opt.Key;
         _ancLastSub[_ancMain] = opt.Key;
@@ -1469,7 +1483,7 @@ public partial class MainWindow : SukiWindow
     {
         if (CbModel.SelectedItem is string model && model != LAllModels())
         {
-            Log.D("UI", $"用户操作: 手动指定机型 -> {model}");
+            _logManager?.Debug("UI", $"用户操作: 手动指定机型 -> {model}");
             _modelOverride = model;
             WriteUiString("ModelOverride", model);
             SyncCaps();
@@ -1491,7 +1505,7 @@ public partial class MainWindow : SukiWindow
     {
         if (_refreshingComboBoxes) return;
         var idx = CbTheme.SelectedIndex;
-        Log.D("UI", $"用户操作: 切换主题 -> {idx}");
+        _logManager?.Debug("UI", $"用户操作: 切换主题 -> {idx}");
         ApplyTheme(idx);
         _uiSettings.SetString("Theme", NextThemeName(idx));
     }
@@ -1506,7 +1520,7 @@ public partial class MainWindow : SukiWindow
         var configured = _uiSettings.GetString("Language");
         var selected = _languageList.FirstOrDefault(option =>
             string.Equals(option.CultureCode,
-                NextLanguageCulture(configured),
+                LanguageManager.NormalizeSelectionCulture(configured),
                 StringComparison.OrdinalIgnoreCase));
         CbLanguage.SelectedItem = selected ?? _languageList[0];
     }
@@ -1516,13 +1530,8 @@ public partial class MainWindow : SukiWindow
         if (_refreshingComboBoxes || _initializingSettings || CbLanguage.SelectedItem is not LanguageOption option)
             return;
 
-        _uiSettings.SetString("Language", option.IsAutomatic ? "zh-Hans" : ToCatalogLanguage(option.CultureCode));
+        _uiSettings.SetString("Language", LanguageManager.ToStoredLanguage(option));
         LanguageManager.ApplyConfiguredCulture(option.IsAutomatic ? null : option.CultureCode);
-        TranslationCatalog.SetLanguage(option.IsAutomatic ? "zh" : option.CultureCode.StartsWith("en", StringComparison.OrdinalIgnoreCase)
-            ? "en"
-            : option.CultureCode.StartsWith("de", StringComparison.OrdinalIgnoreCase)
-                ? "de"
-                : option.CultureCode.StartsWith("ru", StringComparison.OrdinalIgnoreCase) ? "ru" : "zh");
         // 语言列表里的"自动"项在初始化时按启动语言本地化，切换语言后需重新取当前语言的显示文本。
         // 必须延迟到本次 SelectionChanged 的选择更新结束后再改源集合，否则 Avalonia 抛
         // "Source collection was modified during selection update"。
@@ -1767,23 +1776,6 @@ public partial class MainWindow : SukiWindow
         _ => "System"
     };
 
-    // 将 Next 语言值转换为旧界面语言列表使用的区域标识。
-    private static string NextLanguageCulture(string? language)
-        => language?.ToLowerInvariant() switch
-        {
-            "en" => "en-US",
-            "de" => "de",
-            "ru" => "ru",
-            _ => "zh-Hans"
-        };
-
-    // 将语言列表区域标识转换为 Next 嵌入语言包名称。
-    private static string ToCatalogLanguage(string cultureCode)
-        => cultureCode.StartsWith("en", StringComparison.OrdinalIgnoreCase) ? "en"
-            : cultureCode.StartsWith("de", StringComparison.OrdinalIgnoreCase) ? "de"
-            : cultureCode.StartsWith("ru", StringComparison.OrdinalIgnoreCase) ? "ru"
-            : "zh";
-
     // 读取 Next Toast 秒数并转换为原界面组合框索引。
     private int ReadToastDurationIndex()
     {
@@ -1954,7 +1946,7 @@ public partial class MainWindow : SukiWindow
     {
         if (_currentPage != page)
         {
-            Log.D("UI", $"页面切换: {_currentPage} -> {page}");
+            _logManager?.Debug("UI", $"页面切换: {_currentPage} -> {page}");
             _currentPage = page;
         }
         MainPanel.IsVisible = page == "home";
@@ -2020,7 +2012,7 @@ public partial class MainWindow : SukiWindow
     private void ToggleAcrylicBlur(bool on)
     {
         WriteUiBool("AcrylicBlur", on);
-        Log.D("UI", $"设置: Acrylic 模糊 -> {on}");
+        _logManager?.Debug("UI", $"设置: Acrylic 模糊 -> {on}");
         if (on)
             SelectBackground("default");
         UpdateBackgroundSettingsAvailability(on);
@@ -2067,20 +2059,20 @@ public partial class MainWindow : SukiWindow
 
     private void CustomMin_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "窗口操作: 最小化");
+        _logManager?.Debug("UI", "窗口操作: 最小化");
         WindowState = WindowState.Minimized;
     }
 
     private void CustomMax_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         var nextState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-        Log.D("UI", $"窗口操作: 切换窗口状态 -> {nextState}");
+        _logManager?.Debug("UI", $"窗口操作: 切换窗口状态 -> {nextState}");
         WindowState = nextState;
     }
 
     private void CustomClose_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "窗口操作: 点击关闭按钮");
+        _logManager?.Debug("UI", "窗口操作: 点击关闭按钮");
         Close();
     }
 
@@ -2119,7 +2111,7 @@ public partial class MainWindow : SukiWindow
         if (CbAcrylicBlur.IsChecked == true && key != "default")
             return;
 
-        Log.D("UI", key == "default" ? "背景: 选择默认背景" : "背景: 选择自定义背景");
+        _logManager?.Debug("UI", key == "default" ? "背景: 选择默认背景" : "背景: 选择自定义背景");
         _bgSelected = key;
         WriteUiString("BgCurrent", key == "default" ? null : key);
         BgThumbDefault.Classes.Set("selected", key == "default");
@@ -2289,19 +2281,16 @@ public partial class MainWindow : SukiWindow
 
     private void ExportFeedback(string url)
     {
-        var log = _logManager ?? ApplicationLog.Current;
-        if (log is null)
+        if (_feedbackExporter is null)
             return;
 
-        var exporter = new FeedbackExportService(log);
-        var result = exporter.Export(
-            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+        var result = _feedbackExporter.ExportToDesktop(
             VersionText.Text ?? "unknown",
             _frontendState?.Snapshot);
         if (!result.Succeeded)
             return;
 
-        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        _desktopLinks?.TryOpen(url, "反馈链接");
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
             await ShowCheckResultDialog(
                 string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_FeedbackExported), result.FileName),
@@ -2311,7 +2300,7 @@ public partial class MainWindow : SukiWindow
     private void OpenUrl_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
         if (s is Button btn && btn.Tag is string url)
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            _desktopLinks?.TryOpen(url, "页面链接");
     }
 
     // ========== EQ 调节 ==========
@@ -2451,7 +2440,7 @@ public partial class MainWindow : SukiWindow
         else
             SetAllEqSliders(0);
         _eqCurrentId = item.EqId;
-        Log.D("UI", $"EQ选中: name={item.Name} eqId={_eqCurrentId} isCustom={item.IsCustom} isDev={item.IsDeviceEntry}");
+        _logManager?.Debug("UI", $"EQ选中: name={item.Name} eqId={_eqCurrentId} isCustom={item.IsCustom} isDev={item.IsDeviceEntry}");
         BtnEqSave.IsEnabled = true;
         EqHintText.Text = string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.Eq_HintEditing), item.Name);
         // 同步主页调音下拉框（抑制事件避免循环）
@@ -2794,7 +2783,7 @@ public partial class MainWindow : SukiWindow
         DialogConfirmBtn.Background = Brushes.Transparent;
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
-        Log.D("UI", $"对话框: 打开输入框 -> {title}");
+        _logManager?.Debug("UI", $"对话框: 打开输入框 -> {title}");
         DialogInput.Focus();
         DialogInput.SelectAll();
 
@@ -2817,7 +2806,7 @@ public partial class MainWindow : SukiWindow
         DialogConfirmBtn.Background = new SolidColorBrush(Color.Parse("#CCE81123"));
         DialogConfirmBtn.IsVisible = true;
         DialogOverlay.IsVisible = true;
-        Log.D("UI", $"对话框: 打开确认框 -> {title}");
+        _logManager?.Debug("UI", $"对话框: 打开确认框 -> {title}");
 
         return await _confirmTcs.Task;
     }
@@ -2831,7 +2820,7 @@ public partial class MainWindow : SukiWindow
             ExportFeedback("https://jihulab.com/zhaoyi-ya-group/oppo-pods-manager/-/work_items/new");
             return;
         }
-        _updateService.SkipVersion(_updatePendingVersion);
+        _updateCoordinator?.SkipVersion(_updatePendingVersion);
         DialogOverlay_Close();
         _confirmTcs?.TrySetResult(false);
     }
@@ -2845,15 +2834,15 @@ public partial class MainWindow : SukiWindow
 
     private void DialogMirror_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "对话框: 国内下载");
+        _logManager?.Debug("UI", "对话框: 国内下载");
         DialogOverlay_Close();
         _confirmTcs?.TrySetResult(false);
-        _updateService.TryOpenDownload("mirror", UpdateService.MirrorDownloadUrl);
+        _updateCoordinator?.TryOpenDownload("mirror", UpdateCoordinator.MirrorDownloadUrl);
     }
 
     private void DialogCancel_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "对话框: 取消");
+        _logManager?.Debug("UI", "对话框: 取消");
         DialogOverlay_Close();
         _promptTcs?.TrySetResult(null);
         _confirmTcs?.TrySetResult(false);
@@ -2861,7 +2850,7 @@ public partial class MainWindow : SukiWindow
 
     private void DialogConfirm_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "对话框: 确认");
+        _logManager?.Debug("UI", "对话框: 确认");
         DialogOverlay_Close();
 
         if (_promptTcs != null)
@@ -2877,7 +2866,7 @@ public partial class MainWindow : SukiWindow
 
     private void Reconnect_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        Log.D("UI", "用户操作: 点击重连");
+        _logManager?.Debug("UI", "用户操作: 点击重连");
         _ = ConnectNextDeviceAsync(null);
     }
 
@@ -2920,35 +2909,22 @@ public partial class MainWindow : SukiWindow
 
     private void OnWindowClosing(object? s, WindowClosingEventArgs e)
     {
-        // 真正退出（QuitApplication 已设 _realClose）→ 放行
-        if (_realClose) return;
+        if (_realClose)
+            return;
 
-        // 托盘已启用 → 隐藏而非关闭。这里读持久化配置，避免控件状态初始化/同步异常导致设置失效。
-        if (ReadUiBool("TrayEnabled", false))
+        // 未启用关闭到托盘时，主窗口关闭请求直接交给应用生命周期处理。
+        if (_shouldKeepWindowAlive?.Invoke() != true && _requestApplicationExit is not null)
         {
             e.Cancel = true;
-            _logRefreshTimer?.Stop();
-            ShowInTaskbar = false;
-            Hide();
+            _realClose = true;
+            DisposeRuntimeUiResources();
+            _requestApplicationExit();
             return;
         }
 
-        // 托盘未启用 → 必须显式退出
-        // TrayIcon 会让进程保活，单纯 Close() 不会终止进程，后台服务卡住
-        // 之后若误点托盘图标调 Show() → "Cannot re-show a closed window" 崩溃
-        e.Cancel = true;
-        QuitApplication();
-    }
-
-    /// <summary>统一请求桌面生命周期退出，设备控制器由 App 负责释放。</summary>
-    private void QuitApplication()
-    {
+        // 启用关闭到托盘时，关闭主窗口本身但保留托盘和设备会话。
         _realClose = true;
-        Closing -= OnWindowClosing;
         DisposeRuntimeUiResources();
-        if (Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-            desktop.Shutdown();
     }
 
     private void DisposeRuntimeUiResources()
@@ -2958,13 +2934,30 @@ public partial class MainWindow : SukiWindow
         _runtimeUiDisposed = true;
 
         Closing -= OnWindowClosing;
+        if (_frontendState is not null)
+            _frontendState.Changed -= OnNextStateChanged;
+        PropertyChanged -= OnWindowPropertyChanged;
+        _interactiveSurface?.Dispose();
+        _interactiveSurface = null;
+        foreach (var subscription in _linguaSubs)
+            subscription.Dispose();
+        _linguaSubs.Clear();
         _eqDebounceTimer?.Stop();
         _bgApplyDebounceTimer?.Stop();
         _logRefreshTimer?.Stop();
-        if (_ownsUpdateService)
-            _updateService.Dispose();
+        DisposeWindowImages();
         SetBackgroundImageSource(null, "");
         _backgroundImages.Dispose();
+    }
+
+    // 调用 SukiWindow 自带的释放流程，清理 Toast host 和窗口渲染资源。
+    private void DisposeSukiWindow()
+    {
+        if (_sukiWindowDisposed)
+            return;
+
+        _sukiWindowDisposed = true;
+        Dispose();
     }
 
     // 保存个性化耳机图片卡片中的预览控件。
@@ -3045,6 +3038,20 @@ public partial class MainWindow : SukiWindow
         if (image.Source is Bitmap bitmap && !AssetHelper.IsShared(bitmap))
             bitmap.Dispose();
         image.Source = null;
+    }
+
+    // 关闭主窗口时释放首页和设备详情页持有的独立耳机位图。
+    private void DisposeWindowImages()
+    {
+        DisposeEarphoneImage(LeftBatteryImage);
+        DisposeEarphoneImage(RightBatteryImage);
+        DisposeEarphoneImage(CaseBatteryImage);
+        DisposeEarphoneImage(DiTouchLeftImage);
+        DisposeEarphoneImage(DiTouchRightImage);
+        foreach (var preview in _earphonePreviews.Values)
+            DisposeEarphoneImage(preview);
+        _earphonePreviews.Clear();
+        EarphoneCustomContent.Children.Clear();
     }
 
     // 个性化设置变化后通知已创建的小窗刷新外观；小窗由托盘控制器按需创建。
@@ -3288,7 +3295,7 @@ public partial class MainWindow : SukiWindow
         WriteHiddenMultiDevices(hidden);
         SyncNextMultiDeviceList(_frontendState?.Snapshot);
         RefreshRestoreHiddenDevicesButton();
-        UiLog.Debug("UI", $"本地隐藏多设备 addr={device.Address}");
+        _logManager?.Debug("UI", $"本地隐藏多设备 addr={device.Address}");
     }
 
     private void RefreshRestoreHiddenDevicesButton()
@@ -3306,7 +3313,7 @@ public partial class MainWindow : SukiWindow
         SyncNextMultiDeviceList(_frontendState?.Snapshot);
         RefreshRestoreHiddenDevicesButton();
         _ = _commandDispatcher?.RunAsync("刷新多设备列表", manager => manager.RefreshMultiDeviceAsync(CancellationToken.None));
-        UiLog.Debug("UI", "已清除本地隐藏设备策略并同步多设备状态");
+        _logManager?.Debug("UI", "已清除本地隐藏设备策略并同步多设备状态");
     }
 
     private string GetDeviceConnectionText(ConnectedDeviceSnapshot d)
@@ -3342,7 +3349,7 @@ public partial class MainWindow : SukiWindow
 
     private async void BtnCheckUpdate_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        UiLog.Debug("UI", "用户操作: 手动检查更新");
+        _logManager?.Debug("UI", "用户操作: 手动检查更新");
         BtnCheckUpdate.IsEnabled = false;
         BtnCheckUpdate.Content = _checking;
         try { await DoCheckUpdateAsync(silent: false); }
@@ -3355,7 +3362,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnViewLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        UiLog.Debug("UI", "日志面板: 打开");
+        _logManager?.Debug("UI", "日志面板: 打开");
         RefreshLogView();
         SettingsPanel.IsVisible = false;
         LogPanel.IsVisible = true;
@@ -3434,7 +3441,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnLogBack_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        UiLog.Debug("UI", "日志面板: 返回设置");
+        _logManager?.Debug("UI", "日志面板: 返回设置");
         _logRefreshTimer?.Stop();
         _logAutoScroll = true;
         LogPanel.IsVisible = false;
@@ -3442,10 +3449,15 @@ public partial class MainWindow : SukiWindow
     }
     private async Task DoCheckUpdateAsync(bool silent = false)
     {
+        if (_updateCoordinator is null)
+        {
+            _logManager?.Debug("UI", "检查更新跳过：更新协调器尚未注入。");
+            return;
+        }
+
         // 计算当前界面文化，交给更新服务请求本地化的更新说明。
-        var configuredLanguage = NextLanguageCulture(_uiSettings.GetString("Language"));
-        var uiLang = LanguageManager.ResolveCulture(configuredLanguage).Name;
-        var result = await _updateService.CheckAsync(
+        var uiLang = LanguageManager.ResolveCulture(_uiSettings.GetString("Language")).Name;
+        var result = await _updateCoordinator.CheckAsync(
             VersionText.Text ?? "unknown",
             uiLang,
             CancellationToken.None,
@@ -3475,7 +3487,7 @@ public partial class MainWindow : SukiWindow
         {
             var go = await ShowUpdateDialog(serverVersion, result.Content);
             if (go)
-                _updateService.TryOpenDownload("github", result.DownloadUrl);
+                _updateCoordinator.TryOpenDownload("github", result.DownloadUrl);
             return;
         }
 
@@ -3489,7 +3501,7 @@ public partial class MainWindow : SukiWindow
         {
             var go = await ShowUpdateDialog(serverVersion, result.Content);
             if (go)
-                _updateService.TryOpenDownload("github", result.DownloadUrl);
+                _updateCoordinator.TryOpenDownload("github", result.DownloadUrl);
         }
     }
 
@@ -3507,19 +3519,19 @@ public partial class MainWindow : SukiWindow
     {
         if (action == UpdateToastAction.Skip)
         {
-            _updateService.SkipVersion(serverVersion);
+            _updateCoordinator?.SkipVersion(serverVersion);
             return;
         }
 
         if (action == UpdateToastAction.MirrorDownload)
         {
-            _updateService.TryOpenDownload("mirror", UpdateService.MirrorDownloadUrl);
+            _updateCoordinator?.TryOpenDownload("mirror", UpdateCoordinator.MirrorDownloadUrl);
             return;
         }
 
         if (action == UpdateToastAction.Download)
         {
-            _updateService.TryOpenDownload("github", downloadUrl);
+            _updateCoordinator?.TryOpenDownload("github", downloadUrl);
         }
     }
 

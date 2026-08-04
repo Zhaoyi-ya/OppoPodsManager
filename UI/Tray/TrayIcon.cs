@@ -5,6 +5,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using OppoPodsManager.Control;
+using OppoPodsManager.Control.Oppo.Features;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Assets.Localization;
 using OppoPodsManager.Assets.UserSettings;
@@ -25,12 +26,14 @@ public sealed class TrayIconController : IDisposable
     private readonly Avalonia.Controls.TrayIcon _icon;
     private DispatcherTimer? _clickTimer;
     private StatusWindow? _miniWindow;
+    private string _menuSignature = "";
     private bool _disposed;
 
     public TrayIconController(
         IClassicDesktopStyleApplicationLifetime desktop,
         FrontendState frontendState,
         ControlManager controlManager,
+        CommandDispatcher commandDispatcher,
         SettingsManager settings,
         ApplicationLog log,
         Func<Window?> mainWindow)
@@ -38,15 +41,12 @@ public sealed class TrayIconController : IDisposable
         _desktop = desktop;
         _frontendState = frontendState;
         _controlManager = controlManager;
-        _commandDispatcher = new CommandDispatcher(controlManager, log);
+        // 托盘复用应用层命令调度器，避免 UI 层重复创建控制服务。
+        _commandDispatcher = commandDispatcher;
         _settings = settings;
         _mainWindow = mainWindow;
-        _icon = new Avalonia.Controls.TrayIcon
-        {
-            ToolTipText = TranslationCatalog.Get("Tray_Tooltip"),
-            Icon = LoadIcon(),
-            Menu = TrayMenu.Create(_frontendState.Snapshot, ActiveDeviceManager, _commandDispatcher, ShowMainWindow, ExitApplication)
-        };
+        _icon = new Avalonia.Controls.TrayIcon { Icon = LoadIcon() };
+        RefreshMenu(_frontendState.Snapshot, force: true);
         _icon.Clicked += OnClicked;
         _frontendState.Changed += OnFrontendStateChanged;
         _settings.Changed += OnSettingsChanged;
@@ -82,8 +82,51 @@ public sealed class TrayIconController : IDisposable
             if (_disposed)
                 return;
             _icon.ToolTipText = BuildTooltip(snapshot);
-            _icon.Menu = TrayMenu.Create(snapshot, ActiveDeviceManager, _commandDispatcher, ShowMainWindow, ExitApplication);
+            RefreshMenu(snapshot);
         });
+    }
+
+    // 只有菜单状态变化时才重建原生菜单，避免电量快照刷新造成原生资源持续累积。
+    private void RefreshMenu(BusinessSnapshot snapshot, bool force = false)
+    {
+        var signature = BuildMenuSignature(snapshot);
+        if (!force && string.Equals(signature, _menuSignature, StringComparison.Ordinal))
+            return;
+
+        _icon.Menu = TrayMenu.Create(
+            snapshot,
+            ActiveDeviceManager,
+            _commandDispatcher,
+            ShowMainWindow,
+            ToggleMiniWindow,
+            ExitApplication);
+        _menuSignature = signature;
+    }
+
+    // 生成托盘菜单实际依赖的状态签名，电量等不影响菜单的状态不参与比较。
+    private string BuildMenuSignature(BusinessSnapshot snapshot)
+    {
+        var presentation = ActiveDeviceManager?.Presentation;
+        var controls = presentation is null
+            ? ""
+            : string.Join(",", presentation.VisibleControls.OrderBy(value => value)) + "|"
+              + string.Join(",", presentation.ControlStates.OrderBy(pair => pair.Key)
+                  .Select(pair => $"{pair.Key}={pair.Value}")) + "|"
+              + string.Join(",", presentation.NoiseOptions.SelectMany(FlattenNoiseOptionsForSignature));
+        return string.Join(
+            "|",
+            snapshot.IsConnected,
+            snapshot.Noise.Mode,
+            snapshot.Game.IsEnabled,
+            controls);
+    }
+
+    // 将分组降噪选项展开到签名，确保新增或移除子模式时菜单同步重建。
+    private static IEnumerable<string> FlattenNoiseOptionsForSignature(NoiseOptionModel option)
+    {
+        yield return option.Key;
+        foreach (var child in option.Children.SelectMany(FlattenNoiseOptionsForSignature))
+            yield return child;
     }
 
     // 构造原项目风格的托盘提示，显示型号和已知电量摘要。
@@ -112,11 +155,16 @@ public sealed class TrayIconController : IDisposable
     {
         Dispatcher.UIThread.Post(() =>
         {
-            if (_disposed || _miniWindow is null)
+            if (_disposed)
                 return;
 
-            _miniWindow.RefreshAppearance();
-            _miniWindow.RefreshAncLabels();
+            _icon.ToolTipText = BuildTooltip(_frontendState.Snapshot);
+            RefreshMenu(_frontendState.Snapshot, force: true);
+            if (_miniWindow is not null)
+            {
+                _miniWindow.RefreshAppearance();
+                _miniWindow.RefreshAncLabels();
+            }
         });
     }
 
@@ -152,6 +200,7 @@ public sealed class TrayIconController : IDisposable
         var window = new StatusWindow(
             _frontendState,
             _controlManager,
+            _commandDispatcher,
             _settings,
             () => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
@@ -201,6 +250,7 @@ public sealed class TrayIconController : IDisposable
         _settings.Changed -= OnSettingsChanged;
         _clickTimer?.Stop();
         _miniWindow?.Close();
+        Avalonia.Controls.TrayIcon.SetIcons(Application.Current!, new TrayIcons());
         _icon.Dispose();
     }
 }

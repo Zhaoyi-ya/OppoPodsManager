@@ -15,6 +15,7 @@ internal static class TrayMenu
         IBrandManager? manager,
         CommandDispatcher dispatcher,
         Action showMainWindow,
+        Action showMiniWindow,
         Action exitApplication)
     {
         var menu = new NativeMenu();
@@ -29,6 +30,13 @@ internal static class TrayMenu
             ApplicationLog.Current?.Info("Tray", "点击托盘菜单：显示主窗口。");
             showMainWindow();
         };
+        var miniItem = new NativeMenuItem(TranslationCatalog.Get("Tray_ShowMini"));
+        miniItem.Click += (_, _) =>
+        {
+            ApplicationLog.Current?.Info("Tray", "点击托盘菜单：显示小窗口。");
+            showMiniWindow();
+        };
+        menu.Add(miniItem);
         menu.Add(showItem);
         menu.Add(new NativeMenuItemSeparator());
         var exitItem = new NativeMenuItem(TranslationCatalog.Get("Tray_Quit"));
