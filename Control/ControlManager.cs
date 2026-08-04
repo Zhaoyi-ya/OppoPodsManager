@@ -1,7 +1,9 @@
 using OppoPodsManager.Control.Oppo;
+using OppoPodsManager.Control.Oppo.Features;
 using OppoPodsManager.Control.Oppo.Managers;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Assets.UserSettings;
 
 namespace OppoPodsManager.Control;
 
@@ -10,15 +12,23 @@ public sealed class ControlManager : IAsyncDisposable
 {
     private readonly FrontendState _frontendState;
     private readonly DeviceScanner? _deviceScanner;
+    private readonly ModelCatalog? _modelCatalog;
+    private readonly SettingsStore? _settings;
     private readonly SemaphoreSlim _connectionGate = new(1, 1);
     private readonly object _availableDevicesLock = new();
     private IReadOnlyDictionary<string, DeviceConnectionPlan> _availableDevices = new Dictionary<string, DeviceConnectionPlan>();
     private IBrandManager? _activeManager;
 
-    public ControlManager(FrontendState frontendState, DeviceScanner? deviceScanner = null)
+    public ControlManager(
+        FrontendState frontendState,
+        DeviceScanner? deviceScanner = null,
+        ModelCatalog? modelCatalog = null,
+        SettingsStore? settings = null)
     {
         _frontendState = frontendState;
         _deviceScanner = deviceScanner;
+        _modelCatalog = modelCatalog;
+        _settings = settings;
         _frontendState.InteractivePollingChanged += OnInteractivePollingChanged;
     }
 
@@ -155,6 +165,52 @@ public sealed class ControlManager : IAsyncDisposable
         ApplicationLog.Current?.Info("Control", "当前耳机会话已断开。");
     }
 
+    // 根据当前会话和本地隐藏策略生成多设备展示数据，窗口不再直接读取设置。
+    public MultiDeviceDisplayState GetMultiDeviceDisplayState()
+    {
+        var manager = _activeManager;
+        if (manager is null)
+            return new MultiDeviceDisplayState([], []);
+
+        var hiddenAddresses = _settings?.GetHiddenMultiDevices()
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        return manager.GetMultiDeviceDisplayState(hiddenAddresses);
+    }
+
+    // 保存用户隐藏的非当前设备地址，并立即记录策略变化。
+    public bool HideMultiDevice(string? address)
+    {
+        if (string.IsNullOrWhiteSpace(address) || _settings is null)
+            return false;
+
+        var current = _activeManager?.Snapshot.MultiDevice.Devices
+            .FirstOrDefault(device => device.IsCurrent);
+        if (string.Equals(current?.Address, address, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var hidden = _settings.GetHiddenMultiDevices().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!hidden.Add(address))
+            return false;
+
+        _settings.SetHiddenMultiDevices(hidden);
+        ApplicationLog.Current?.Info("MultiDevice", $"已隐藏多设备：address={address}。");
+        return true;
+    }
+
+    // 清除所有本地隐藏设备策略，恢复完整多设备列表。
+    public void RestoreHiddenMultiDevices()
+    {
+        if (_settings is null)
+            return;
+
+        _settings.SetHiddenMultiDevices([]);
+        ApplicationLog.Current?.Info("MultiDevice", "已恢复全部隐藏多设备。");
+    }
+
+    // 返回隐藏设备数量，供窗口更新恢复按钮状态。
+    public int GetHiddenMultiDeviceCount()
+        => _settings?.GetHiddenMultiDevices().Count ?? 0;
+
     // 通过已确认的扫描计划打开 RFCOMM 链接并启动 OPPO 协议会话。
     private async Task ConnectPlanAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
     {
@@ -162,7 +218,7 @@ public sealed class ControlManager : IAsyncDisposable
         try
         {
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-            var manager = new OppoManager();
+            var manager = new OppoManager(_modelCatalog);
             ConnectionLink? link = null;
             try
             {

@@ -19,6 +19,10 @@ public sealed class BackgroundImageManager : IDisposable
     public string BuildCacheKey(string path, int targetWidth, int blur)
         => $"{path}|{File.GetLastWriteTimeUtc(path).Ticks}|w={targetWidth}|b={blur}";
 
+    // 判断背景文件是否仍然存在，避免界面层直接访问文件系统。
+    public bool IsAvailable(string? path)
+        => !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
     // 获取或创建指定尺寸和模糊程度的背景位图。
     public Bitmap GetOrCreateBitmap(string path, int targetWidth, int blur, string cacheKey)
     {

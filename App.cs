@@ -7,12 +7,13 @@ using OppoPodsManager.Communication.Windows;
 using OppoPodsManager.Control;
 using OppoPodsManager.Control.Desktop;
 using OppoPodsManager.Control.Notifications;
-using OppoPodsManager.Control.Oppo;
+using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Oppo.Managers;
 using OppoPodsManager.UI.MainWindow;
 using OppoPodsManager.UI.Toast;
 using OppoPodsManager.UI.Tray;
 using OppoPodsManager.Assets.UserSettings;
+using OppoPodsManager.Assets.Oplus;
 using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Control.Updates;
 using OppoPodsManager.Assets.Localization;
@@ -24,7 +25,7 @@ public sealed partial class App : Application
     public static bool IsMinimizedStartup() => false;
     private readonly FrontendState _frontendState = new();
     private ControlManager? _controlManager;
-    private IBrandManager? _modelCatalogProvider;
+    private ModelCatalog? _modelCatalog;
     private ToastNotificationService? _toastNotifications;
     private TrayIconController? _trayIcon;
     private SettingsManager? _settings;
@@ -68,9 +69,14 @@ public sealed partial class App : Application
             var communication = new CommunicationController(
                 [new WindowsRfcommFactory()],
                 [new WindowsBluetoothDiscovery()]);
-            // 由品牌管理器提供官方型号目录，启动层只负责把它注入界面。
-            _modelCatalogProvider = new OppoManager();
-            _controlManager = new ControlManager(_frontendState, new DeviceScanner(communication));
+            // 应用层只创建一份官方型号目录，供控制层识别和设置页筛选共同使用。
+            _modelCatalog = DeviceModelData.LoadCatalog();
+            var settingsStore = new SettingsStore(_settings);
+            _controlManager = new ControlManager(
+                _frontendState,
+                new DeviceScanner(communication),
+                _modelCatalog,
+                settingsStore);
             // 由应用层创建唯一的命令调度器，所有界面入口共享同一控制层调用边界。
             _commandDispatcher = new CommandDispatcher(_controlManager, _log);
             // 由控制层统一判断连接和低电量通知，界面层只负责渲染通知请求。
@@ -102,8 +108,6 @@ public sealed partial class App : Application
                 await _windowMemoryReclaimTask;
                 if (_controlManager is not null)
                     await _controlManager.DisposeAsync();
-                if (_modelCatalogProvider is not null)
-                    await _modelCatalogProvider.DisposeAsync();
                 _updateCoordinator?.Dispose();
                 _updateCoordinator = null;
                 _desktopLinks = null;
@@ -125,7 +129,7 @@ public sealed partial class App : Application
         var window = new MainWindow(
             _frontendState,
             _controlManager ?? throw new InvalidOperationException("控制器尚未初始化。"),
-            _modelCatalogProvider ?? throw new InvalidOperationException("品牌管理器尚未初始化。"),
+            _modelCatalog ?? throw new InvalidOperationException("型号目录尚未初始化。"),
             _settings ?? throw new InvalidOperationException("设置管理器尚未初始化。"),
             _log ?? throw new InvalidOperationException("日志服务尚未初始化。"),
             _commandDispatcher ?? throw new InvalidOperationException("命令调度器尚未初始化。"),

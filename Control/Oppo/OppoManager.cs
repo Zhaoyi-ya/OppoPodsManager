@@ -50,10 +50,10 @@ public sealed class OppoManager : IBrandManager
     private DeviceCapability _baseCapability = DeviceCapability.Unknown;
     private bool _featureProbeCompleted;
 
-    // 使用默认 Melody 协议能力表创建会话管理器。
-    public OppoManager(CapabilityLoader? capabilityLoader = null, CommandCapabilityMap? commandMap = null)
+    // 使用共享官方型号目录和默认 Melody 协议能力表创建会话管理器。
+    public OppoManager(ModelCatalog? modelCatalog = null, CommandCapabilityMap? commandMap = null)
     {
-        _capabilityLoader = capabilityLoader ?? new CapabilityLoader(DeviceModelData.LoadCatalog());
+        _capabilityLoader = new CapabilityLoader(modelCatalog ?? DeviceModelData.LoadCatalog());
         _capabilityReader = new CapabilityReader(commandMap ?? CommandCapabilityMap.MelodyV16);
         _state.Changed += PublishState;
     }
@@ -63,19 +63,6 @@ public sealed class OppoManager : IBrandManager
     public BusinessSnapshot Snapshot => _state.Snapshot();
 
     public DeviceCapability Capability { get; private set; } = DeviceCapability.Unknown;
-
-    // 暴露同一份官方型号白名单，避免界面重新维护型号列表。
-    public IReadOnlyList<string> ModelNames => _capabilityLoader.Catalog.Models
-        .Select(model => model.DisplayName)
-        .ToArray();
-
-    // 返回官方型号目录的层级数据，供界面直接展示筛选项。
-    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>> ModelTree
-        => _capabilityLoader.Catalog.BrandTree;
-
-    // 将型号目录定位请求交给官方型号库处理。
-    public ModelCatalogLocation? FindModelLocation(string? modelName)
-        => _capabilityLoader.Catalog.FindLocation(modelName);
 
     // 根据当前能力和最新功能状态生成窗口可直接消费的展示快照。
     public BrandPresentation Presentation

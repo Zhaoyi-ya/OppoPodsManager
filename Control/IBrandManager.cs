@@ -11,15 +11,6 @@ public interface IBrandManager : IAsyncDisposable
 
     DeviceCapability Capability { get; }
 
-    // 提供该品牌管理器支持的型号清单，供型号选择和能力解析共用。
-    IReadOnlyList<string> ModelNames { get; }
-
-    // 提供官方型号白名单中的品牌、系列和型号层级。
-    IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>> ModelTree { get; }
-
-    // 按官方型号目录定位型号所属的品牌和系列。
-    ModelCatalogLocation? FindModelLocation(string? modelName);
-
     // 向界面公开经过能力交集计算的展示数据，而不是让界面读取协议能力。
     BrandPresentation Presentation { get; }
 

@@ -13,9 +13,6 @@ public sealed class CapabilityLoader
         _catalog = catalog;
     }
 
-    // 让品牌管理器复用已加载的官方型号目录。
-    public ModelCatalog Catalog => _catalog;
-
     // 优先按产品标识匹配，未识别型号时不猜测任何功能能力。
     public DeviceCapability Load(
         string? productId,

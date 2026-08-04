@@ -21,6 +21,8 @@ public sealed class ApplicationLog : TraceListener, IDisposable
 
     public ApplicationLog(string directory)
     {
+        // 统一终端输出编码，避免 Windows 代码页把中文后端日志显示为乱码。
+        ConfigureConsoleEncoding();
         _directory = directory;
         Directory.CreateDirectory(directory);
         _filePath = Path.Combine(directory, "OppoPodsManager.log");
@@ -129,6 +131,24 @@ public sealed class ApplicationLog : TraceListener, IDisposable
 
     private static StreamWriter CreateWriter(string path)
         => new(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
+
+    // 将重定向到 VSCode 的标准输出和错误输出固定为 UTF-8。
+    private static void ConfigureConsoleEncoding()
+    {
+        try
+        {
+            var utf8 = new UTF8Encoding(false);
+            Console.OutputEncoding = utf8;
+            Console.SetError(new StreamWriter(Console.OpenStandardError(), utf8, 1024, leaveOpen: true)
+            {
+                AutoFlush = true
+            });
+        }
+        catch (Exception exception)
+        {
+            Trace.WriteLine($"无法设置终端 UTF-8 编码：{exception}");
+        }
+    }
 
     // 释放监听器与文件句柄，并保留 TraceListener 的标准释放语义。
     protected override void Dispose(bool disposing)

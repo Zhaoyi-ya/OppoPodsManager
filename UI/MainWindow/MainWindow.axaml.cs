@@ -32,6 +32,7 @@ using MultiDeviceOperation = OppoPodsManager.Control.Oppo.Features.MultiDeviceOp
 using MultiDeviceDisplayState = OppoPodsManager.Control.Oppo.Features.MultiDeviceDisplayState;
 using OppoPodsManager.Control.Updates;
 using BackgroundImageManager = OppoPodsManager.Assets.VisualAssets.BackgroundImageManager;
+using BackgroundSelectionService = OppoPodsManager.Assets.VisualAssets.BackgroundSelectionService;
 using DeviceProfileLoader = OppoPodsManager.Assets.Localization.DeviceProfileLoader;
 using EarphoneImageProvider = OppoPodsManager.Assets.VisualAssets.EarphoneImageProvider;
 using EarphoneSlot = OppoPodsManager.Assets.VisualAssets.EarphoneSlot;
@@ -100,10 +101,9 @@ public partial class MainWindow : SukiWindow
     private bool _sukiWindowDisposed;
     private bool _initializingSettings;
     private string _currentPage = "";
-    private string? _bgSelected; // 当前选中的背景: "default" | filepath
-    private readonly List<string> _bgHistory = new(); // 历史背景图片路径
     // 统一管理主窗口和小窗使用的自定义背景资源。
     private readonly BackgroundImageManager _backgroundImages = new();
+    private readonly BackgroundSelectionService _backgroundSelection;
     /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
     internal static ISukiToastManager ToastManager = new SukiToastManager();
     private string? _modelOverride;
@@ -181,7 +181,7 @@ public partial class MainWindow : SukiWindow
     private bool _refreshingComboBoxes;
     private IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>> _brandTree
         = new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>>();
-    private readonly IBrandManager? _modelCatalogProvider;
+    private readonly ModelCatalog? _modelCatalog;
 
     // 为 Avalonia/AOT 提供无参入口，不创建设备连接层。
     public MainWindow() : this(null)
@@ -190,7 +190,7 @@ public partial class MainWindow : SukiWindow
 
     private MainWindow(
         OppoPodsManager.Assets.UserSettings.SettingsManager? nextSettings,
-        IBrandManager? modelCatalogProvider = null,
+        ModelCatalog? modelCatalog = null,
         CommandDispatcher? commandDispatcher = null,
         UpdateCoordinator? updateCoordinator = null,
         DesktopLinkService? desktopLinks = null,
@@ -198,7 +198,7 @@ public partial class MainWindow : SukiWindow
         Action? requestApplicationExit = null,
         Func<bool>? shouldKeepWindowAlive = null)
     {
-        _modelCatalogProvider = modelCatalogProvider;
+        _modelCatalog = modelCatalog;
         // 窗口只保存应用层注入的调度器，不在 UI 内部创建控制逻辑。
         _commandDispatcher = commandDispatcher;
         // 更新协调器由应用生命周期注入；AOT 无参构造只负责加载视图资源。
@@ -208,6 +208,7 @@ public partial class MainWindow : SukiWindow
         _requestApplicationExit = requestApplicationExit;
         _shouldKeepWindowAlive = shouldKeepWindowAlive;
         _uiSettings = new SettingsStore(nextSettings);
+        _backgroundSelection = new BackgroundSelectionService(_uiSettings, _backgroundImages);
         _logManager = ApplicationLog.Current;
         try
         {
@@ -305,7 +306,6 @@ public partial class MainWindow : SukiWindow
             _uiSettings.SetInt("CardOpacity", v);
             if (!_applyingAppearancePreset) CbTransparencyPreset.SelectedIndex = 0;
             RefreshCardOpacity();
-            RefreshSmallWindowAppearance();
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
 
@@ -355,8 +355,6 @@ public partial class MainWindow : SukiWindow
         };
 
         // 背景设置
-        _bgSelected = _uiSettings.GetString("BgCurrent") ?? "default";
-        _bgHistory.AddRange(_uiSettings.GetStringList("BgHistory"));
         RefreshBgThumbs();
         BgThumbDefault.PointerPressed += (_, _) => SelectBackground("default");
         BgThumbAdd.PointerPressed += (_, _) => _ = BtnBgAdd_Click();
@@ -374,7 +372,6 @@ public partial class MainWindow : SukiWindow
             var timer = EnsureBackgroundApplyDebounceTimer();
             timer.Stop();
             timer.Start();
-            RefreshSmallWindowAppearance();
         };
         BtnResetBgBlur.Click += (_, _) => SlBgBlur.Value = 0;
 
@@ -388,7 +385,6 @@ public partial class MainWindow : SukiWindow
             _logManager?.Debug("UI", $"设置: 高级渲染 -> {on}");
             if (on) EnableAdvancedRender();
             else DisableAdvancedRender();
-            RefreshSmallWindowAppearance();
         };
 
         // Acrylic 模糊开关
@@ -401,7 +397,7 @@ public partial class MainWindow : SukiWindow
 
 
         // 设备型号选择
-        _brandTree = modelCatalogProvider?.ModelTree
+        _brandTree = modelCatalog?.BrandTree
             ?? new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>>();
 
         CbBrand.ItemsSource = _brandList;
@@ -418,7 +414,7 @@ public partial class MainWindow : SukiWindow
         }
         else
         {
-            var location = _modelCatalogProvider?.FindModelLocation(_modelOverride);
+            var location = _modelCatalog?.FindLocation(_modelOverride);
             CbBrand.SelectedItem = location?.Brand ?? LAutoDetect();
             if (location is not null)
             {
@@ -461,7 +457,7 @@ public partial class MainWindow : SukiWindow
     public MainWindow(
         FrontendState frontendState,
         ControlManager controlManager,
-        IBrandManager modelCatalogProvider,
+        ModelCatalog modelCatalog,
         OppoPodsManager.Assets.UserSettings.SettingsManager settings,
         ApplicationLog log,
         CommandDispatcher commandDispatcher,
@@ -470,7 +466,7 @@ public partial class MainWindow : SukiWindow
         FeedbackExportService? feedbackExporter = null,
         Action? requestApplicationExit = null,
         Func<bool>? shouldKeepWindowAlive = null)
-        : this(settings, modelCatalogProvider, commandDispatcher, updateCoordinator, desktopLinks, feedbackExporter, requestApplicationExit, shouldKeepWindowAlive)
+        : this(settings, modelCatalog, commandDispatcher, updateCoordinator, desktopLinks, feedbackExporter, requestApplicationExit, shouldKeepWindowAlive)
     {
         _frontendState = frontendState;
         _controlManager = controlManager;
@@ -1805,23 +1801,11 @@ public partial class MainWindow : SukiWindow
     private int ReadUiInt(string key, int fallback)
         => _uiSettings.GetInt(key, fallback);
 
-    // 读取本地隐藏设备列表，保证原项目和 Next 使用同一套界面行为。
-    private IReadOnlySet<string> ReadHiddenMultiDevices()
-        => _uiSettings.GetHiddenMultiDevices();
-
-    private void WriteHiddenMultiDevices(IEnumerable<string> addresses)
-    {
-        _uiSettings.SetHiddenMultiDevices(addresses);
-    }
-
     private void WriteUiBool(string key, bool value)
         => _uiSettings.SetBool(key, value);
 
     private void WriteUiString(string key, string? value)
         => _uiSettings.SetString(key, value);
-
-    private void WriteUiStringList(string key, IReadOnlyList<string> values)
-        => _uiSettings.SetStringList(key, values);
 
     private void UpdateTitle()
     {
@@ -2102,7 +2086,10 @@ public partial class MainWindow : SukiWindow
             AllowMultiple = false,
         });
         if (files is { Count: > 0 })
-            AddBgHistory(files[0].Path.LocalPath);
+        {
+            if (_backgroundSelection.Add(files[0].Path.LocalPath))
+                RefreshBgThumbs();
+        }
     }
 
     /// <summary>选中背景（default=默认, 路径=图片）。会高亮对应缩略图并实时应用到窗口。</summary>
@@ -2112,8 +2099,7 @@ public partial class MainWindow : SukiWindow
             return;
 
         _logManager?.Debug("UI", key == "default" ? "背景: 选择默认背景" : "背景: 选择自定义背景");
-        _bgSelected = key;
-        WriteUiString("BgCurrent", key == "default" ? null : key);
+        _backgroundSelection.Select(key);
         BgThumbDefault.Classes.Set("selected", key == "default");
         foreach (var child in BgThumbList.Children)
         {
@@ -2127,13 +2113,12 @@ public partial class MainWindow : SukiWindow
         }
 
         ApplySavedBackground();
-        RefreshSmallWindowAppearance();
     }
 
     private void ApplySavedBackground()
     {
-        var key = _bgSelected;
-        if (key == "default" || string.IsNullOrEmpty(key) || !System.IO.File.Exists(key))
+        var key = _backgroundSelection.SelectedKey;
+        if (key == "default" || !_backgroundImages.IsAvailable(key))
         {
             SetSukiBackgroundStyle(SukiBackgroundStyle.Bubble);
             SetBackgroundImageSource(null, "");
@@ -2175,17 +2160,6 @@ public partial class MainWindow : SukiWindow
             BackgroundStyle = style;
     }
 
-    /// <summary>接收资源服务更新后的背景历史并刷新显示。</summary>
-    private void AddBgHistory(string filePath)
-    {
-        var updatedHistory = _backgroundImages.AddToHistory(_bgHistory, filePath);
-        _bgHistory.Clear();
-        _bgHistory.AddRange(updatedHistory);
-        RefreshBgThumbs();
-        WriteUiStringList("BgHistory", _bgHistory);
-        SelectBackground(_bgHistory[0]);
-    }
-
     /// <summary>重建缩略图列表（默认 + 历史），添加按钮独立放在标题行。</summary>
     private void RefreshBgThumbs()
     {
@@ -2197,7 +2171,7 @@ public partial class MainWindow : SukiWindow
                 continue;
             BgThumbList.Children.RemoveAt(i);
         }
-        foreach (var path in _bgHistory)
+        foreach (var path in _backgroundSelection.History)
         {
             var img = new Border
             {
@@ -2206,7 +2180,7 @@ public partial class MainWindow : SukiWindow
             };
             try
             {
-                if (System.IO.File.Exists(path))
+                if (_backgroundImages.IsAvailable(path))
                     img.Background = new Avalonia.Media.ImageBrush(_backgroundImages.GetOrCreateThumbnail(path))
                     {
                         Stretch = Stretch.UniformToFill
@@ -2238,12 +2212,8 @@ public partial class MainWindow : SukiWindow
             delBtn.PointerPressed += (_, e) =>
             {
                 e.Handled = true; // 阻止点击穿透
-                var updatedHistory = _backgroundImages.RemoveFromHistory(_bgHistory, path);
-                _bgHistory.Clear();
-                _bgHistory.AddRange(updatedHistory);
-                WriteUiStringList("BgHistory", _bgHistory);
-                if (_bgSelected == path) SelectBackground("default");
-                RefreshBgThumbs();
+                if (_backgroundSelection.Remove(path))
+                    RefreshBgThumbs();
             };
 
             var wrapper = new Panel { Width = 90, Height = 60, Cursor = img.Cursor };
@@ -2254,7 +2224,7 @@ public partial class MainWindow : SukiWindow
 
             BgThumbList.Children.Add(wrapper);
         }
-        SelectBackground(_bgSelected ?? "default");
+        SelectBackground(_backgroundSelection.SelectedKey);
     }
 
     private async void BtnFeedback_Click(object? s, RoutedEventArgs e)
@@ -3054,12 +3024,6 @@ public partial class MainWindow : SukiWindow
         EarphoneCustomContent.Children.Clear();
     }
 
-    // 个性化设置变化后通知已创建的小窗刷新外观；小窗由托盘控制器按需创建。
-    private void RefreshSmallWindowAppearance()
-    {
-        _logManager?.Debug("UI", "刷新小窗外观请求。");
-    }
-
     // ===== 设备列表 =====
     // 保存多设备行的可复用控件，状态刷新时只更新内容，避免反复重建视觉树。
     private readonly Dictionary<string, DeviceListRowRefs> _deviceListRows = new();
@@ -3118,8 +3082,8 @@ public partial class MainWindow : SukiWindow
     {
         var manager = _controlManager?.ActiveManager;
         var connected = snapshot?.IsConnected == true;
-        var hidden = ReadHiddenMultiDevices();
-        var displayState = manager?.GetMultiDeviceDisplayState(hidden)
+        var hiddenCount = _controlManager?.GetHiddenMultiDeviceCount() ?? 0;
+        var displayState = _controlManager?.GetMultiDeviceDisplayState()
             ?? new MultiDeviceDisplayState([], []);
         var devices = displayState.VisibleDevices;
 
@@ -3128,7 +3092,7 @@ public partial class MainWindow : SukiWindow
         DeviceListEmptyHint.Text = !connected
             ? LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_EmptyHint)
                 : devices.Count == 0
-                ? LanguageManager.Instance.GetString(hidden.Count > 0
+                ? LanguageManager.Instance.GetString(hiddenCount > 0
                     ? LanguageManager.Instance.MultiDevice_AllHidden
                     : LanguageManager.Instance.MultiDevice_NoOtherDevices)
                 : string.Empty;
@@ -3290,9 +3254,8 @@ public partial class MainWindow : SukiWindow
     private void HideMultiDevice(ConnectedDeviceSnapshot device)
     {
         if (device.IsCurrent || string.IsNullOrWhiteSpace(device.Address)) return;
-        var hidden = ReadHiddenMultiDevices().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        hidden.Add(device.Address);
-        WriteHiddenMultiDevices(hidden);
+        if (_controlManager?.HideMultiDevice(device.Address) != true)
+            return;
         SyncNextMultiDeviceList(_frontendState?.Snapshot);
         RefreshRestoreHiddenDevicesButton();
         _logManager?.Debug("UI", $"本地隐藏多设备 addr={device.Address}");
@@ -3300,7 +3263,7 @@ public partial class MainWindow : SukiWindow
 
     private void RefreshRestoreHiddenDevicesButton()
     {
-        var count = ReadHiddenMultiDevices().Count;
+        var count = _controlManager?.GetHiddenMultiDeviceCount() ?? 0;
         BtnRestoreHiddenDevices.IsEnabled = count > 0;
         BtnRestoreHiddenDevices.Content = count > 0
             ? string.Format(LanguageManager.Instance.GetString(LanguageManager.Instance.MultiDevice_RestoreHidden), count)
@@ -3309,7 +3272,7 @@ public partial class MainWindow : SukiWindow
 
     private void BtnRestoreHiddenDevices_Click(object? sender, RoutedEventArgs e)
     {
-        WriteHiddenMultiDevices([]);
+        _controlManager?.RestoreHiddenMultiDevices();
         SyncNextMultiDeviceList(_frontendState?.Snapshot);
         RefreshRestoreHiddenDevicesButton();
         _ = _commandDispatcher?.RunAsync("刷新多设备列表", manager => manager.RefreshMultiDeviceAsync(CancellationToken.None));
