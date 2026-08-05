@@ -10,16 +10,26 @@ public sealed class Notifier : IDisposable
     public const byte BatteryEvent = 0x01;
     public const byte WearEvent = 0x02;
     public const byte NoiseCancellationEvent = 0x03;
+    public const byte CompactnessEvent = 0x04;
     public const byte GameModeEvent = 0x05;
     public const byte MultiDeviceEvent = 0x06;
+    public const byte HearingEnhancementStatusEvent = 0x08;
+    public const byte EarToneEvent = 0x09;
+    public const byte ZenModeEvent = 0x0A;
+    public const byte PersonalizedNoiseReductionEvent = 0x0B;
+    public const byte TriangleInfoChangedEvent = 0x0D;
+    public const byte HearingEnhancementScanEvent = 0x0E;
+    public const byte PublicEvent = 0x0F;
+    public const byte OneShotEvent = 0x10;
+    public const byte ToneChangeEvent = 0x11;
+    public const byte ConnectDevicesEvent = 0xF2;
+    public const byte DiagnosisJsonEvent = 0xF4;
+    public const byte HeadMotionTypeEvent = 0xF5;
+    public const byte HeadMotionTryResultEvent = 0xF6;
 
-    private static readonly byte[] InterestedEvents = [
-        BatteryEvent,
-        WearEvent,
-        NoiseCancellationEvent,
-        GameModeEvent,
-        MultiDeviceEvent
-    ];
+    // 官方 NotificationCommandManager 会注册通知能力响应中返回的全部事件，
+    // 而不是只注册当前界面已经消费的几个事件。这样新固件新增事件时不会被客户端主动过滤。
+    // 已知事件常量保留在这里，供功能层按需订阅；未知事件仍会通过 NotificationReceived 原样上送。
 
     private readonly ICommandRequester _channel;
     private readonly FrameRouter _router;
@@ -57,7 +67,9 @@ public sealed class Notifier : IDisposable
             cancellationToken);
 
         var supportedEvents = ParseCapabilities(capabilities.Payload.Span);
-        var requestedEvents = InterestedEvents.Where(supportedEvents.Contains).ToArray();
+        // 官方会把通知能力响应中返回的完整事件集合交给注册逻辑；
+        // 当前 UI 尚未消费的事件也必须注册并通过 NotificationReceived 保留，不能在这里丢弃。
+        var requestedEvents = supportedEvents.OrderBy(eventId => eventId).ToArray();
         ApplicationLog.Current?.Debug("Notifier", $"通知能力：supported=[{string.Join(",", supportedEvents)}]，requested=[{string.Join(",", requestedEvents)}]。");
         if (requestedEvents.Length == 0)
         {
@@ -108,19 +120,34 @@ public sealed class Notifier : IDisposable
         _subscriptions.Clear();
     }
 
-    // 按协议构造批量通知注册负载并检查首字节状态码。
+    // 按协议构造批量通知注册负载并检查设备对 0x8205 的响应。
+    // 官方批量响应通常为空 payload，因此空响应也代表注册请求已被接受；
+    // 若设备实际声明支持但请求失败，则继续走官方兼容的逐事件注册路径。
     private async Task<bool> TryRegisterBatchAsync(byte[] eventIds, CancellationToken cancellationToken)
     {
         var payload = new byte[eventIds.Length + 1];
         payload[0] = (byte)eventIds.Length;
         eventIds.CopyTo(payload, 1);
-        var response = await RequestAsync(
-            CommandId.RegisterNotifications,
-            CommandId.RegisterNotificationsResponse,
-            payload,
-            cancellationToken);
+        try
+        {
+            var response = await RequestAsync(
+                CommandId.RegisterNotifications,
+                CommandId.RegisterNotificationsResponse,
+                payload,
+                cancellationToken);
 
-        return response.Payload.IsEmpty || IsSuccess(response.Payload.Span);
+            return response.Payload.IsEmpty || IsSuccess(response.Payload.Span);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            ApplicationLog.Current?.Debug("Notifier", "批量通知注册超时，降级为逐事件注册。");
+            return false;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            ApplicationLog.Current?.Error("Notifier", "批量通知注册失败，降级为逐事件注册。", exception);
+            return false;
+        }
     }
 
     private async Task<ProtocolFrame> RequestAsync(
@@ -132,7 +159,9 @@ public sealed class Notifier : IDisposable
         return await _channel.RequestAsync(command, responseCommand, payload, cancellationToken);
     }
 
-    // 兼容两种通知帧格式，统一提取事件编号和事件数据。
+    // 兼容官方两种通知帧格式：
+    // 0x0204 主动事件为 [eventId][eventData...]
+    // 0x8202 注册事件响应为 [status][eventId][eventData...]
     private void ReceiveNotification(ProtocolFrame frame)
     {
         ApplicationLog.Current?.Debug("Notifier", $"收到通知帧：command=0x{frame.Command:X4}，bytes={frame.Payload.Length}。");
@@ -146,7 +175,9 @@ public sealed class Notifier : IDisposable
             return;
         }
 
-        if (payload.Length > 0)
+        // 官方 NotificationCommandManager 对 0x0204 只检查 payload 非空，
+        // 不把第一个字节当作 status；否则会导致电量、佩戴和 ANC 通知全部错位。
+        if (frame.Command == CommandId.NotificationEvent && payload.Length > 0)
             Publish(payload[0], frame.Payload[1..]);
     }
 

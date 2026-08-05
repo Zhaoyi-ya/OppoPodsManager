@@ -5,5 +5,6 @@ public sealed record DeviceCandidate(
     string PlatformId,
     string? BluetoothAddress,
     string DisplayName,
+    string Brand,
     IReadOnlyCollection<Guid> ServiceIds,
     IReadOnlyCollection<string> Transports);

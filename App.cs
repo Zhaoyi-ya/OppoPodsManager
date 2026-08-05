@@ -3,12 +3,13 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using OppoPodsManager.Communication;
-using OppoPodsManager.Communication.Windows;
 using OppoPodsManager.Control;
 using OppoPodsManager.Control.Desktop;
 using OppoPodsManager.Control.Notifications;
+using OppoPodsManager.Control.Oppo;
 using OppoPodsManager.Control.Oppo.Models;
-using OppoPodsManager.Control.Oppo.Managers;
+using OppoPodsManager.Control.Vivo;
+using OppoPodsManager.Control.Edifier;
 using OppoPodsManager.UI.MainWindow;
 using OppoPodsManager.UI.Toast;
 using OppoPodsManager.UI.Tray;
@@ -66,17 +67,16 @@ public sealed partial class App : Application
             _log.Info("App", "开始初始化桌面生命周期和设备控制器。");
             _desktopLinks = new DesktopLinkService(_log);
             _feedbackExporter = new FeedbackExportService(_log);
-            var communication = new CommunicationController(
-                [new WindowsRfcommFactory()],
-                [new WindowsBluetoothDiscovery()]);
+            var communication = CommunicationBootstrap.CreateDefault();
             // 应用层只创建一份官方型号目录，供控制层识别和设置页筛选共同使用。
             _modelCatalog = DeviceModelData.LoadCatalog();
             var settingsStore = new SettingsStore(_settings);
             _controlManager = new ControlManager(
                 _frontendState,
                 new DeviceScanner(communication),
-                _modelCatalog,
+                [new OppoManagerFactory(_modelCatalog), new VivoManagerFactory(), new EdifierManagerFactory()],
                 settingsStore);
+            _controlManager.StartMonitoring();
             // 由应用层创建唯一的命令调度器，所有界面入口共享同一控制层调用边界。
             _commandDispatcher = new CommandDispatcher(_controlManager, _log);
             // 由控制层统一判断连接和低电量通知，界面层只负责渲染通知请求。

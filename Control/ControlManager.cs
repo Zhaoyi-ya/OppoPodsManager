@@ -1,6 +1,6 @@
+using OppoPodsManager.Communication.Abstractions;
 using OppoPodsManager.Control.Oppo;
 using OppoPodsManager.Control.Oppo.Features;
-using OppoPodsManager.Control.Oppo.Managers;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Assets.UserSettings;
@@ -12,28 +12,205 @@ public sealed class ControlManager : IAsyncDisposable
 {
     private readonly FrontendState _frontendState;
     private readonly DeviceScanner? _deviceScanner;
-    private readonly ModelCatalog? _modelCatalog;
+    private readonly IReadOnlyDictionary<string, IBrandManagerFactory> _managerFactories;
     private readonly SettingsStore? _settings;
     private readonly SemaphoreSlim _connectionGate = new(1, 1);
+    private readonly SemaphoreSlim _discoveryGate = new(1, 1);
     private readonly object _availableDevicesLock = new();
     private IReadOnlyDictionary<string, DeviceConnectionPlan> _availableDevices = new Dictionary<string, DeviceConnectionPlan>();
+    private readonly HashSet<string> _confirmedDeviceIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _probingDeviceIds = new(StringComparer.Ordinal);
     private IBrandManager? _activeManager;
+    private string? _activeDeviceId;
+    private string? _manualDisconnectDeviceId;
+    private int _autoConnectInProgress;
+    private long _lastDiscoveryGeneration;
+    private CancellationTokenSource? _selectionCancellation;
 
     public ControlManager(
         FrontendState frontendState,
         DeviceScanner? deviceScanner = null,
-        ModelCatalog? modelCatalog = null,
+        IEnumerable<IBrandManagerFactory>? managerFactories = null,
         SettingsStore? settings = null)
     {
         _frontendState = frontendState;
         _deviceScanner = deviceScanner;
-        _modelCatalog = modelCatalog;
+        _managerFactories = (managerFactories ?? [])
+            .ToDictionary(factory => factory.Brand, StringComparer.OrdinalIgnoreCase);
         _settings = settings;
+        if (_deviceScanner is not null)
+            _deviceScanner.PlansChanged += OnPlansChanged;
         _frontendState.InteractivePollingChanged += OnInteractivePollingChanged;
     }
 
     public IBrandManager? ActiveManager => _activeManager;
+    public string? ActiveDeviceId => _activeDeviceId;
 
+    public void StartMonitoring()
+    {
+        _deviceScanner?.StartMonitoring();
+    }
+    public event EventHandler<DeviceOptionsChangedEventArgs>? AvailableDevicesChanged;
+
+    private async void OnPlansChanged(object? sender, DevicePlansChangedEventArgs args)
+    {
+        try
+        {
+            await ApplyPlansAsync(args.Plans, autoConnect: true, cancellationToken: CancellationToken.None, generation: args.Generation);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Discovery", "处理蓝牙设备变化失败。", exception);
+        }
+    }
+
+    private async Task ApplyPlansAsync(
+        IReadOnlyList<DeviceConnectionPlan> plans,
+        bool autoConnect,
+        CancellationToken cancellationToken,
+        long generation = 0)
+    {
+        if (generation > 0)
+        {
+            var previous = Interlocked.Read(ref _lastDiscoveryGeneration);
+            if (generation <= previous)
+                return;
+            Interlocked.Exchange(ref _lastDiscoveryGeneration, generation);
+        }
+
+        await _discoveryGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ApplyPlansCoreAsync(plans, autoConnect, cancellationToken);
+        }
+        finally
+        {
+            _discoveryGate.Release();
+        }
+    }
+
+    private async Task ApplyPlansCoreAsync(
+        IReadOnlyList<DeviceConnectionPlan> plans,
+        bool autoConnect,
+        CancellationToken cancellationToken)
+    {
+        var next = plans.ToDictionary(plan => plan.Candidate.StableId, StringComparer.Ordinal);
+        string? removedActiveId;
+        lock (_availableDevicesLock)
+        {
+            removedActiveId = _activeDeviceId is not null && !next.ContainsKey(_activeDeviceId)
+                ? _activeDeviceId
+                : null;
+            _availableDevices = next;
+            _confirmedDeviceIds.RemoveWhere(id => !next.ContainsKey(id));
+            if (_manualDisconnectDeviceId is not null && !next.ContainsKey(_manualDisconnectDeviceId))
+                _manualDisconnectDeviceId = null;
+        }
+
+        var candidatesToConfirm = plans
+            .Where(plan => !_confirmedDeviceIds.Contains(plan.Candidate.StableId))
+            .Where(plan => !_probingDeviceIds.Contains(plan.Candidate.StableId))
+            .ToArray();
+        foreach (var plan in candidatesToConfirm)
+            await ConfirmDeviceAsync(plan, cancellationToken);
+
+        var options = GetAvailableDeviceOptions();
+        AvailableDevicesChanged?.Invoke(this, new DeviceOptionsChangedEventArgs(options));
+
+        if (removedActiveId is not null)
+        {
+            ApplicationLog.Current?.Info("Discovery", $"当前设备已从蓝牙设备列表移除：id={removedActiveId}。");
+            await ClearActiveManagerAsync();
+            DeviceConnectionPlan? replacement;
+            lock (_availableDevicesLock)
+                replacement = _availableDevices.Values.FirstOrDefault(plan =>
+                    _confirmedDeviceIds.Contains(plan.Candidate.StableId)
+                    && _managerFactories.ContainsKey(plan.Candidate.Brand));
+            if (replacement is not null)
+                await ConnectAsync(replacement.Candidate.StableId, CancellationToken.None);
+            return;
+        }
+
+        if (autoConnect && _activeManager is null && _manualDisconnectDeviceId is null)
+        {
+            DeviceConnectionPlan? autoPlan;
+            lock (_availableDevicesLock)
+                autoPlan = _availableDevices.Values.FirstOrDefault(plan =>
+                    _confirmedDeviceIds.Contains(plan.Candidate.StableId)
+                    && _managerFactories.ContainsKey(plan.Candidate.Brand));
+            if (autoPlan is not null)
+                await ConnectAsync(autoPlan.Candidate.StableId, cancellationToken);
+        }
+    }
+
+    private IReadOnlyList<DeviceConnectionOption> GetAvailableDeviceOptions()
+    {
+        lock (_availableDevicesLock)
+        {
+            return _availableDevices.Values
+                .Where(plan => _confirmedDeviceIds.Contains(plan.Candidate.StableId))
+                .Select(plan => new DeviceConnectionOption(plan.Candidate.StableId, plan.Candidate.DisplayName))
+                .ToArray();
+        }
+    }
+
+    private async Task ConfirmDeviceAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
+    {
+        lock (_availableDevicesLock)
+        {
+            if (_confirmedDeviceIds.Contains(plan.Candidate.StableId)
+                || !_probingDeviceIds.Add(plan.Candidate.StableId))
+                return;
+        }
+
+        try
+        {
+            if (!_managerFactories.ContainsKey(plan.Candidate.Brand))
+                return;
+
+            await _connectionGate.WaitAsync(cancellationToken);
+            try
+            {
+                lock (_availableDevicesLock)
+                {
+                    if (!_availableDevices.ContainsKey(plan.Candidate.StableId))
+                        return;
+                }
+
+                var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
+                IBrandManager? manager = null;
+                IRawConnection? connection = null;
+                try
+                {
+                    ApplicationLog.Current?.Debug("Discovery", $"确认设备型号：device={plan.Candidate.DisplayName}，brand={plan.Candidate.Brand}。");
+                    connection = await scanner.OpenAsync(plan, cancellationToken);
+                    var factory = _managerFactories[plan.Candidate.Brand];
+                    manager = await factory.CreateAsync(plan, connection, cancellationToken);
+                    await manager.DisposeAsync();
+                    manager = null;
+                    lock (_availableDevicesLock)
+                        _confirmedDeviceIds.Add(plan.Candidate.StableId);
+                }
+                catch (Exception exception)
+                {
+                    ApplicationLog.Current?.Debug("Discovery", $"设备型号确认失败：device={plan.Candidate.DisplayName}，reason={exception.Message}。");
+                    if (manager is not null)
+                        await manager.DisposeAsync();
+                    else if (connection is not null)
+                        await connection.DisposeAsync();
+                }
+            }
+            finally
+            {
+                _connectionGate.Release();
+            }
+        }
+        finally
+        {
+            lock (_availableDevicesLock)
+                _probingDeviceIds.Remove(plan.Candidate.StableId);
+        }
+    }
     // 应用手动型号覆盖并通过统一状态通道发布重新解析后的能力。
     public bool SetManualModel(string? modelName)
     {
@@ -56,13 +233,8 @@ public sealed class ControlManager : IAsyncDisposable
         {
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
             var plans = await scanner.ScanAsync(cancellationToken);
-            lock (_availableDevicesLock)
-            {
-                _availableDevices = plans.ToDictionary(plan => plan.Candidate.StableId, StringComparer.Ordinal);
-            }
-
-            ApplicationLog.Current?.Debug("Discovery", $"发现 {plans.Count} 个已连接候选设备。");
-            return plans.Select(plan => new DeviceConnectionOption(plan.Candidate.StableId, plan.Candidate.DisplayName)).ToArray();
+            await ApplyPlansAsync(plans, autoConnect: true, cancellationToken);
+            return GetAvailableDeviceOptions();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -80,15 +252,23 @@ public sealed class ControlManager : IAsyncDisposable
     public async Task<bool> ConnectAsync(string deviceId, CancellationToken cancellationToken)
     {
         ApplicationLog.Current?.Info("Control", $"请求连接设备：id={deviceId}。");
+        lock (_availableDevicesLock)
+            _manualDisconnectDeviceId = null;
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var previous = Interlocked.Exchange(ref _selectionCancellation, request);
+        try { previous?.Cancel(); } catch { }
+        previous?.Dispose();
+
         try
         {
+            var requestToken = request.Token;
             DeviceConnectionPlan? plan;
             lock (_availableDevicesLock)
                 _availableDevices.TryGetValue(deviceId, out plan);
 
             if (plan is null)
             {
-                await RefreshAvailableDevicesAsync(cancellationToken);
+                await RefreshAvailableDevicesAsync(requestToken);
                 lock (_availableDevicesLock)
                     _availableDevices.TryGetValue(deviceId, out plan);
             }
@@ -99,37 +279,63 @@ public sealed class ControlManager : IAsyncDisposable
                 return false;
             }
 
-            await ConnectPlanAsync(plan, cancellationToken);
-            return true;
+            return await ConnectPlanAsync(plan, requestToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             ApplicationLog.Current?.Info("Control", $"连接设备已取消：id={deviceId}。");
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            ApplicationLog.Current?.Debug("Control", $"连接请求被更新的设备选择替换：id={deviceId}。");
+            return false;
+        }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Error("Control", $"连接设备失败：id={deviceId}。", exception);
             return false;
+        }
+        finally
+        {
+            if (ReferenceEquals(Volatile.Read(ref _selectionCancellation), request))
+                Interlocked.CompareExchange(ref _selectionCancellation, null, request);
         }
     }
 
     // 启动阶段连接第一个可通信耳机，失败时由调用方决定是否提示用户。
     public async Task<bool> ConnectFirstAvailableAsync(CancellationToken cancellationToken)
     {
-        ApplicationLog.Current?.Info("Control", "请求自动连接首个可用设备。");
-        if (ActiveManager is not null)
-            return true;
-
-        var devices = await RefreshAvailableDevicesAsync(cancellationToken);
-        var device = devices.FirstOrDefault();
-        if (device is null || ActiveManager is not null)
-        {
-            ApplicationLog.Current?.Info("Control", $"自动连接结束：可用设备={devices.Count}，已有会话={ActiveManager is not null}。");
+        if (Interlocked.Exchange(ref _autoConnectInProgress, 1) != 0)
             return false;
-        }
 
-        return await ConnectAsync(device.Id, cancellationToken);
+        try
+        {
+            ApplicationLog.Current?.Info("Control", "请求自动连接首个可用设备。");
+            if (ActiveManager is not null)
+                return true;
+
+            var devices = await RefreshAvailableDevicesAsync(cancellationToken);
+            DeviceConnectionPlan? plan;
+            lock (_availableDevicesLock)
+                plan = _availableDevices.Values.FirstOrDefault(candidate =>
+                    _confirmedDeviceIds.Contains(candidate.Candidate.StableId)
+                    && _managerFactories.ContainsKey(candidate.Candidate.Brand));
+
+            if (plan is null || ActiveManager is not null)
+            {
+                ApplicationLog.Current?.Info("Control", $"自动连接结束：可用设备={devices.Count}，已支持设备={plan is not null}，已有会话={ActiveManager is not null}。");
+                if (plan is null)
+                    await ClearActiveManagerAsync();
+                return false;
+            }
+
+            return await ConnectAsync(plan.Candidate.StableId, cancellationToken);
+        }
+        finally
+        {
+            Volatile.Write(ref _autoConnectInProgress, 0);
+        }
     }
 
     // 原子切换当前耳机会话，先释放旧会话再订阅新会话。
@@ -161,8 +367,10 @@ public sealed class ControlManager : IAsyncDisposable
             return;
         }
 
-        await _activeManager.DisconnectAsync();
-        ApplicationLog.Current?.Info("Control", "当前耳机会话已断开。");
+        try { _selectionCancellation?.Cancel(); } catch { }
+        lock (_availableDevicesLock)
+            _manualDisconnectDeviceId = _activeDeviceId;
+        await ClearActiveManagerAsync();
     }
 
     // 根据当前会话和本地隐藏策略生成多设备展示数据，窗口不再直接读取设置。
@@ -212,28 +420,44 @@ public sealed class ControlManager : IAsyncDisposable
         => _settings?.GetHiddenMultiDevices().Count ?? 0;
 
     // 通过已确认的扫描计划打开 RFCOMM 链接并启动 OPPO 协议会话。
-    private async Task ConnectPlanAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
+    private async Task<bool> ConnectPlanAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
     {
+        if (!_managerFactories.TryGetValue(plan.Candidate.Brand, out var factory))
+        {
+            ApplicationLog.Current?.Info("Control", $"跳过未支持品牌：brand={plan.Candidate.Brand}，device={plan.Candidate.DisplayName}。");
+            await ClearActiveManagerAsync();
+            return false;
+        }
+
         await _connectionGate.WaitAsync(cancellationToken);
         try
         {
+            if (_activeManager is not null
+                && string.Equals(_activeDeviceId, plan.Candidate.StableId, StringComparison.Ordinal))
+                return true;
+
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-            var manager = new OppoManager(_modelCatalog);
-            ConnectionLink? link = null;
+            IBrandManager? manager = null;
+            IRawConnection? connection = null;
             try
             {
-                ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 RFCOMM 会话。");
-                link = await scanner.OpenAsync(plan, cancellationToken);
-                await manager.StartSessionAsync(plan.Candidate.DisplayName, link, cancellationToken);
+                ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {plan.Candidate.Brand} 会话。");
+                connection = await scanner.OpenAsync(plan, cancellationToken);
+                manager = await factory.CreateAsync(plan, connection, cancellationToken);
+                _activeDeviceId = plan.Candidate.StableId;
                 await SelectManagerAsync(manager);
+                return true;
             }
             catch
             {
                 ApplicationLog.Current?.Error("Control", $"连接 {plan.Candidate.DisplayName} 失败。");
-                if (link is not null)
-                    await link.DisposeAsync();
-
-                await manager.DisposeAsync();
+                if (manager is not null)
+                    await manager.DisposeAsync();
+                else if (connection is not null)
+                    await connection.DisposeAsync();
+                if (string.Equals(_activeDeviceId, plan.Candidate.StableId, StringComparison.Ordinal)
+                    && !ReferenceEquals(_activeManager, manager))
+                    _activeDeviceId = null;
                 throw;
             }
         }
@@ -243,24 +467,77 @@ public sealed class ControlManager : IAsyncDisposable
         }
     }
 
+    private async Task ClearActiveManagerAsync(IBrandManager? expectedManager = null)
+    {
+        await _connectionGate.WaitAsync();
+        try
+        {
+            if (expectedManager is not null && !ReferenceEquals(_activeManager, expectedManager))
+                return;
+
+            var manager = _activeManager;
+            if (manager is not null)
+            {
+                manager.StateChanged -= OnStateChanged;
+                _activeManager = null;
+                _activeDeviceId = null;
+                try
+                {
+                    await manager.DisconnectAsync();
+                }
+                finally
+                {
+                    await manager.DisposeAsync();
+                }
+            }
+
+            _frontendState.Clear();
+        }
+        finally
+        {
+            _connectionGate.Release();
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        try { _selectionCancellation?.Cancel(); } catch { }
+        _selectionCancellation?.Dispose();
+        _selectionCancellation = null;
+
         if (_activeManager is not null)
         {
             _activeManager.StateChanged -= OnStateChanged;
-            await _activeManager.DisposeAsync();
+            try { await _activeManager.DisconnectAsync(); }
+            finally { await _activeManager.DisposeAsync(); }
             _activeManager = null;
+            _activeDeviceId = null;
         }
 
+        if (_deviceScanner is not null)
+        {
+            _deviceScanner.PlansChanged -= OnPlansChanged;
+            _deviceScanner.Dispose();
+        }
+
+        _frontendState.Clear();
         _frontendState.InteractivePollingChanged -= OnInteractivePollingChanged;
         _connectionGate.Dispose();
+        _discoveryGate.Dispose();
     }
 
     private void OnStateChanged(object? sender, BusinessSnapshot snapshot)
     {
         ApplicationLog.Current?.Debug("Control", $"收到设备状态：revision={snapshot.Revision}，connected={snapshot.IsConnected}。");
         if (ReferenceEquals(sender, _activeManager))
+        {
             _frontendState.Publish(snapshot);
+            if (!snapshot.IsConnected)
+            {
+                ApplicationLog.Current?.Info("Control", "活动品牌后端报告连接已断开，开始清理当前会话。");
+                _ = ClearActiveManagerAsync(sender as IBrandManager);
+            }
+        }
     }
 
     private void OnInteractivePollingChanged(object? sender, bool enabled)
@@ -274,4 +551,14 @@ public sealed class ControlManager : IAsyncDisposable
 public sealed record DeviceConnectionOption(string Id, string DisplayName)
 {
     public override string ToString() => DisplayName;
+}
+
+public sealed class DeviceOptionsChangedEventArgs : EventArgs
+{
+    public DeviceOptionsChangedEventArgs(IReadOnlyList<DeviceConnectionOption> devices)
+    {
+        Devices = devices;
+    }
+
+    public IReadOnlyList<DeviceConnectionOption> Devices { get; }
 }

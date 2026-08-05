@@ -1,15 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Windows 后端由 RID 或构建参数决定；Linux 保持纯 net10.0。 -->
+    <EnableWindowsBackend Condition="'$(EnableWindowsBackend)' == '' and $(RuntimeIdentifier.StartsWith('win'))">true</EnableWindowsBackend>
+    <EnableWindowsBackend Condition="'$(EnableWindowsBackend)' == '' and '$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</EnableWindowsBackend>
+    <EnableWindowsBackend Condition="'$(EnableWindowsBackend)' == ''">false</EnableWindowsBackend>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>OppoPodsManager</AssemblyName>
-    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="'$(EnableWindowsBackend)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="'$(EnableWindowsBackend)' != 'true'">net10.0</TargetFramework>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>OppoPodsManager</RootNamespace>
     <IsAotCompatible>true</IsAotCompatible>
     <IlcOptimizationPreference>Size</IlcOptimizationPreference>
-    <NoWarn>IL2104;IL3053</NoWarn>
+    <SupportedOSPlatformVersion Condition="'$(EnableWindowsBackend)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
+    <NoWarn>CA1416;IL2104;IL3053</NoWarn>
   </PropertyGroup>
+
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishAot>true</PublishAot>
     <SelfContained>true</SelfContained>
@@ -17,6 +28,25 @@
     <InvariantGlobalization>false</InvariantGlobalization>
     <DebuggerSupport>false</DebuggerSupport>
   </PropertyGroup>
+
+  <!-- Linux 传输使用 BlueZ D-Bus；Windows 专属文件不参与 Linux 编译。 -->
+  <PropertyGroup Condition="'$(EnableWindowsBackend)' != 'true'">
+    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(EnableWindowsBackend)' == 'true'">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EnableWindowsBackend)' != 'true'">
+    <PackageReference Include="Tmds.DBus" Version="0.94.2" />
+    <Compile Remove="Communication\Transport\Windows\**\*.cs" />
+    <Compile Remove="Communication\Windows\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(EnableWindowsBackend)' == 'true'">
+    <Compile Remove="Communication\Transport\Linux\**\*.cs" />
+    <Compile Remove="Communication\Linux\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.0.5" />
     <PackageReference Include="Avalonia.Desktop" Version="12.0.5" />
@@ -24,6 +54,7 @@
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageReference Include="SukiUI" Version="7.0.1" />
   </ItemGroup>
+
   <ItemGroup>
     <None Remove="Assets\Localization\Strings*.json" />
     <AvaloniaResource Include="Assets\VisualAssets\**\*" />

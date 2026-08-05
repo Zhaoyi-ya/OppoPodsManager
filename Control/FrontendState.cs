@@ -23,6 +23,7 @@ public sealed class FrontendState
         MultiDeviceSnapshot.Empty,
         [],
         DateTimeOffset.MinValue);
+    private long _publishedRevision;
     private int _interactiveSurfaceCount;
 
     public event EventHandler<BusinessSnapshot>? Changed;
@@ -34,16 +35,42 @@ public sealed class FrontendState
 
     public void Publish(BusinessSnapshot snapshot)
     {
-        var previous = Volatile.Read(ref _snapshot);
-        if (snapshot.Revision <= previous.Revision)
+        var revision = Interlocked.Increment(ref _publishedRevision);
+        var normalized = snapshot with { Revision = revision };
+        Volatile.Write(ref _snapshot, normalized);
+        ApplicationLog.Current?.Debug("State", $"发布状态：revision={normalized.Revision}，connected={normalized.IsConnected}，device={normalized.DeviceName ?? ""}，listeners={Changed?.GetInvocationList().Length ?? 0}。");
+        foreach (var handler in Changed?.GetInvocationList() ?? Array.Empty<Delegate>())
         {
-            ApplicationLog.Current?.Debug("State", $"忽略过期状态：revision={snapshot.Revision}，current={previous.Revision}。");
-            return;
+            try { ((EventHandler<BusinessSnapshot>)handler)(this, normalized); }
+            catch (Exception exception)
+            {
+                ApplicationLog.Current?.Error("State", "状态监听器处理失败。", exception);
+            }
         }
+    }
 
-        Volatile.Write(ref _snapshot, snapshot);
-        ApplicationLog.Current?.Debug("State", $"发布状态：revision={snapshot.Revision}，connected={snapshot.IsConnected}，device={snapshot.DeviceName ?? ""}，listeners={Changed?.GetInvocationList().Length ?? 0}。");
-        Changed?.Invoke(this, snapshot);
+    // 清空当前品牌状态，供切换到尚未支持的品牌或没有活动后端时使用。
+    public void Clear()
+    {
+        var previous = Volatile.Read(ref _snapshot);
+        var cleared = new BusinessSnapshot(
+            previous.Revision + 1,
+            null,
+            false,
+            null,
+            null,
+            null,
+            null,
+            WearSnapshot.Empty,
+            NoiseSnapshot.Empty,
+            EqualizerSnapshot.Empty,
+            GameSnapshot.Empty,
+            SpatialAudioSnapshot.Empty,
+            FeatureStateSnapshot.Empty,
+            MultiDeviceSnapshot.Empty,
+            [],
+            DateTimeOffset.UtcNow);
+        Publish(cleared);
     }
 
     public IDisposable AcquireInteractiveSurface()
@@ -51,7 +78,7 @@ public sealed class FrontendState
         var count = Interlocked.Increment(ref _interactiveSurfaceCount);
         ApplicationLog.Current?.Info("Polling", $"获取交互界面租约：count={count}。");
         if (count == 1)
-            InteractivePollingChanged?.Invoke(this, true);
+            RaiseInteractivePollingChanged(true);
 
         return new InteractiveSurfaceLease(this);
     }
@@ -61,7 +88,19 @@ public sealed class FrontendState
         var count = Interlocked.Decrement(ref _interactiveSurfaceCount);
         ApplicationLog.Current?.Info("Polling", $"释放交互界面租约：count={count}。");
         if (count == 0)
-            InteractivePollingChanged?.Invoke(this, false);
+            RaiseInteractivePollingChanged(false);
+    }
+
+    private void RaiseInteractivePollingChanged(bool enabled)
+    {
+        foreach (var handler in InteractivePollingChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
+        {
+            try { ((EventHandler<bool>)handler)(this, enabled); }
+            catch (Exception exception)
+            {
+                ApplicationLog.Current?.Error("Polling", "交互轮询状态监听器处理失败。", exception);
+            }
+        }
     }
 
     private sealed class InteractiveSurfaceLease(FrontendState state) : IDisposable

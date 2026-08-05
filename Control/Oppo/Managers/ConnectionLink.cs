@@ -9,14 +9,14 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
 {
     private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(4);
     private readonly IRawConnection _connection;
-    private readonly FrameCodec _codec;
+    private readonly IFrameCodec _codec;
     private readonly FrameRouter _router;
     private readonly SemaphoreSlim _receiveGate = new(1, 1);
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly CancellationTokenSource _connectionCancellation = new();
     private bool _disposed;
 
-    public ConnectionLink(IRawConnection connection, FrameCodec codec, FrameRouter router)
+    public ConnectionLink(IRawConnection connection, IFrameCodec codec, FrameRouter router)
     {
         _connection = connection;
         _codec = codec;
@@ -26,21 +26,17 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
     }
 
     public event EventHandler? Disconnected;
-
     public FrameRouter Router => _router;
 
-    // 编码命令帧并写入仍处于连接状态的底层传输。
     public async Task SendAsync(ushort command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         ApplicationLog.Current?.Debug("Protocol", $"发送数据帧：command=0x{command:X4}，bytes={payload.Length}。");
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_connection.IsConnected)
             throw new InvalidOperationException("The raw connection is not connected.");
-
         await _connection.SendAsync(_codec.Encode(command, payload.Span), cancellationToken);
     }
 
-    // 串行化请求，避免同一响应命令被并发请求错误匹配。
     public async Task<ProtocolFrame> RequestAsync(
         ushort command,
         ushort responseCommand,
@@ -54,9 +50,7 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
             var completion = new TaskCompletionSource<ProtocolFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var subscription = _router.Subscribe(responseCommand, frame => completion.TrySetResult(frame));
             await SendAsync(command, payload, cancellationToken);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                _connectionCancellation.Token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connectionCancellation.Token);
             timeout.CancelAfter(ResponseTimeout);
             try
             {
@@ -64,8 +58,7 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
                 ApplicationLog.Current?.Debug("Protocol", $"收到响应：command=0x{command:X4}，response=0x{responseCommand:X4}，bytes={frame.Payload.Length}。");
                 return frame;
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested
-                && !_connectionCancellation.IsCancellationRequested)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_connectionCancellation.IsCancellationRequested)
             {
                 ApplicationLog.Current?.Error("Protocol", $"响应超时：command=0x{command:X4}，response=0x{responseCommand:X4}。");
                 throw new TimeoutException($"The device did not respond to command 0x{command:X4}.");
@@ -81,7 +74,6 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
     {
         if (_disposed)
             return;
-
         _disposed = true;
         _connection.DataReceived -= OnDataReceived;
         _connection.Disconnected -= OnConnectionDisconnected;
@@ -99,7 +91,6 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
         }
     }
 
-    // 在单一接收门内解码数据块并把每帧投递给路由器。
     private async void OnDataReceived(object? sender, ReadOnlyMemory<byte> bytes)
     {
         try
@@ -115,23 +106,20 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
                 _receiveGate.Release();
             }
         }
-        catch (ObjectDisposedException)
-        {
-        }
+        catch (ObjectDisposedException) { }
         catch
         {
             SignalDisconnected();
         }
     }
 
-    // 将底层断连转换为统一事件，并取消所有正在等待的协议响应。
-    private void OnConnectionDisconnected(object? sender, EventArgs args) => SignalDisconnected();
+    private void OnConnectionDisconnected(object? sender, EventArgs args)
+        => SignalDisconnected();
 
     private void SignalDisconnected()
     {
         if (_connectionCancellation.IsCancellationRequested)
             return;
-
         _connectionCancellation.Cancel();
         ApplicationLog.Current?.Info("Protocol", "底层连接已断开，正在取消等待中的协议请求。");
         Disconnected?.Invoke(this, EventArgs.Empty);
@@ -145,9 +133,5 @@ public interface ICommandChannel
 
 public interface ICommandRequester : ICommandChannel
 {
-    Task<ProtocolFrame> RequestAsync(
-        ushort command,
-        ushort responseCommand,
-        ReadOnlyMemory<byte> payload,
-        CancellationToken cancellationToken);
+    Task<ProtocolFrame> RequestAsync(ushort command, ushort responseCommand, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken);
 }

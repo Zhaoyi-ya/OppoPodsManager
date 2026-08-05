@@ -470,12 +470,21 @@ public partial class MainWindow : SukiWindow
     {
         _frontendState = frontendState;
         _controlManager = controlManager;
+        _controlManager.AvailableDevicesChanged += OnAvailableDevicesChanged;
         _logManager = log;
         _frontendState.Changed += OnNextStateChanged;
         PropertyChanged += OnWindowPropertyChanged;
         _logManager.Info("UI", "主窗口已接入 Next 控制层，禁用原项目连接循环。 ");
         ApplyNextSnapshot(_frontendState.Snapshot);
         _ = RefreshNextDevicesAsync();
+    }
+
+    private void OnAvailableDevicesChanged(object? sender, DeviceOptionsChangedEventArgs args)
+    {
+        if (_realClose)
+            return;
+
+        Dispatcher.UIThread.Post(() => ApplyNextDevices(args.Devices));
     }
 
     // 将控制层发布的不可变快照转换为主窗口当前视觉状态。
@@ -934,6 +943,8 @@ public partial class MainWindow : SukiWindow
     // 将控制层返回的设备选择项显示到原项目保留的下拉控件。
     private void ApplyNextDevices(IReadOnlyList<DeviceConnectionOption> devices)
     {
+        var selectedId = (CbDevice.SelectedItem as DeviceConnectionOption)?.Id
+            ?? _controlManager?.ActiveDeviceId;
         _nextDevices.Clear();
         _nextDevices.AddRange(devices);
         _suppressEarbudSelection = true;
@@ -942,10 +953,15 @@ public partial class MainWindow : SukiWindow
             CbDevice.Items.Add(device);
         CbDevice.IsVisible = _nextDevices.Count > 0;
         BtnRefreshDevices.IsVisible = _nextDevices.Count > 0;
-        if (CbDevice.SelectedIndex < 0 && _nextDevices.Count > 0)
-            CbDevice.SelectedIndex = 0;
+
+        var selectedIndex = selectedId is null
+            ? -1
+            : _nextDevices.FindIndex(device => string.Equals(device.Id, selectedId, StringComparison.Ordinal));
+        if (selectedIndex < 0 && _nextDevices.Count > 0 && _controlManager?.ActiveManager is null)
+            selectedIndex = 0;
+        CbDevice.SelectedIndex = selectedIndex;
         _suppressEarbudSelection = false;
-        _logManager?.Debug("UI", $"设备选择列表已更新：count={_nextDevices.Count}。");
+        _logManager?.Debug("UI", $"设备选择列表已更新：count={_nextDevices.Count}，selected={selectedId ?? ""}。");
     }
 
     private void CbDevice_Changed(object? sender, SelectionChangedEventArgs e)
@@ -2906,6 +2922,8 @@ public partial class MainWindow : SukiWindow
         Closing -= OnWindowClosing;
         if (_frontendState is not null)
             _frontendState.Changed -= OnNextStateChanged;
+        if (_controlManager is not null)
+            _controlManager.AvailableDevicesChanged -= OnAvailableDevicesChanged;
         PropertyChanged -= OnWindowPropertyChanged;
         _interactiveSurface?.Dispose();
         _interactiveSurface = null;
