@@ -22,6 +22,24 @@ internal static class VivoConstants
     public const ushort AckNoiseMode = 0x8130;
     public const ushort ReportNoiseMode = 0x8230;
 
+    // vivo 官方低延迟游戏模式：设置 0x0151、读取 0x0251，GAIA 回包带响应位。
+    public const ushort SetLowLatencyGaming = 0x0151;
+    public const ushort QueryLowLatencyGaming = 0x0251;
+    public const ushort AckLowLatencyGaming = 0x8151;
+    public const ushort ReportLowLatencyGaming = 0x8251;
+
+    // vivo 官方空间音频：读取使用 0x0239，设置使用 0x0139。
+    public const ushort SetSpatialAudio = 0x0139;
+    public const ushort QuerySpatialAudio = 0x0239;
+    public const ushort AckSpatialAudio = 0x8139;
+    public const ushort ReportSpatialAudio = 0x8239;
+
+    // vivo 官方内置音效：读取使用 0x0218，设置使用 0x0118。
+    public const ushort SetAudioEffect = 0x0118;
+    public const ushort QueryAudioEffect = 0x0218;
+    public const ushort AckAudioEffect = 0x8118;
+    public const ushort ReportAudioEffect = 0x8218;
+
     // vivo 降噪模式字节（对应 vivo_protocol.NoiseMode）：ANC=0, OFF=1, TRANSPARENCY=2。
     public const byte NoiseAnc = 0;
     public const byte NoiseOff = 1;

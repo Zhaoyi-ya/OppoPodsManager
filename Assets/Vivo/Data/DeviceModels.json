@@ -1,0 +1,3385 @@
+{
+    "tws_config": [
+        {
+            "model": 0,
+            "name": "vivo TWS 1",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 1,
+                "audio_effect": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 0,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 0,
+                "exhibit": "device_0"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 1,
+            "name": "vivo TWS 1",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 1,
+                "audio_effect": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 0,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 1,
+                "exhibit": "device_1"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 16,
+            "name": "vivo TWS Neo",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 1,
+                "audio_effect": 1,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 1,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 16,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_16"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 17,
+            "name": "vivo TWS Neo",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 1,
+                "audio_effect": 1,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 1,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 16,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_16"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 28,
+            "name": "vivo TWS 2",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 32,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_32"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 29,
+            "name": "vivo TWS 2",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 28,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_28"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 32,
+            "name": "vivo TWS 2e",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 32,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_32"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 33,
+            "name": "vivo TWS 2e",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 1,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 1,
+                "privacy": 0
+            },
+            "bitmap_data": {
+                "file_model": 28,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_28"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 48,
+            "name": "vivo TWS Air",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 48,
+                "exhibit": "device_48"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 80,
+            "name": "vivo TWS A1",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 3,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 80,
+                "exhibit": "device_80"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 81,
+            "name": "vivo TWS A1",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 3,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 81,
+                "exhibit": "device_81"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 49,
+            "name": "vivo TWS Air",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 1,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 49,
+                "exhibit": "device_49"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 60,
+            "name": "vivo TWS 3",
+            "project_name": "DPD2205A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 60,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_60"
+            }
+        },
+        {
+            "model": 61,
+            "name": "vivo TWS 3",
+            "project_name": "DPD2205A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 61,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_61"
+            }
+        },
+        {
+            "model": 68,
+            "name": "iQOO TWS Air",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 2,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135_D_T_B"
+            },
+            "bitmap_data": {
+                "file_model": 68,
+                "exhibit": "device_68"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 69,
+            "name": "iQOO TWS Air",
+            "project_name": "DPD2135A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 2,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2135_D_T_B"
+            },
+            "bitmap_data": {
+                "file_model": 69,
+                "exhibit": "device_69"
+            },
+            "rssi_data": [
+                {
+                    "rssi": 999,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 64,
+            "name": "vivo TWS 3 Pro",
+            "project_name": "DPD2206A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 3,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1,
+                "temperature": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2206A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 60,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_64"
+            }
+        },
+        {
+            "model": 65,
+            "name": "vivo TWS 3 Pro",
+            "project_name": "DPD2206A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 3,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 1,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1,
+                "temperature": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2206A_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 65,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_65"
+            }
+        },
+        {
+            "model": 72,
+            "name": "vivo TWS Air Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 72,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_72"
+            }
+        },
+        {
+            "model": 73,
+            "name": "vivo TWS Air Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 1,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 73,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_73"
+            }
+        },
+        {
+            "model": 76,
+            "name": "vivo TWS A1 Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 3,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 76,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_76"
+            }
+        },
+        {
+            "model": 77,
+            "name": "vivo TWS A1 Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 3,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 77,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_77"
+            }
+        },
+        {
+            "model": 84,
+            "name": "iQOO TWS Air Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 2,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 84,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_84"
+            }
+        },
+        {
+            "model": 85,
+            "name": "iQOO TWS Air Pro",
+            "project_name": "DPD2220",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 2,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 2,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "jovi_voice": 0,
+                "translation_mode":0 ,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "smart_upgrade": 0,
+                "quick_voice_switch": 0,
+                "personalized_theme": 0
+            },
+            "features_introduce":{
+                "app_name": "DPD2220_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 85,
+                "enter": "open",
+                "change": "open",
+                "circle": "open",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_85"
+            }
+        },
+        {
+            "model": 88,
+            "name": "vivo TWS X1",
+            "project_name": "DPD2205B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 3,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 88,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_88"
+            }
+        },
+        {
+            "model": 89,
+            "name": "vivo TWS X1",
+            "project_name": "DPD2205B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 3,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 89,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_89"
+            }
+        },
+        {
+            "model": 96,
+            "name": "iQOO TWS 1",
+            "project_name": "DPD2205C",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 2,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205C_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 96,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_96"
+            }
+        },
+        {
+            "model": 97,
+            "name": "iQOO TWS 1",
+            "project_name": "DPD2205C",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 1,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 2,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205C_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 97,
+                "enter": "out",
+                "change": "shining",
+                "circle": "circle",
+                "connecting": "open",
+                "left": "left",
+                "right": "right",
+                "box": "close",
+                "exhibit": "device_97"
+            }
+        },
+        {
+            "model": 98,
+            "name": "iQOO TWS 1",
+            "project_name": "DPD2205C",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 2,
+                "noise_anti_wind": 1,
+                "earphone_monitor": 1,
+                "touch_operation": 3,
+                "audio_effect": 2,
+                "earphone_fit_test": 1,
+                "jovi_voice": 0,
+                "translation_mode": 0,
+                "smart_unlock": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "recording_mode": 0,
+                "ktv": 0,
+                "spatial_audio_3d": 0,
+                "spatial_audio": 0,
+                "ear_custom_effect": 1,
+                "fast_learning": 1
+            },
+            "features_introduce":{
+                "app_name": "DPD2205C_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 98,
+                "exhibit": "device_98"
+            }
+        },
+        {
+            "model": 100,
+            "name": "vivo TWS Air2",
+            "project_name": "DPD2313AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 0,
+                "noise_no_trans": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2
+            },
+            "features_introduce":{
+                "app_name": "DPD2313_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 100,
+                "exhibit": "device_100"
+            }
+        },
+        {
+            "model": 101,
+            "name": "vivo TWS Air2",
+            "project_name": "DPD2313AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 0,
+                "noise_no_trans": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2
+            },
+            "features_introduce":{
+                "app_name": "DPD2313_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 101,
+                "exhibit": "device_101"
+            }
+        },
+        {
+            "model": 104,
+            "name": "vivo TWS A2",
+            "project_name": "DPD2313AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 0,
+                "noise_no_trans": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 6,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2
+            },
+            "features_introduce":{
+                "app_name": "DPD2313_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 104,
+                "exhibit": "device_104"
+            }
+        },
+        {
+            "model": 108,
+            "name": "iQOO TWS Air2",
+            "project_name": "DPD2313B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 0,
+                "noise_no_trans": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2
+            },
+            "features_introduce":{
+                "app_name": "DPD2313_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 108,
+                "exhibit": "device_108"
+            }
+        },
+        {
+            "model": 109,
+            "name": "iQOO TWS Air2",
+            "project_name": "DPD2313B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 0,
+                "noise_no_trans": 0,
+                "earphone_monitor": 0,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "spatial_audio_3d": 0,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "recording_mode": 0,
+                "ktv": 0,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2
+            },
+            "features_introduce":{
+                "app_name": "DPD2313_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 109,
+                "exhibit": "device_109"
+            }
+        },
+        {
+            "model": 112,
+            "name": "vivo TWS 3e",
+            "project_name": "DPD2321A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 3
+            },
+            "features_introduce": {
+                "app_name": "DPD2321_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 112,
+                "exhibit": "device_112"
+            }
+        },
+        {
+            "model": 113,
+            "name": "vivo TWS 3e",
+            "project_name": "DPD2321A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 3
+            },
+            "features_introduce": {
+                "app_name": "DPD2321_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 113,
+                "exhibit": "device_113"
+            }
+        },
+        {
+            "model": 116,
+            "name": "iQOO TWS 1e",
+            "project_name": "DPD2321B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 3
+            },
+            "features_introduce": {
+                "app_name": "DPD2321_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 116,
+                "exhibit": "device_116"
+            }
+        },
+        {
+            "model": 117,
+            "name": "iQOO TWS 1e",
+            "project_name": "DPD2321B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "key_position": 0,
+            "feature": {
+                "noise_reduction": 4,
+                "noise_anti_wind": 1,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "earphone_fit_test": 0,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 0,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 3
+            },
+            "features_introduce": {
+                "app_name": "DPD2321_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 117,
+                "exhibit": "device_117"
+            }
+        },
+        {
+            "model": 120,
+            "name": "vivo TWS 4",
+            "project_name": "DPD2327A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 4,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 120,
+                "exhibit": "device_120"
+            }
+        },
+        {
+            "model": 121,
+            "name": "vivo TWS 4",
+            "project_name": "DPD2327A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 4,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 121,
+                "exhibit": "device_121"
+            }
+        },
+        {
+            "model": 124,
+            "name": "iQOO TWS 2",
+            "project_name": "DPD2327B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 5,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 124,
+                "exhibit": "device_124"
+            }
+        },
+        {
+            "model": 125,
+            "name": "iQOO TWS 2",
+            "project_name": "DPD2327B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 5,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 125,
+                "exhibit": "device_125"
+            }
+        },
+        {
+            "model": 128,
+            "name": "vivo TWS 4 Hi-Fi",
+            "project_name": "DPD2328A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 4,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 128,
+                "exhibit": "device_128"
+            }
+        },
+        {
+            "model": 129,
+            "name": "vivo TWS 4 Hi-Fi",
+            "project_name": "DPD2328A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "low_latency_gaming": 1,
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 4,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 2,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4
+            },
+            "features_introduce": {
+                "app_name": "DPD2327_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 129,
+                "exhibit": "device_129"
+            }
+        },
+        {
+            "model": 132,
+            "name": "vivo TWS 3i",
+            "project_name": "DPD2407A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 132,
+                "exhibit": "device_132"
+            }
+        },
+        {
+            "model": 133,
+            "name": "vivo TWS 3i",
+            "project_name": "DPD2407A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 133,
+                "exhibit": "device_133"
+            }
+        },
+        {
+            "model": 136,
+            "name": "iQOO TWS 1i",
+            "project_name": "DPD2407B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 136,
+                "exhibit": "device_136"
+            }
+        },
+        {
+            "model": 137,
+            "name": "iQOO TWS 1i",
+            "project_name": "DPD2407B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 137,
+                "exhibit": "device_137"
+            }
+        },
+        {
+            "model": 140,
+            "name": "vivo TWS A3",
+            "project_name": "DPD2407AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 6,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 140,
+                "exhibit": "device_140"
+            }
+        },
+        {
+            "model": 144,
+            "name": "vivo TWS 3i 长续航",
+            "project_name": "DPD2407AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 144,
+                "exhibit": "device_144"
+            }
+        },
+        {
+            "model": 145,
+            "name": "vivo TWS 3i 长续航",
+            "project_name": "DPD2407AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 5,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2
+            },
+            "features_introduce": {
+                "app_name": "DPD2407_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 145,
+                "exhibit": "device_145"
+            }
+        },
+        {
+            "model": 156,
+            "name": "vivo TWS Air3",
+            "project_name": "DPD2430A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 156,
+                "exhibit": "device_156"
+            }
+        },
+        {
+            "model": 157,
+            "name": "vivo TWS Air3",
+            "project_name": "DPD2430A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 157,
+                "exhibit": "device_157"
+            }
+        },
+        {
+            "model": 158,
+            "name": "vivo TWS Air3",
+            "project_name": "DPD2430A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 158,
+                "exhibit": "device_158"
+            }
+        },
+        {
+            "model": 160,
+            "name": "iQOO TWS Air3",
+            "project_name": "DPD2430B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 160,
+                "exhibit": "device_160"
+            }
+        },
+        {
+            "model": 161,
+            "name": "iQOO TWS Air3",
+            "project_name": "DPD2430B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 161,
+                "exhibit": "device_161"
+            }
+        },
+        {
+            "model": 164,
+            "name": "vivo TWS A4",
+            "project_name": "DPD2430AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 2,
+                "audio_effect": 6,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "privacy": 1,
+                "fast_learning": 2,
+                "hearing_protection": 2,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2430_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 156,
+                "exhibit": "device_156"
+            }
+        },
+        {
+            "model": 168,
+            "name": "vivo TWS Air3 Pro",
+            "project_name": "DPD2431A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 168,
+                "exhibit": "device_168"
+            }
+        },
+        {
+            "model": 169,
+            "name": "vivo TWS Air3 Pro",
+            "project_name": "DPD2431A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 169,
+                "exhibit": "device_169"
+            }
+        },
+        {
+            "model": 170,
+            "name": "vivo TWS Air3 Pro",
+            "project_name": "DPD2431A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 170,
+                "exhibit": "device_170"
+            }
+        },
+        {
+            "model": 172,
+            "name": "iQOO TWS Air3 Pro",
+            "project_name": "DPD2431B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 172,
+                "exhibit": "device_172"
+            }
+        },
+        {
+            "model": 173,
+            "name": "iQOO TWS Air3 Pro",
+            "project_name": "DPD2431B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431B_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 173,
+                "exhibit": "device_173"
+            }
+        },
+        {
+            "model": 188,
+            "name": "vivo TWS Air3 Pro 长续航",
+            "project_name": "DPD2431AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 168,
+                "exhibit": "device_168"
+            }
+        },
+        {
+            "model": 189,
+            "name": "vivo TWS Air3 Pro 长续航",
+            "project_name": "DPD2431AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 169,
+                "exhibit": "device_169"
+            }
+        },
+        {
+            "model": 190,
+            "name": "vivo TWS Air3 Pro 长续航",
+            "project_name": "DPD2431AC",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 12,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 6,
+                "earphone_monitor": 1,
+                "touch_operation": 2,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "features_introduce": 2,
+                "fast_learning": 3,
+                "hearing_protection": 1,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "app_name": "DPD2431_D_T_W"
+            },
+            "bitmap_data": {
+                "file_model": 170,
+                "exhibit": "device_170"
+            }
+        },
+        {
+            "model": 192,
+            "name": "vivo TWS 5",
+            "project_name": "DPD2523A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523_D_T_W",
+                "introduce_id": 1
+            },
+            "bitmap_data": {
+                "file_model": 192,
+                "exhibit": "device_192"
+            }
+        },
+        {
+            "model": 193,
+            "name": "vivo TWS 5",
+            "project_name": "DPD2523A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523_D_T_W",
+                "introduce_id": 1
+            },
+            "bitmap_data": {
+                "file_model": 193,
+                "exhibit": "device_193"
+            }
+        },
+        {
+            "model": 194,
+            "name": "vivo TWS 5",
+            "project_name": "DPD2523A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523_D_T_W",
+                "introduce_id": 1
+            },
+            "bitmap_data": {
+                "file_model": 194,
+                "exhibit": "device_194"
+            }
+        },
+        {
+            "model": 196,
+            "name": "vivo TWS 5 Hi-Fi",
+            "project_name": "DPD2523AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 28,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523_D_T_W",
+                "introduce_id": 2
+            },
+            "bitmap_data": {
+                "file_model": 192,
+                "exhibit": "device_192"
+            }
+        },
+        {
+            "model": 197,
+            "name": "vivo TWS 5 Hi-Fi",
+            "project_name": "DPD2523AB",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 28,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523_D_T_W",
+                "introduce_id": 2
+            },
+            "bitmap_data": {
+                "file_model": 197,
+                "exhibit": "device_197"
+            }
+        },
+        {
+            "model": 200,
+            "name": "iQOO TWS 5",
+            "project_name": "DPD2523B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 13,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523B_D_T_W",
+                "introduce_id": 3
+            },
+            "bitmap_data": {
+                "file_model": 200,
+                "exhibit": "device_200"
+            }
+        },
+        {
+            "model": 201,
+            "name": "iQOO TWS 5",
+            "project_name": "DPD2523B",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 5,
+                "audio_effect": 13,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 5,
+                "spatial_audio_3d": 1,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0
+            },
+            "features_introduce": {
+                "app_name": "DPD2523B_D_T_W",
+                "introduce_id": 3
+            },
+            "bitmap_data": {
+                "file_model": 201,
+                "exhibit": "device_201"
+            }
+        },
+        {
+            "model": 204,
+            "name": "vivo TWS 5i",
+            "project_name": "DPD2543A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 7
+            },
+            "bitmap_data": {
+                "file_model": 204,
+                "exhibit": "device_204"
+            }
+        },
+        {
+            "model": 205,
+            "name": "vivo TWS 5i",
+            "project_name": "DPD2543A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 7
+            },
+            "bitmap_data": {
+                "file_model": 205,
+                "exhibit": "device_205"
+            }
+        },
+        {
+            "model": 206,
+            "name": "vivo TWS 5i",
+            "project_name": "DPD2543A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 4,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 7
+            },
+            "bitmap_data": {
+                "file_model": 206,
+                "exhibit": "device_206"
+            }
+        },
+        {
+            "model": 208,
+            "name": "vivo TWS A5",
+            "project_name": "DPD2543AB",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 6,
+                "translation_mode": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 10
+            },
+            "bitmap_data": {
+                "file_model": 208,
+                "exhibit": "device_208"
+            }
+        },
+        {
+            "model": 212,
+            "name": "iQOO TWS 5i",
+            "project_name": "DPD2543B",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 8
+            },
+            "bitmap_data": {
+                "file_model": 212,
+                "exhibit": "device_212"
+            }
+        },
+        {
+            "model": 213,
+            "name": "iQOO TWS 5i",
+            "project_name": "DPD2543B",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "touch_operation": 6,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 7,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 8
+            },
+            "bitmap_data": {
+                "file_model": 213,
+                "exhibit": "device_213"
+            }
+        },
+        {
+            "model": 216,
+            "name": "iQOO TWS 5e",
+            "project_name": "DPD2545B",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 4,
+                "earphone_monitor": 1,
+                "touch_operation": 6,
+                "audio_effect": 5,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 6,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 12
+            },
+            "bitmap_data": {
+                "file_model": 216,
+                "exhibit": "device_216"
+            }
+        },
+        {
+            "model": 220,
+            "name": "vivo TWS 5e",
+            "project_name": "DPD2546A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 2,
+                "earphone_monitor": 1,
+                "touch_operation": 6,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 6,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 11
+            },
+            "bitmap_data": {
+                "file_model": 220,
+                "exhibit": "device_220"
+            }
+        },
+        {
+            "model": 221,
+            "name": "vivo TWS 5e",
+            "project_name": "DPD2546A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 2,
+                "earphone_monitor": 1,
+                "touch_operation": 6,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 6,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 11
+            },
+            "bitmap_data": {
+                "file_model": 221,
+                "exhibit": "device_221"
+            }
+        },
+        {
+            "model": 222,
+            "name": "vivo TWS 5e",
+            "project_name": "DPD2546A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 11,
+            "hold_second": 3,
+            "hold_type": 1,
+            "feature": {
+                "noise_reduction": 2,
+                "earphone_monitor": 1,
+                "touch_operation": 6,
+                "audio_effect": 12,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 6,
+                "low_latency_gaming": 1,
+                "dual_connection": 3,
+                "tap_adjust_volume": 5
+            },
+            "features_introduce": {
+                "introduce_id": 11
+            },
+            "bitmap_data": {
+                "file_model": 222,
+                "exhibit": "device_222"
+            }
+        },
+        {
+            "model": 256,
+            "name": "vivo TWS 5 Pro",
+            "project_name": "DPD2524A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 9,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 28,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4,
+                "spatial_audio_3d": 2,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0,
+                "talkback_recognition": 0
+            },
+            "features_introduce": {
+                "introduce_id": 13
+            },
+            "bitmap_data": {
+                "file_model": 256,
+                "exhibit": "device_256"
+            }
+        },
+        {
+            "model": 257,
+            "name": "vivo TWS 5 Pro",
+            "project_name": "DPD2524A",
+            "qcom_min_rssi": 999,
+            "mtk_min_rssi": 999,
+            "samsung_min_rssi": 999,
+            "device_type": 11,
+            "hold_second": 2,
+            "hold_type": 0,
+            "key_position": 3,
+            "feature": {
+                "noise_reduction": 9,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 4,
+                "audio_effect": 28,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 3,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 1,
+                "privacy": 1,
+                "fast_learning": 4,
+                "spatial_audio_3d": 2,
+                "low_latency_gaming": 1,
+                "dual_connection": 4,
+                "volume_auto_adapt": 0,
+                "talkback_recognition": 0
+            },
+            "features_introduce": {
+                "introduce_id": 13
+            },
+            "bitmap_data": {
+                "file_model": 257,
+                "exhibit": "device_257"
+            }
+        },
+        {
+            "model": 260,
+            "name": "vivo Headphones",
+            "project_name": "DPD2534B",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 4,
+            "hold_second": 3,
+            "hold_type": 2,
+            "key_position": 4,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 8,
+                "audio_effect": 12,
+                "spatial_audio_3d": 2,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 8,
+                "dual_connection": 4,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "introduce_id": 15
+            },
+            "bitmap_data": {
+                "enter": "headwear",
+                "change": "headwear",
+                "circle": "headwear",
+                "connecting": "headwear",
+                "left": "headwear",
+                "right": "headwear",
+                "box": "headwear"
+            },
+            "rssi_data": [
+                {
+                    "rssi": -43,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 261,
+            "name": "vivo Headphones",
+            "project_name": "DPD2534B",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 4,
+            "hold_second": 3,
+            "hold_type": 2,
+            "key_position": 4,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 8,
+                "audio_effect": 12,
+                "spatial_audio_3d": 2,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 8,
+                "dual_connection": 4,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "introduce_id": 15
+            },
+            "bitmap_data": {
+                "enter": "headwear",
+                "change": "headwear",
+                "circle": "headwear",
+                "connecting": "headwear",
+                "left": "headwear",
+                "right": "headwear",
+                "box": "headwear"
+            },
+            "rssi_data": [
+                {
+                    "rssi": -43,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "model": 264,
+            "name": "iQOO Headphones",
+            "project_name": "DPD2534A",
+            "qcom_min_rssi": -50,
+            "mtk_min_rssi": -50,
+            "samsung_min_rssi": -45,
+            "device_type": 4,
+            "hold_second": 3,
+            "hold_type": 2,
+            "key_position": 4,
+            "feature": {
+                "noise_reduction": 5,
+                "noise_no_trans": 0,
+                "earphone_monitor": 1,
+                "touch_operation": 7,
+                "audio_effect": 13,
+                "spatial_audio_3d": 2,
+                "earphone_fit_test": 1,
+                "version_upgrade": 3,
+                "find_earphone": 2,
+                "ear_custom_effect": 1,
+                "features_introduce": 3,
+                "hearing_protection": 2,
+                "privacy": 1,
+                "fast_learning": 8,
+                "dual_connection": 4,
+                "low_latency_gaming": 1
+            },
+            "features_introduce": {
+                "introduce_id": 18
+            },
+            "bitmap_data": {
+                "enter": "headwear",
+                "change": "headwear",
+                "circle": "headwear",
+                "connecting": "headwear",
+                "left": "headwear",
+                "right": "headwear",
+                "box": "headwear"
+            },
+            "rssi_data": [
+                {
+                    "rssi": -43,
+                    "projects": [
+                        {
+                            "project": "PD2001"
+                        },
+                        {
+                            "project": "PD2005"
+                        },
+                        {
+                            "project": "PD2020"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "tws_download_config": {
+        "max_threshold": 120,
+        "single_threshold": 50,
+        "check_time": 360,
+        "version": "1.0.0"
+    },
+    "app_config": {
+        "feature_web_url":"https://tws-info.vivo.com/#/introduced?appName=%s&locale=%s&city=%s&isTranslate=%b&isDark=%b&deviceName=%s&isRtl=%b"
+    }
+}

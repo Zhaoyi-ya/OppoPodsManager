@@ -64,6 +64,7 @@
     <EmbeddedResource Include="Assets\Oplus\Data\EqModeNames.en.json" LogicalName="OppoPodsManager.Assets.Oplus.Data.EqModeNames.en.json" WithCulture="false" />
     <EmbeddedResource Include="Assets\Oplus\Data\EqModeNames.de.json" LogicalName="OppoPodsManager.Assets.Oplus.Data.EqModeNames.de.json" WithCulture="false" />
     <EmbeddedResource Include="Assets\Oplus\Data\EqModeNames.ru.json" LogicalName="OppoPodsManager.Assets.Oplus.Data.EqModeNames.ru.json" WithCulture="false" />
+    <EmbeddedResource Include="Assets\Vivo\Data\DeviceModels.json" LogicalName="OppoPodsManager.Assets.Vivo.Data.DeviceModels.json" />
     <EmbeddedResource Include="Assets\Localization\Strings.json" LogicalName="OppoPodsManager.Assets.Localization.Strings.json" />
     <EmbeddedResource Include="Assets\Localization\Strings.en.json" LogicalName="OppoPodsManager.Assets.Localization.Strings.en.json" WithCulture="false" />
     <EmbeddedResource Include="Assets\Localization\Strings.de.json" LogicalName="OppoPodsManager.Assets.Localization.Strings.de.json" WithCulture="false" />

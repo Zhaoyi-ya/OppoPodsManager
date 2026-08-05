@@ -323,5 +323,12 @@
   "Common_AppDeviceName": "OPPO Pods",
   "Eq_CustomNewName": "Custom EQ {0}",
   "Eq_CustomDefaultName": "Custom EQ",
-  "MultiDevice_Unnamed": "Device {0}"
+  "MultiDevice_Unnamed": "Device {0}",
+  "Vivo_AudioEffect_0": "Standard",
+  "Vivo_AudioEffect_1": "Clear voice",
+  "Vivo_AudioEffect_2": "Mega bass",
+  "Vivo_AudioEffect_3": "Crisp high pitch",
+  "Vivo_AudioEffect_4": "Immersive audio",
+  "Vivo_AudioEffect_5": "Immersive audiobooks",
+  "Vivo_AudioEffect_11": "Ultimate master"
 }
