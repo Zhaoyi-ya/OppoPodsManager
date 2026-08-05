@@ -15,7 +15,7 @@ namespace OppoPodsManager.Control.Edifier;
 // 仅电量与降噪提供端到端读写。UI 通过 Presentation.SupportsNoiseCancellation 与 NoiseOptions
 // 展示降噪卡片，不会因缺失 OPPO 能力而报错。
 //
-// 协议层次：复用项目现有的 WindowsSppConnection（RFCOMM），因此仅支持提供 SPP 通道的设备
+// 协议层次：复用项目现有的 WindowsRfcommConnection（RFCOMM），因此仅支持提供 SPP 通道的设备
 // （W820NB 系列、W200BT 系列等，参考 Klinkore 分支的 SPP UUID）。纯 BLE 设备需额外 BLE 传输层。
 internal sealed class EdifierManager : IBrandManager
 {

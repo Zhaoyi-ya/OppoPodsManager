@@ -7,6 +7,8 @@ namespace OppoPodsManager.Control.Edifier;
 public sealed class EdifierManagerFactory : IBrandManagerFactory
 {
     public string Brand => "Edifier";
+    public Guid ServiceId => EdifierConstants.EdifierSppServiceId;
+    public bool IsCandidateName(string? deviceName) => EdifierModels.IsFamilyName(deviceName);
 
     public async Task<IBrandManager> CreateAsync(
         DeviceConnectionPlan plan,

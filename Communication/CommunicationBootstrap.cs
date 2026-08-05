@@ -9,8 +9,8 @@ public static class CommunicationBootstrap
     {
 #if WINDOWS
         return new CommunicationController(
-            [new Windows.OppoWindowsConnectionFactory()],
-            [new Windows.OppoWindowsDeviceDiscovery()]);
+            [new Windows.WindowsRfcommConnectionFactory()],
+            [new Windows.WindowsBluetoothDiscovery()]);
 #elif LINUX
         return new CommunicationController(
             [new Linux.LinuxConnectionFactory()],

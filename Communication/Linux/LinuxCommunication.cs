@@ -1,12 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
-using OppoPodsManager.Assets.Oplus;
 using OppoPodsManager.Communication.Abstractions;
 
 namespace OppoPodsManager.Communication.Linux;
 
-// Linux 端按已连接的 BlueZ 设备轮询；品牌筛选仍由品牌发现器负责。
+// Linux 平台按已连接的 BlueZ 设备轮询；品牌筛选仍由发现实现负责。
 public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
 {
     private readonly object _gate = new();
@@ -112,7 +110,7 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
                 continue;
 
             var name = parts.Length == 3 ? parts[2].Trim() : $"耳机 {address:X12}";
-            if (!IsConnected(address) || !IsOppoFamily(name))
+            if (!TryGetConnectedServiceIds(address, out var serviceIds))
                 continue;
 
             result.Add(new DeviceCandidate(
@@ -120,8 +118,7 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
                 address.ToString("X12"),
                 address.ToString("X12"),
                 name,
-                "OPPO",
-                [],
+                serviceIds,
                 [LinuxConnectionFactory.TransportName]));
         }
         return result
@@ -131,8 +128,10 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
             .ToArray();
     }
 
-    private static bool IsConnected(ulong address)
+    // 从 bluetoothctl 的已连接设备信息中提取系统登记的 RFCOMM 服务 UUID。
+    private static bool TryGetConnectedServiceIds(ulong address, out IReadOnlyList<Guid> serviceIds)
     {
+        serviceIds = [];
         using var process = Process.Start(new ProcessStartInfo
         {
             FileName = "bluetoothctl",
@@ -145,29 +144,21 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
             return false;
         var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit(3000);
-        return output.Contains("Connected: yes", StringComparison.OrdinalIgnoreCase);
-    }
+        if (!output.Contains("Connected: yes", StringComparison.OrdinalIgnoreCase))
+            return false;
 
-    private static bool IsOppoFamily(string name)
-    {
-        var normalized = Normalize(name);
-        return DeviceModelData.LoadCatalog().Models
-            .Where(model => string.Equals(model.Brand, "oppo", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(model.Brand, "OnePlus", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(model.Brand, "realme", StringComparison.OrdinalIgnoreCase))
-            .SelectMany(model => model.Names)
-            .Select(Normalize)
-            .Any(modelName => modelName.Length > 0
-                && (normalized == modelName || normalized.StartsWith(modelName, StringComparison.Ordinal)));
-    }
-
-    private static string Normalize(string value)
-    {
-        var builder = new StringBuilder(value.Length);
-        foreach (var character in value.Trim())
-            if (char.IsLetterOrDigit(character))
-                builder.Append(char.ToLowerInvariant(character));
-        return builder.ToString();
+        var parsed = new HashSet<Guid>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var start = line.LastIndexOf('(');
+            var end = line.LastIndexOf(')');
+            if (start < 0 || end <= start)
+                continue;
+            if (Guid.TryParse(line[(start + 1)..end], out var serviceId))
+                parsed.Add(serviceId);
+        }
+        serviceIds = parsed.ToArray();
+        return serviceIds.Count > 0;
     }
 
     private static bool TryParseAddress(string text, out ulong address)

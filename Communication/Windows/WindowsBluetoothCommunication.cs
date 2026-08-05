@@ -1,13 +1,11 @@
 using System.Runtime.Versioning;
 using OppoPodsManager.Communication.Abstractions;
-using OppoPodsManager.Control.Vivo;
-using OppoPodsManager.Control.Edifier;
 
 namespace OppoPodsManager.Communication.Windows;
 
-// Windows 设备发现入口；Win32/WinRT 细节留在本平台文件中，不泄漏到控制层。
+// Windows 多品牌设备发现入口；Win32/WinRT 细节留在本平台文件中，不泄漏到控制层。
 [SupportedOSPlatform("windows10.0.19041.0")]
-public sealed class OppoWindowsDeviceDiscovery : IDeviceDiscoveryMonitor
+public sealed class WindowsBluetoothDiscovery : IDeviceDiscoveryMonitor
 {
     private readonly object _gate = new();
     private global::Windows.Devices.Enumeration.DeviceWatcher? _watcher;
@@ -20,36 +18,17 @@ public sealed class OppoWindowsDeviceDiscovery : IDeviceDiscoveryMonitor
 
     public async Task<IReadOnlyList<DeviceCandidate>> DiscoverAsync(CancellationToken cancellationToken)
     {
-        var devices = await Task.Run(OppoWindowsDeviceDiscoveryCore.ListConnected, cancellationToken);
+        var devices = await Task.Run(WindowsBluetoothDiscoveryCore.ListConnected, cancellationToken);
         return devices
             .Where(device => device.Address != 0)
-            .Select(device =>
-            {
-                var (brand, serviceId) = Classify(device.Name);
-                return new DeviceCandidate(
-                    device.Address.ToString("X12"),
-                    device.Address.ToString("X12"),
-                    device.Address.ToString("X12"),
-                    device.Name,
-                    brand,
-                    [serviceId],
-                    [OppoWindowsConnectionFactory.TransportName]);
-            })
+            .Select(device => new DeviceCandidate(
+                device.Address.ToString("X12"),
+                device.Address.ToString("X12"),
+                device.Address.ToString("X12"),
+                device.Name,
+                device.ServiceIds,
+                [WindowsRfcommConnectionFactory.TransportName]))
             .ToArray();
-    }
-
-    // 按设备蓝牙名判断品牌与对应的 RFCOMM SPP 服务 UUID：
-    //  - vivo / iQOO 家族名 → VivoServiceId（GAIA 协议）
-    //  - Edifier 家族名 → EdifierSppServiceId（AA/BB/CC 协议）
-    //  - 其余（含未知）一律按 OPPO/Melody 处理。
-    // 服务 UUID 随后会经 SDP 查询或通道扫描解析真实 RFCOMM 通道，不直接依赖硬编码通道。
-    private static (string Brand, Guid ServiceId) Classify(string name)
-    {
-        if (VivoModels.IsFamilyName(name))
-            return ("Vivo", VivoConstants.VivoServiceId);
-        if (EdifierModels.IsFamilyName(name))
-            return ("Edifier", EdifierConstants.EdifierSppServiceId);
-        return ("OPPO", OppoWindowsSppConnection.MelodyServiceId);
     }
 
     public void Start()
@@ -142,13 +121,13 @@ public sealed class OppoWindowsDeviceDiscovery : IDeviceDiscoveryMonitor
         }
         catch (Exception exception)
         {
-            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "OPPO 设备变化刷新失败。", exception);
+            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "Windows 蓝牙设备变化刷新失败。", exception);
         }
     }
 }
 
 [SupportedOSPlatform("windows10.0.19041.0")]
-public sealed class OppoWindowsConnectionFactory : IConnectionFactory
+public sealed class WindowsRfcommConnectionFactory : IConnectionFactory
 {
     public const string TransportName = "rfcomm";
 
@@ -159,7 +138,10 @@ public sealed class OppoWindowsConnectionFactory : IConnectionFactory
         ConnectionOptions options,
         CancellationToken cancellationToken)
     {
-        var connection = new OppoWindowsSppConnection(candidate, options.ServiceId);
+        if (options.ServiceId is not { } serviceId)
+            throw new InvalidOperationException("RFCOMM connection requires a service UUID selected by ControlManager.");
+
+        var connection = new WindowsRfcommConnection(candidate, serviceId);
         try
         {
             await connection.ConnectAsync(cancellationToken);

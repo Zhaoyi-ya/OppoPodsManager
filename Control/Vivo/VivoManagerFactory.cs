@@ -7,6 +7,8 @@ namespace OppoPodsManager.Control.Vivo;
 public sealed class VivoManagerFactory : IBrandManagerFactory
 {
     public string Brand => "Vivo";
+    public Guid ServiceId => VivoConstants.VivoServiceId;
+    public bool IsCandidateName(string? deviceName) => VivoModels.IsFamilyName(deviceName);
 
     public async Task<IBrandManager> CreateAsync(
         DeviceConnectionPlan plan,

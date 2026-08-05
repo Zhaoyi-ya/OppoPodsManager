@@ -9,9 +9,8 @@ namespace OppoPodsManager.Communication.Windows;
 
 // Windows 经典蓝牙 RFCOMM 原始字节连接。帧编码和协议路由由 Control 层负责。
 [SupportedOSPlatform("windows")]
-public sealed class OppoWindowsSppConnection : IRawConnection
+public sealed class WindowsRfcommConnection : IRawConnection
 {
-    public static readonly Guid MelodyServiceId = new("0000079A-D102-11E1-9B23-00025B00A5A5");
     // 部分固件只以标准 SPP UUID 暴露 RFCOMM，需要按它去查真实通道。
     private static readonly Guid GenericSppServiceId = new("00001101-0000-1000-8000-00805F9B34FB");
     private const int AfBth = 32;
@@ -41,10 +40,10 @@ public sealed class OppoWindowsSppConnection : IRawConnection
     private int _connected;
     private int _disposed;
 
-    public OppoWindowsSppConnection(DeviceCandidate candidate, Guid? serviceId)
+    public WindowsRfcommConnection(DeviceCandidate candidate, Guid serviceId)
     {
         _candidate = candidate;
-        _serviceId = serviceId ?? MelodyServiceId;
+        _serviceId = serviceId;
     }
 
     public bool IsConnected => Volatile.Read(ref _connected) != 0;
@@ -66,7 +65,7 @@ public sealed class OppoWindowsSppConnection : IRawConnection
             {
                 closesocket(socket);
                 cancellationToken.ThrowIfCancellationRequested();
-                throw new ObjectDisposedException(nameof(OppoWindowsSppConnection));
+                throw new ObjectDisposedException(nameof(WindowsRfcommConnection));
             }
             _socket = socket;
             Volatile.Write(ref _connected, 1);
@@ -154,48 +153,24 @@ public sealed class OppoWindowsSppConnection : IRawConnection
         }
     }
 
-    // 连接策略：
-    //  1) 让 Windows 按服务 UUID 自行解析通道（原兜底逻辑，最兼容）；
-    //  2) 用原生 WSALookupService 查 SDP，拿到耳机真实 RFCOMM 通道后直连；
-    //  3) 回退到硬编码通道 15 / 1；
-    //  4) 仍失败则扫描 2-30 通道（覆盖固件把 RFCOMM 放在其它通道的情况）。
-    // 旧实现删掉了第 2 步（原 WinRT RfcommServiceFinder），只盲猜 15/1，
-    // 导致真实通道非 15/1 的耳机全部连接失败。
+    // 连接策略严格限定为：品牌服务 UUID 自动解析通道、裸通道 1、裸通道 15。
+    // 品牌服务 UUID 的尝试顺序由 ControlManager 按蓝牙名称及验证结果决定。
     private IntPtr ConnectCore(ulong address, CancellationToken cancellationToken)
     {
         EnsureWsaStarted();
 
-        var sdpChannel = QueryRfcommChannel(address, _serviceId);
-        var genericChannel = _serviceId != GenericSppServiceId ? QueryRfcommChannel(address, GenericSppServiceId) : null;
-
         // 诊断：把 Windows 为该地址缓存的经典 SDP 服务列出来，确认设备到底有没有暴露 RFCOMM/SPP。
         DumpCachedBluetoothServices(address);
 
-        var attempts = new List<(string Label, Guid ServiceId, uint Port, int TimeoutMicros)>();
-        attempts.Add(("SDP-UUID", _serviceId, 0u, 500_000));
-        // 多数 SPP 设备（含部分 Edifier/Vivo）只在标准“串口配置文件”UUID 下注册 RFCOMM，
-        // 自定义的 EDF00000/GAIA UUID 仅用于帧层协议标记。这里把通用 SPP UUID 的解析
-        // 也作为一等尝试，避免设备不暴露自定义 UUID 时直接失败。
-        if (_serviceId != GenericSppServiceId)
-            attempts.Add(("GenericSPP-UUID", GenericSppServiceId, 0u, 500_000));
-        if (sdpChannel is { } c1)
-            attempts.Add(($"SDP-Channel-{c1}", Guid.Empty, c1, 500_000));
-        if (genericChannel is { } c2 && genericChannel != sdpChannel)
-            attempts.Add(($"GenericSPP-Channel-{c2}", Guid.Empty, c2, 500_000));
-        attempts.Add(("Channel-15", Guid.Empty, 15u, 500_000));
-        attempts.Add(("Channel-1", Guid.Empty, 1u, 500_000));
-
-        // 通道扫描：补齐 2-30 中尚未尝试过的通道，作为最后兜底。
-        var tried = new HashSet<uint>(attempts.Where(a => a.Port != 0).Select(a => a.Port));
-        for (uint channel = 2; channel <= 30; channel++)
+        var attempts = new (string Label, Guid ServiceId, uint Port, int TimeoutMicros)[]
         {
-            if (tried.Add(channel))
-                attempts.Add(($"Scan-{channel}", Guid.Empty, channel, ScanTimeoutMicros));
-        }
+            ("Service-UUID", _serviceId, 0u, 500_000),
+            ("Channel-1", Guid.Empty, 1u, 500_000),
+            ("Channel-15", Guid.Empty, 15u, 500_000)
+        };
 
         ApplicationLog.Current?.Debug("Bluetooth",
-            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，SDP查得通道={sdpChannel?.ToString() ?? "无"}，" +
-            $"通用SPP查得通道={genericChannel?.ToString() ?? "无"}，共 {attempts.Count} 个候选。");
+            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，端口=0/1/15。");
 
         var lastWsa = 0;
         foreach (var (label, serviceId, port, timeout) in attempts)
@@ -215,7 +190,7 @@ public sealed class OppoWindowsSppConnection : IRawConnection
         }
 
         throw new InvalidOperationException(
-            $"RFCOMM 服务不可用（地址 {address:X12}，目标服务 {_serviceId}）。已尝试 SDP-UUID、SDP 查得通道、通道 15/1 及 2-30 扫描，" +
+            $"RFCOMM 服务不可用（地址 {address:X12}，目标服务 {_serviceId}）。已尝试服务 UUID 的端口 0 及裸通道 1/15，" +
             $"最后一次失败 WSA 错误={lastWsa}。请确认耳机已与 Windows 配对并处于连接状态，且蓝牙串口未被其它程序占用。");
     }
 
@@ -441,7 +416,7 @@ public sealed class OppoWindowsSppConnection : IRawConnection
     }
 
     // 原生 SOCKADDR_BTH（x64 自然对齐，40 字节；port 偏移 32）。
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct SockAddrBth
     {
         public ushort Family;

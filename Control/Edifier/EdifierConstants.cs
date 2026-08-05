@@ -6,7 +6,7 @@ namespace OppoPodsManager.Control.Edifier;
 //
 // 协议来源：mEDIFIER（开源，https://github.com/wh201906/mEDIFIER）及其分支 Klinkore-mEDIFIER。
 // 主分支走 BLE GATT；Klinkore 分支额外提供 RFCOMM（SPP）通道，固定 SPP 服务 UUID 如下。
-// 本适配复用项目的 WindowsSppConnection（RFCOMM），因此需要 SPP 通道的设备（W820NB 系列、
+// 本适配复用项目的 WindowsRfcommConnection（RFCOMM），因此需要 SPP 通道的设备（W820NB 系列、
 // W200BT 系列等）可直接连接；纯 BLE 设备需要额外 BLE 传输层，当前未实现。
 //
 // 许可证提示：mEDIFIER 仓库采用 GPL-3.0，正式发布前需确认 next 项目的许可证兼容。

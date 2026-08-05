@@ -66,14 +66,18 @@ public sealed class DeviceScanner : IDisposable
         if (string.IsNullOrWhiteSpace(transport))
             return null;
 
-        var serviceId = candidate.ServiceIds.FirstOrDefault();
         return new DeviceConnectionPlan(
             candidate,
-            new ConnectionOptions(transport, serviceId == Guid.Empty ? null : serviceId, 0));
+            new ConnectionOptions(transport, null, 0));
     }
 }
 
-public sealed record DeviceConnectionPlan(DeviceCandidate Candidate, ConnectionOptions Options);
+// 控制层保存名称推断后的品牌尝试顺序，并在验证成功后写入最终 Brand 和 ServiceId。
+public sealed record DeviceConnectionPlan(
+    DeviceCandidate Candidate,
+    ConnectionOptions Options,
+    string Brand = "",
+    IReadOnlyList<string>? CandidateBrands = null);
 
 public sealed class DevicePlansChangedEventArgs : EventArgs
 {

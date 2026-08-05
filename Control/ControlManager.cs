@@ -94,6 +94,7 @@ public sealed class ControlManager : IAsyncDisposable
         bool autoConnect,
         CancellationToken cancellationToken)
     {
+        plans = ResolveSupportedPlans(plans);
         var next = plans.ToDictionary(plan => plan.Candidate.StableId, StringComparer.Ordinal);
         string? removedActiveId;
         lock (_availableDevicesLock)
@@ -125,7 +126,7 @@ public sealed class ControlManager : IAsyncDisposable
             lock (_availableDevicesLock)
                 replacement = _availableDevices.Values.FirstOrDefault(plan =>
                     _confirmedDeviceIds.Contains(plan.Candidate.StableId)
-                    && _managerFactories.ContainsKey(plan.Candidate.Brand));
+                    && _managerFactories.ContainsKey(plan.Brand));
             if (replacement is not null)
                 await ConnectAsync(replacement.Candidate.StableId, CancellationToken.None);
             return;
@@ -137,9 +138,66 @@ public sealed class ControlManager : IAsyncDisposable
             lock (_availableDevicesLock)
                 autoPlan = _availableDevices.Values.FirstOrDefault(plan =>
                     _confirmedDeviceIds.Contains(plan.Candidate.StableId)
-                    && _managerFactories.ContainsKey(plan.Candidate.Brand));
+                    && _managerFactories.ContainsKey(plan.Brand));
             if (autoPlan is not null)
                 await ConnectAsync(autoPlan.Candidate.StableId, cancellationToken);
+        }
+    }
+
+    // 所有已连接蓝牙设备都进入控制层；名称命中的品牌优先验证，其余品牌仅在前者失败后尝试。
+    private IReadOnlyList<DeviceConnectionPlan> ResolveSupportedPlans(IEnumerable<DeviceConnectionPlan> plans)
+    {
+        var resolved = new List<DeviceConnectionPlan>();
+        foreach (var plan in plans)
+        {
+            var factories = _managerFactories.Values
+                .OrderByDescending(factory => factory.IsCandidateName(plan.Candidate.DisplayName))
+                .ThenByDescending(factory => plan.Candidate.ServiceIds.Contains(factory.ServiceId))
+                .ThenBy(factory => factory.Brand, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (factories.Length == 0)
+            {
+                continue;
+            }
+
+            var first = factories[0];
+            var candidateBrands = factories.Select(factory => factory.Brand).ToArray();
+            ApplicationLog.Current?.Debug(
+                "Discovery",
+                $"设备连接候选：device={plan.Candidate.DisplayName}，优先品牌={first.Brand}，顺序={string.Join(',', candidateBrands)}，缓存服务数={plan.Candidate.ServiceIds.Count}。");
+            resolved.Add(plan with
+            {
+                Brand = first.Brand,
+                Options = plan.Options with { ServiceId = first.ServiceId },
+                CandidateBrands = candidateBrands
+            });
+        }
+        return resolved;
+    }
+
+    // 按计划保留的稳定顺序取得可验证品牌，避免监控刷新时重排连接尝试。
+    private IReadOnlyList<IBrandManagerFactory> GetCandidateFactories(DeviceConnectionPlan plan)
+    {
+        var brands = plan.CandidateBrands is { Count: > 0 }
+            ? plan.CandidateBrands
+            : string.IsNullOrWhiteSpace(plan.Brand) ? [] : [plan.Brand];
+        return brands
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(brand => _managerFactories.TryGetValue(brand, out var factory) ? factory : null)
+            .Where(factory => factory is not null)
+            .Cast<IBrandManagerFactory>()
+            .ToArray();
+    }
+
+    // 将已验证的工厂写回计划，后续用户连接会从成功的协议开始。
+    private void MarkConfirmed(DeviceConnectionPlan plan)
+    {
+        lock (_availableDevicesLock)
+        {
+            var devices = new Dictionary<string, DeviceConnectionPlan>(_availableDevices, StringComparer.Ordinal);
+            devices[plan.Candidate.StableId] = plan;
+            _availableDevices = devices;
+            _confirmedDeviceIds.Add(plan.Candidate.StableId);
         }
     }
 
@@ -165,9 +223,6 @@ public sealed class ControlManager : IAsyncDisposable
 
         try
         {
-            if (!_managerFactories.ContainsKey(plan.Candidate.Brand))
-                return;
-
             await _connectionGate.WaitAsync(cancellationToken);
             try
             {
@@ -178,26 +233,38 @@ public sealed class ControlManager : IAsyncDisposable
                 }
 
                 var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-                IBrandManager? manager = null;
-                IRawConnection? connection = null;
-                try
+                foreach (var factory in GetCandidateFactories(plan))
                 {
-                    ApplicationLog.Current?.Debug("Discovery", $"确认设备型号：device={plan.Candidate.DisplayName}，brand={plan.Candidate.Brand}。");
-                    connection = await scanner.OpenAsync(plan, cancellationToken);
-                    var factory = _managerFactories[plan.Candidate.Brand];
-                    manager = await factory.CreateAsync(plan, connection, cancellationToken);
-                    await manager.DisposeAsync();
-                    manager = null;
-                    lock (_availableDevicesLock)
-                        _confirmedDeviceIds.Add(plan.Candidate.StableId);
-                }
-                catch (Exception exception)
-                {
-                    ApplicationLog.Current?.Debug("Discovery", $"设备型号确认失败：device={plan.Candidate.DisplayName}，reason={exception.Message}。");
-                    if (manager is not null)
+                    var candidatePlan = plan with
+                    {
+                        Brand = factory.Brand,
+                        Options = plan.Options with { ServiceId = factory.ServiceId }
+                    };
+                    IBrandManager? manager = null;
+                    IRawConnection? connection = null;
+                    try
+                    {
+                        ApplicationLog.Current?.Debug("Discovery", $"确认设备协议：device={plan.Candidate.DisplayName}，brand={factory.Brand}，service={factory.ServiceId}。");
+                        connection = await scanner.OpenAsync(candidatePlan, cancellationToken);
+                        manager = await factory.CreateAsync(candidatePlan, connection, cancellationToken);
                         await manager.DisposeAsync();
-                    else if (connection is not null)
-                        await connection.DisposeAsync();
+                        manager = null;
+                        MarkConfirmed(candidatePlan);
+                        ApplicationLog.Current?.Info("Discovery", $"已确认设备协议：device={plan.Candidate.DisplayName}，brand={factory.Brand}。");
+                        return;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        ApplicationLog.Current?.Debug("Discovery", $"设备协议确认失败：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                    }
                 }
             }
             finally
@@ -320,7 +387,7 @@ public sealed class ControlManager : IAsyncDisposable
             lock (_availableDevicesLock)
                 plan = _availableDevices.Values.FirstOrDefault(candidate =>
                     _confirmedDeviceIds.Contains(candidate.Candidate.StableId)
-                    && _managerFactories.ContainsKey(candidate.Candidate.Brand));
+                    && _managerFactories.ContainsKey(candidate.Brand));
 
             if (plan is null || ActiveManager is not null)
             {
@@ -419,12 +486,13 @@ public sealed class ControlManager : IAsyncDisposable
     public int GetHiddenMultiDeviceCount()
         => _settings?.GetHiddenMultiDevices().Count ?? 0;
 
-    // 通过已确认的扫描计划打开 RFCOMM 链接并启动 OPPO 协议会话。
+    // 通过已确认的扫描计划打开 RFCOMM 链接；异常时按计划顺序验证下一个品牌协议。
     private async Task<bool> ConnectPlanAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
     {
-        if (!_managerFactories.TryGetValue(plan.Candidate.Brand, out var factory))
+        var factories = GetCandidateFactories(plan);
+        if (factories.Count == 0)
         {
-            ApplicationLog.Current?.Info("Control", $"跳过未支持品牌：brand={plan.Candidate.Brand}，device={plan.Candidate.DisplayName}。");
+            ApplicationLog.Current?.Info("Control", $"跳过没有可用品牌协议的设备：device={plan.Candidate.DisplayName}。");
             await ClearActiveManagerAsync();
             return false;
         }
@@ -437,29 +505,42 @@ public sealed class ControlManager : IAsyncDisposable
                 return true;
 
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-            IBrandManager? manager = null;
-            IRawConnection? connection = null;
-            try
+            foreach (var factory in factories)
             {
-                ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {plan.Candidate.Brand} 会话。");
-                connection = await scanner.OpenAsync(plan, cancellationToken);
-                manager = await factory.CreateAsync(plan, connection, cancellationToken);
-                _activeDeviceId = plan.Candidate.StableId;
-                await SelectManagerAsync(manager);
-                return true;
+                var candidatePlan = plan with
+                {
+                    Brand = factory.Brand,
+                    Options = plan.Options with { ServiceId = factory.ServiceId }
+                };
+                IBrandManager? manager = null;
+                IRawConnection? connection = null;
+                try
+                {
+                    ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {factory.Brand} 会话：service={factory.ServiceId}。");
+                    connection = await scanner.OpenAsync(candidatePlan, cancellationToken);
+                    manager = await factory.CreateAsync(candidatePlan, connection, cancellationToken);
+                    await SelectManagerAsync(manager);
+                    manager = null;
+                    _activeDeviceId = plan.Candidate.StableId;
+                    MarkConfirmed(candidatePlan);
+                    return true;
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    ApplicationLog.Current?.Debug("Control", $"连接尝试失败：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
+                    if (manager is not null)
+                        await manager.DisposeAsync();
+                    else if (connection is not null)
+                        await connection.DisposeAsync();
+                }
             }
-            catch
-            {
-                ApplicationLog.Current?.Error("Control", $"连接 {plan.Candidate.DisplayName} 失败。");
-                if (manager is not null)
-                    await manager.DisposeAsync();
-                else if (connection is not null)
-                    await connection.DisposeAsync();
-                if (string.Equals(_activeDeviceId, plan.Candidate.StableId, StringComparison.Ordinal)
-                    && !ReferenceEquals(_activeManager, manager))
-                    _activeDeviceId = null;
-                throw;
-            }
+
+            ApplicationLog.Current?.Error("Control", $"连接设备失败：所有品牌协议均未通过验证。device={plan.Candidate.DisplayName}。");
+            return false;
         }
         finally
         {
