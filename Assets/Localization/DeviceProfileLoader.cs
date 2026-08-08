@@ -20,5 +20,10 @@ internal static class DeviceProfileLoader
     };
 
     public static string LocalizedEqName(string protocolName)
-        => EqualizerNameData.GetDisplayName(protocolName);
+    {
+        if (protocolName.StartsWith("Vivo.AudioEffect.", StringComparison.Ordinal))
+            return TranslationCatalog.Get($"Vivo_AudioEffect_{protocolName["Vivo.AudioEffect.".Length..]}");
+
+        return EqualizerNameData.GetDisplayName(protocolName);
+    }
 }

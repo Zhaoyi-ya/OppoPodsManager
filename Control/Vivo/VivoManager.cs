@@ -9,10 +9,11 @@ using OppoPodsManager.Control.Oppo.Features;
 using OppoPodsManager.Control.Oppo.Managers;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Vivo.Models;
 
 namespace OppoPodsManager.Control.Vivo;
 
-// vivo / iQOO TWS 会话管理（HyperEars GAIA 协议移植，GPL-3.0-only）。
+// vivo / iQOO TWS 会话管理。
 //
 // 已实现并暴露 UI：电量、降噪（3 档：关闭/降噪/通透，key 对齐 OPPO 的 "Off"/"NC"/"Transparency"）。
 // 查找耳机/游戏模式(低延迟)/空间音效开关的命令实现已就绪（见下方 *CoreAsync）。
@@ -22,24 +23,33 @@ namespace OppoPodsManager.Control.Vivo;
 // 控件可见性由 VivoFeatureMatrix（vivo 能力白名单，对应 EarbudFeatures.FeatureID）按连接型号决定，
 // 与 OPPO 侧 CapabilityLoader 同一思路：已知型号仅显示其能力集合内的功能，未知型号默认乐观显示，
 // 便于真机逐项验证命令实现，确认不支持的功能由白名单精确隐藏。
-// 其余 OPPO 专属能力（均衡器、3 模式空间音频等）仍返回“不支持”。
+// 其余 OPPO 专属能力（均衡器、3 模式空间音频等）仍返回"不支持"。
 internal sealed class VivoManager : IBrandManager
 {
     private readonly BusinessState _state = new();
+    private readonly VivoModelCatalog _modelCatalog;
     private ConnectionLink? _link;
     private CancellationTokenSource? _pollCancellation;
     private Task? _pollTask;
+    private readonly List<IDisposable> _notificationSubscriptions = [];
+    private volatile bool _interactivePolling;
     private string? _deviceName;
+    private string? _manualModel;
+    private byte? _spatialScene;
+    private bool _audioEffectVerified;
     private VivoProfile _profile = VivoProfile.FamilyDefaultV4;
+    // ---- dszsu: 结构化能力系统 ----
+    private VivoDeviceCapability _vivoCapability = new(null);
+    // ---- 本地 bug 修复 + 多设备 + 序号守卫 ----
     private bool? _gameModeEnabled;
     private bool? _spatialSoundEnabled;
-    // 运行期探测到的“不支持”功能（查询超时），本会话内停止轮询并隐藏对应控件。
+    // 运行期探测到的"不支持"功能（查询超时），本会话内停止轮询并隐藏对应控件。
     private readonly HashSet<int> _runtimeUnsupported = new();
     // 多连接（双设备）：订阅耳机主动上报 / 时间请求，并缓存最近一次设备列表（MAC+state，7 字节外形式）供全量下发。
     private readonly List<IDisposable> _subscriptions = new();
     private readonly List<(byte[] Address, byte State)> _multiConnectCache = new();
     private readonly object _multiConnectGate = new();
-    // 各资源查询的序号守卫：只接受“最新发出”的查询响应，丢弃过期的旧查询响应，
+    // 各资源查询的序号守卫：只接受"最新发出"的查询响应，丢弃过期的旧查询响应，
     // 避免轮询中已在途的旧查询在设值之后回灌，造成 UI 闪回切换前状态（OPPO 用设备推送无此竞态）。
     private int _noiseSeq, _noiseHighest;
     private int _gameSeq, _gameHighest;
@@ -49,8 +59,9 @@ internal sealed class VivoManager : IBrandManager
     // 0x0300 握手是否成功：仅成功时才说明当前通道是活的 GAIA 通道，可安全启用主动上报。
     private bool _handshakeOk;
 
-    public VivoManager()
+    public VivoManager(VivoModelCatalog? modelCatalog = null)
     {
+        _modelCatalog = modelCatalog ?? new VivoModelCatalog([]);
         _state.Changed += OnStateChanged;
     }
 
@@ -58,15 +69,14 @@ internal sealed class VivoManager : IBrandManager
 
     public BusinessSnapshot Snapshot => _state.Snapshot();
 
-    // vivo 不使用 OPPO 型号能力表；界面依据 Presentation 而非此字段决定可见性。
-    public DeviceCapability Capability => DeviceCapability.Unknown;
+    public DeviceCapability Capability => _vivoCapability.ToDeviceCapability();
 
-    public IReadOnlyList<string> ModelNames => [];
+    public IReadOnlyList<string> ModelNames => _modelCatalog.ModelNames;
 
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>> ModelTree
-        => new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>>();
+        => _modelCatalog.ModelTree;
 
-    public ModelCatalogLocation? FindModelLocation(string? modelName) => null;
+    public ModelCatalogLocation? FindModelLocation(string? modelName) => _modelCatalog.FindLocation(modelName);
 
     public BrandPresentation Presentation => BuildPresentation();
 
@@ -74,8 +84,11 @@ internal sealed class VivoManager : IBrandManager
 
     public void SetInteractivePolling(bool enabled)
     {
-        // 电量/降噪轮询始终运行，不依赖交互状态。
+        // 交互界面打开时缩短电量保底读取间隔，功能状态优先由设备通知更新。
+        _interactivePolling = enabled;
+        ApplicationLog.Current?.Debug("Vivo", $"交互轮询状态已更新：enabled={enabled}。");
     }
+
 
     public async Task DisconnectAsync()
     {
@@ -89,6 +102,10 @@ internal sealed class VivoManager : IBrandManager
         _subscriptions.Clear();
         lock (_multiConnectGate)
             _multiConnectCache.Clear();
+        // dszsu: 重置空间/音效状态
+        _spatialScene = null;
+        _audioEffectVerified = false;
+        DisposeNotificationSubscriptions();
         if (_link is not null)
         {
             var link = _link;
@@ -109,10 +126,18 @@ internal sealed class VivoManager : IBrandManager
 
     public void SetManualModel(string? modelName)
     {
-        // vivo 无型号覆盖需求。
+        _manualModel = string.IsNullOrWhiteSpace(modelName) ? null : modelName;
+        ResolveCapability();
+        _audioEffectVerified = false;
+        if (_state.Snapshot().IsConnected)
+        {
+            _state.SetConnected(_deviceName ?? string.Empty);
+            if (_link is not null && _vivoCapability.SupportsAudioEffect)
+                _ = RefreshAudioEffectAsync(_link, CancellationToken.None);
+        }
     }
 
-    // ---- OPPO 专属功能：统一返回不支持 ----
+    // ---- OPPO 专属功能 / 尚未完成 vivo 协议验证的功能 ----
     public Task<bool> SetWearDetectionAsync(bool enabled, CancellationToken cancellationToken)
         => _link is null ? Task.FromResult(false) : SetWearDetectionCoreAsync(enabled, cancellationToken);
     public Task<bool> SetVoiceEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
@@ -121,29 +146,115 @@ internal sealed class VivoManager : IBrandManager
         => SetDualDeviceCoreAsync(enabled, cancellationToken);
     public Task<bool> SetLongBatteryAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetBassEngineAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
+    // ---- dszsu: 完整实现（带 capability 检查 + 错误处理）----
     public Task<bool> SetSpatialSoundAsync(bool enabled, CancellationToken cancellationToken) => SetSpatialSoundCoreAsync(enabled, cancellationToken);
-    public Task<bool> SetSpineHealthAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken) => SetGameModeCoreAsync(enabled, cancellationToken);
-    public Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetSpatialAudioAsync(SpatialAudioMode mode, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetSpatialAudioByKeyAsync(string modeKey, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    // 使用 vivo 官方低延迟游戏模式命令更新耳机状态。
+    public async Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_vivoCapability.SupportsLowLatencyGaming)
+            return false;
+
+        try
+        {
+            var response = await _link.RequestAsync(
+                VivoConstants.SetLowLatencyGaming,
+                VivoConstants.AckLowLatencyGaming,
+                new byte[] { enabled ? (byte)1 : (byte)0 },
+                cancellationToken);
+            return response is not null && ApplyGameMode(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置低延迟游戏模式失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+    // 写入 vivo 官方音效预设，仅接受当前型号版本表允许的协议 ID。
+    public async Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_vivoCapability.SupportsAudioEffect || !_audioEffectVerified
+            || !_vivoCapability.AudioEffectPresetKeys.Contains(VivoAudioEffectCatalog.GetPresetKey(presetId)))
+        {
+            return false;
+        }
+
+        try
+        {
+            var response = await _link.RequestAsync(
+                VivoConstants.SetAudioEffect,
+                VivoConstants.AckAudioEffect,
+                new byte[] { presetId },
+                cancellationToken);
+            return response is not null && ApplyAudioEffect(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置内置音效失败：id={presetId}，{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    // 将界面使用的稳定预设键转换为 vivo 协议 ID。
+    public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken)
+        => VivoAudioEffectCatalog.TryGetPresetId(presetName, out var presetId)
+            ? SetEqualizerAsync(presetId, cancellationToken)
+            : Task.FromResult(false);
+    // 使用官方空间音频模式枚举写入耳机，并保留读取到的场景索引。
+    public async Task<bool> SetSpatialAudioAsync(SpatialAudioMode mode, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_vivoCapability.SupportsSpatialAudio)
+            return false;
+
+        var vivoMode = mode switch
+        {
+            SpatialAudioMode.Off => (byte)0,
+            SpatialAudioMode.Fixed => (byte)1,
+            SpatialAudioMode.HeadTracking => (byte)2,
+            _ => (byte?)null
+        };
+        if (!vivoMode.HasValue)
+            return false;
+
+        var payload = _spatialScene.HasValue
+            ? new byte[] { vivoMode.Value, _spatialScene.Value }
+            : new byte[] { vivoMode.Value };
+        try
+        {
+            var response = await _link.RequestAsync(
+                VivoConstants.SetSpatialAudio,
+                VivoConstants.AckSpatialAudio,
+                payload,
+                cancellationToken);
+            return response is not null && ApplySpatialAudio(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置空间音频失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    // 将界面稳定键转换为统一业务层的空间音频模式。
+    public Task<bool> SetSpatialAudioByKeyAsync(string modeKey, CancellationToken cancellationToken)
+        => SetSpatialAudioAsync(SpatialAudio.ParseMode(modeKey), cancellationToken);
+    // ---- 本地: 查找耳机 + 多设备（完整实现）----
     public Task<bool> SetFindDeviceAsync(bool enabled, CancellationToken cancellationToken) => SetFindDeviceCoreAsync(enabled, cancellationToken);
     public Task<bool> RefreshMultiDeviceAsync(CancellationToken cancellationToken)
         => _link is null ? Task.FromResult(false) : RefreshMultiDeviceCoreAsync(_link, cancellationToken);
     public Task<bool> RefreshMultiDevicePriorityAsync(CancellationToken cancellationToken)
         => _link is null ? Task.FromResult(false) : RefreshMultiDeviceCoreAsync(_link, cancellationToken);
+    // ---- dszsu: 返回 false 的功能 ----
+    public Task<bool> SetEqualizerCustomAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> RefreshCustomEqualizersAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> PreviewCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SaveCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> DeleteCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> RefreshGameSoundAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken)
-        => _link is null ? Task.FromResult(false) : OperateMultiDeviceCoreAsync(automatic ? MultiDeviceOperation.AutomaticPriority : MultiDeviceOperation.SetPriority, address, cancellationToken);
-    public Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken)
-        => _link is null ? Task.FromResult(false) : OperateMultiDeviceCoreAsync(operation, address, cancellationToken);
+    public Task<bool> SetSpineHealthAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
 
+    // ---- 接口：自定义 EQ（vivo 不支持）----
     public sbyte CustomEqualizerMinimumGain => BrandPresentation.DefaultCustomEqMinimumGain;
     public sbyte CustomEqualizerMaximumGain => BrandPresentation.DefaultCustomEqMaximumGain;
     public bool IsValidCustomEqualizerName(string name) => false;
@@ -153,47 +264,58 @@ internal sealed class VivoManager : IBrandManager
 
     public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry) => [];
 
+    // ---- 接口：多设备显示状态 ----
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
-        => MultiDevicePolicy.BuildDisplayState(_state.Snapshot().MultiDevice, hiddenAddresses);
-
-    // ---- 降噪（实装）----
-    public Task<bool> SetNoiseCancellationAsync(NoiseMode mode, CancellationToken cancellationToken)
     {
-        var vivoMode = MapToVivoMode(mode);
-        if (vivoMode is null || _link is null)
-            return Task.FromResult(false);
-
-        return SetNoiseModeCoreAsync(vivoMode.Value, cancellationToken);
+        var visible = _state.Snapshot().MultiDevice?.Devices
+            .Where(d => !hiddenAddresses.Contains(d.Address))
+            .ToList() ?? [];
+        return new MultiDeviceDisplayState(visible, []);
     }
 
-    public Task<bool> SetNoiseCancellationByKeyAsync(string modeKey, CancellationToken cancellationToken)
+    // ---- 接口：降噪 key/protocol 委托 ----
+    public async Task<bool> SetNoiseCancellationByKeyAsync(string modeKey, CancellationToken cancellationToken)
     {
         var mode = modeKey switch
         {
-            "Off" => NoiseMode.Off,
-            "NC" => NoiseMode.NoiseCancellation,
-            "Transparency" => NoiseMode.Transparency,
+            "Off" or "off" => NoiseMode.Off,
+            "NC" or "anc" => NoiseMode.NoiseCancellation,
+            "Transparency" or "transparency" => NoiseMode.Transparency,
             _ => NoiseMode.Unknown
         };
         if (mode == NoiseMode.Unknown)
-            return Task.FromResult(false);
+            return false;
 
-        return SetNoiseCancellationAsync(mode, cancellationToken);
+        return await SetNoiseCancellationAsync(mode, cancellationToken);
     }
 
-    public Task<bool> SetNoiseCancellationProtocolAsync(byte protocolIndex, CancellationToken cancellationToken)
+    public async Task<bool> SetNoiseCancellationProtocolAsync(byte protocolIndex, CancellationToken cancellationToken)
     {
-        var mode = protocolIndex switch
+        var mode = (int)protocolIndex switch
         {
-            0 => NoiseMode.NoiseCancellation,
-            1 => NoiseMode.Off,
-            2 => NoiseMode.Transparency,
-            _ => NoiseMode.Unknown
+            VivoConstants.NoiseOff => NoiseMode.Off,
+            VivoConstants.NoiseAnc => NoiseMode.NoiseCancellation,
+            VivoConstants.NoiseTransparency => NoiseMode.Transparency,
+            _ => (NoiseMode?)null
         };
-        if (mode == NoiseMode.Unknown)
-            return Task.FromResult(false);
+        if (mode is null)
+            return false;
 
-        return SetNoiseCancellationAsync(mode, cancellationToken);
+        return await SetNoiseCancellationAsync(mode.Value, cancellationToken);
+    }
+
+    public Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken)
+        => _link is null ? Task.FromResult(false) : OperateMultiDeviceCoreAsync(automatic ? MultiDeviceOperation.AutomaticPriority : MultiDeviceOperation.SetPriority, address, cancellationToken);
+    public Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken)
+        => _link is null ? Task.FromResult(false) : OperateMultiDeviceCoreAsync(operation, address, cancellationToken);
+
+    public async Task<bool> SetNoiseCancellationAsync(NoiseMode mode, CancellationToken cancellationToken)
+    {
+        var vivoMode = MapToVivoMode(mode);
+        if (vivoMode is null)
+            return false;
+
+        return await SetNoiseModeCoreAsync(vivoMode.Value, cancellationToken);
     }
 
     // ---- 会话建立 ----
@@ -201,26 +323,24 @@ internal sealed class VivoManager : IBrandManager
     {
         await DisconnectAsync();
         _deviceName = deviceName;
+        ResolveCapability();
         _profile = VivoModels.SelectProfile(deviceName);
-        ApplicationLog.Current?.Debug("Vivo", $"选择协议画像：device={deviceName}，gaiaVersion={_profile.GaiaVersion}，queryPayload={_profile.NoiseQueryPayload.Length} 字节，setSuffix={string.Join(",", _profile.NoiseSetSuffix)}。");
+        ApplicationLog.Current?.Debug("Vivo", $"选择协议画像：device={deviceName}，model={_vivoCapability.ModelName}，known={_vivoCapability.IsKnownModel}，gaiaVersion={_profile.GaiaVersion}，queryPayload={_profile.NoiseQueryPayload.Length} 字节，setSuffix={string.Join(",", _profile.NoiseSetSuffix)}。");
         _link = link;
-        // 订阅耳机主动下发的帧：
-        //   * 时间请求 0x8509（应答 0x0509）、双连列表上报 0x8249（也由轮询 0x0249 触发）。
-        //   * 状态 report 帧（电量/降噪/佩戴/空间/音效场景/媒体播放）：注册通知后耳机会主动推送，
-        //     即使未注册，0x8249/0x8509 等仍自发；订阅让这些状态变为实时上报而非仅轮询。
+        // dszsu: 统一安装通知处理器
+        InstallNotificationHandlers(link);
+        // 本地: 额外订阅时间请求/双连上报/佩戴/空间/音效场景/播放状态（dszsu 的 InstallNotificationHandlers 只覆盖了基础帧）
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.PeerTimeRequest, OnPeerTimeRequest));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportMultiConnect, OnMultiConnectReport));
-        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportBattery, OnBatteryReport));
-        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportNoiseMode, OnNoiseReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearStatus, OnWearReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportSpatialSound, OnSpatialReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportSoundEffectScene, OnSoundSceneReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportAudioPlayState, OnPlayStateReport));
-        // 每次开新会话重置运行期探测到的“不支持”功能（避免首次连接因通道协商失败而误判永久隐藏）。
+        // 每次开新会话重置运行期探测到的"不支持"功能（避免首次连接因通道协商失败而误判永久隐藏）。
         _runtimeUnsupported.Clear();
 
         // 握手用于确认当前 RFCOMM 通道是活的 GAIA 通道。历史 bug：自动连接阶段若退化到裸通道
-        // Channel-1/15，能建链但不回任何 GAIA 帧，握手会超时；原逻辑“可忽略”后继续，导致耳机看似已
+        // Channel-1/15，能建链但不回任何 GAIA 帧，握手会超时；原逻辑"可忽略"后继续，导致耳机看似已
         // 连接却不推送任何状态。现改为：握手失败即视为通道不可用，抛 ChannelUnusableException 让连接层
         // 放弃该通道、强制只用服务 UUID 端口 0 重试（多半能自愈），而不是在死通道上半死不活。
         try
@@ -240,27 +360,35 @@ internal sealed class VivoManager : IBrandManager
         await RegisterNotificationsAsync(link, cancellationToken);
 
         await RefreshBatteryAsync(link, cancellationToken);
+        // 降噪始终查询（已验证功能）
         await RefreshNoiseAsync(link, cancellationToken);
-        // 先上报“已连接”，让主窗口尽快显示电量与降噪等已验证状态。
+        // dszsu: 按 capability 条件查询游戏/空间/音效
+        if (_vivoCapability.SupportsLowLatencyGaming)
+            await RefreshGameModeAsync(link, cancellationToken);
+        if (_vivoCapability.SupportsSpatialAudio)
+            await RefreshSpatialAudioAsync(link, cancellationToken);
+        if (_vivoCapability.SupportsAudioEffect)
+            await RefreshAudioEffectAsync(link, cancellationToken);
+
         _state.SetConnected(deviceName);
 
         _pollCancellation = new CancellationTokenSource();
         _pollTask = RunPollingAsync(link, _pollCancellation.Token);
 
         // 游戏模式/空间音效命令字尚未真机验证（见 VivoConstants 占位说明），且未知型号按白名单
-        // 乐观显示；若在此同步等待其初始查询，最坏情况下两个命令各超时约 4s，会使“已连接”状态
+        // 乐观显示；若在此同步等待其初始查询，最坏情况下两个命令各超时约 4s，会使"已连接"状态
         // 延迟近 8s 才上报。改为连接建立后在后台补偿查询：命中则回填开关状态并通知 UI，
-        // 超时则由运行期探测标记“不支持”并隐藏对应控件（轮询中也不再重复查询）。
+        // 超时则由运行期探测标记"不支持"并隐藏对应控件（轮询中也不再重复查询）。
         if (IsFeatureLive(VivoFeatureMatrix.LowLatencyGaming))
             _ = RefreshGameModeAsync(link, cancellationToken);
         if (IsFeatureLive(VivoFeatureMatrix.SpatialAudio))
-            _ = RefreshSpatialSoundAsync(link, cancellationToken);
-        // 双连列表：同样在后台补偿拉取，避免阻塞“已连接”上报；不支持的机型由运行期超时探测隐藏面板。
+            _ = RefreshSpatialAudioAsync(link, cancellationToken);
+        // 双连列表：同样在后台补偿拉取，避免阻塞"已连接"上报；不支持的机型由运行期超时探测隐藏面板。
         if (IsFeatureLive(VivoFeatureMatrix.DualConnection))
             _ = RefreshMultiDeviceCoreAsync(link, cancellationToken);
     }
 
-    // ---- 内部读取/轮询 ----
+    // ---- 内部读取/轻量轮询 ----
     private async Task RefreshBatteryAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
         try
@@ -307,6 +435,101 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
+    // 读取一次低延迟游戏模式；官方通知接入前不参与周期轮询。
+    private async Task RefreshGameModeAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        var seq = ++_gameSeq;
+        _gameHighest = Math.Max(_gameHighest, seq);
+        try
+        {
+            var response = await link.RequestAsync(
+                VivoConstants.QueryLowLatencyGaming,
+                VivoConstants.ReportLowLatencyGaming,
+                Array.Empty<byte>(),
+                cancellationToken);
+            if (seq < _gameHighest)
+            {
+                ApplicationLog.Current?.Debug("Vivo", $"游戏模式查询响应已过期（seq={seq} < 最新={_gameHighest}），跳过。");
+                return;
+            }
+
+            if (response is not null && response.Payload.Length >= 1)
+            {
+                var p = response.Payload.Span;
+                _gameModeEnabled = (p.Length >= 2 ? p[1] : p[0]) != 0;
+            }
+        }
+        catch (TimeoutException)
+        {
+            if (_runtimeUnsupported.Add(VivoFeatureMatrix.LowLatencyGaming))
+            {
+                ApplicationLog.Current?.Info("Vivo", "游戏模式查询超时，本会话停止轮询并隐藏控件。");
+                _state.NotifyChanged();
+            }
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"低延迟游戏模式查询失败：{exception.Message}");
+        }
+    }
+
+    // 读取空间音频当前模式及设备可选的场景索引。
+    private async Task RefreshSpatialAudioAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        var seq = ++_spatialSeq;
+        _spatialHighest = Math.Max(_spatialHighest, seq);
+        try
+        {
+            var response = await link.RequestAsync(
+                VivoConstants.QuerySpatialAudio,
+                VivoConstants.ReportSpatialAudio,
+                Array.Empty<byte>(),
+                cancellationToken);
+            if (seq < _spatialHighest)
+            {
+                ApplicationLog.Current?.Debug("Vivo", $"空间音效查询响应已过期（seq={seq} < 最新={_spatialHighest}），跳过。");
+                return;
+            }
+
+            if (response is not null && response.Payload.Length >= 1)
+            {
+                var p = response.Payload.Span;
+                _spatialSoundEnabled = (p.Length >= 2 ? p[1] : p[0]) != 0;
+            }
+        }
+        catch (TimeoutException)
+        {
+            if (_runtimeUnsupported.Add(VivoFeatureMatrix.SpatialAudio))
+            {
+                ApplicationLog.Current?.Info("Vivo", "空间音效查询超时，本会话停止轮询并隐藏控件。");
+                _state.NotifyChanged();
+            }
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"空间音频查询失败：{exception.Message}");
+        }
+    }
+
+    // 读取当前内置音效；自定义 DeepX 回包会保留为未选择状态而不伪装成预设。
+    private async Task RefreshAudioEffectAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await link.RequestAsync(
+                VivoConstants.QueryAudioEffect,
+                VivoConstants.ReportAudioEffect,
+                Array.Empty<byte>(),
+                cancellationToken);
+            if (response is not null)
+                ApplyAudioEffect(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"内置音效查询失败：{exception.Message}");
+        }
+    }
+
     private async Task<bool> SetNoiseModeCoreAsync(byte vivoMode, CancellationToken cancellationToken)
     {
         if (_link is null)
@@ -319,7 +542,7 @@ internal sealed class VivoManager : IBrandManager
         try
         {
             await _link.RequestAsync(VivoConstants.SetNoiseMode, VivoConstants.AckNoiseMode, payload, cancellationToken);
-            // 乐观更新：立即把 UI 切到目标模式，避免“设值后回读旧值→UI 闪回切换前状态”。
+            // 乐观更新：立即把 UI 切到目标模式，避免"设值后回读旧值→UI 闪回切换前状态"。
             // 设备约 1~2s 才真正落定，立即回读必然拿到切换前的值。抬高查询序号纪元，
             // 使轮询中可能已在途的旧查询响应在回程时被丢弃，不会用旧模式覆盖本次乐观值；
             // 同时开启沉降窗口，丢弃窗口内（设值后设备未落定）的回读，避免旧模式覆盖乐观值；
@@ -386,7 +609,7 @@ internal sealed class VivoManager : IBrandManager
         {
             await _link.RequestAsync(VivoConstants.SetSpatialSound, VivoConstants.ReportSpatialSound,
                 new byte[] { enabled ? (byte)1 : (byte)0 }, cancellationToken);
-            await RefreshSpatialSoundAsync(_link, cancellationToken);
+            await RefreshSpatialAudioAsync(_link, cancellationToken);
             return true;
         }
         catch (Exception exception)
@@ -396,82 +619,13 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    private async Task RefreshGameModeAsync(ConnectionLink link, CancellationToken cancellationToken)
-    {
-        var seq = ++_gameSeq;
-        _gameHighest = Math.Max(_gameHighest, seq);
-        try
-        {
-            var response = await link.RequestAsync(
-                VivoConstants.QueryGameMode, VivoConstants.ReportGameMode, Array.Empty<byte>(), cancellationToken);
-            if (seq < _gameHighest)
-            {
-                ApplicationLog.Current?.Debug("Vivo", $"游戏模式查询响应已过期（seq={seq} < 最新={_gameHighest}），跳过。");
-                return;
-            }
-
-            if (response is not null && response.Payload.Length >= 1)
-            {
-                var p = response.Payload.Span;
-                // 响应格式 00 <value>（如 00 01）；值字节在第 1 位（长度 1 时退回第 0 位）。
-                _gameModeEnabled = (p.Length >= 2 ? p[1] : p[0]) != 0;
-            }
-        }
-        catch (TimeoutException)
-        {
-            if (_runtimeUnsupported.Add(VivoFeatureMatrix.LowLatencyGaming))
-            {
-                ApplicationLog.Current?.Info("Vivo", "游戏模式查询超时，本会话停止轮询并隐藏控件。");
-                _state.NotifyChanged();
-            }
-        }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Debug("Vivo", $"游戏模式查询失败：{exception.Message}");
-        }
-    }
-
-    private async Task RefreshSpatialSoundAsync(ConnectionLink link, CancellationToken cancellationToken)
-    {
-        var seq = ++_spatialSeq;
-        _spatialHighest = Math.Max(_spatialHighest, seq);
-        try
-        {
-            var response = await link.RequestAsync(
-                VivoConstants.QuerySpatialSound, VivoConstants.ReportSpatialSound, Array.Empty<byte>(), cancellationToken);
-            if (seq < _spatialHighest)
-            {
-                ApplicationLog.Current?.Debug("Vivo", $"空间音效查询响应已过期（seq={seq} < 最新={_spatialHighest}），跳过。");
-                return;
-            }
-
-            if (response is not null && response.Payload.Length >= 1)
-            {
-                var p = response.Payload.Span;
-                // 响应格式 00 <value>（如 00 01）；值字节在第 1 位（长度 1 时退回第 0 位）。
-                _spatialSoundEnabled = (p.Length >= 2 ? p[1] : p[0]) != 0;
-            }
-        }
-        catch (TimeoutException)
-        {
-            if (_runtimeUnsupported.Add(VivoFeatureMatrix.SpatialAudio))
-            {
-                ApplicationLog.Current?.Info("Vivo", "空间音效查询超时，本会话停止轮询并隐藏控件。");
-                _state.NotifyChanged();
-            }
-        }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Debug("Vivo", $"空间音效查询失败：{exception.Message}");
-        }
-    }
-
     private async Task RunPollingAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
-        while (await timer.WaitForNextTickAsync(cancellationToken))
+        while (!cancellationToken.IsCancellationRequested)
         {
-            if (_link is null)
+            var interval = _interactivePolling ? TimeSpan.FromSeconds(20) : TimeSpan.FromMinutes(1);
+            await Task.Delay(interval, cancellationToken);
+            if (_link != link)
                 break;
 
             await RefreshBatteryAsync(link, cancellationToken);
@@ -479,13 +633,13 @@ internal sealed class VivoManager : IBrandManager
             if (IsFeatureLive(VivoFeatureMatrix.LowLatencyGaming))
                 await RefreshGameModeAsync(link, cancellationToken);
             if (IsFeatureLive(VivoFeatureMatrix.SpatialAudio))
-                await RefreshSpatialSoundAsync(link, cancellationToken);
+                await RefreshSpatialAudioAsync(link, cancellationToken);
             if (IsFeatureLive(VivoFeatureMatrix.DualConnection))
                 await RefreshMultiDeviceCoreAsync(link, cancellationToken);
         }
     }
 
-    // 综合“能力白名单(VivoFeatureMatrix.KnownSupported，已知型号仅显示其声明支持的功能) + 运行期超时探测”判断某功能当前是否应查询/展示。
+    // 综合"能力白名单(VivoFeatureMatrix.KnownSupported，已知型号仅显示其声明支持的功能) + 运行期超时探测"判断某功能当前应查询/展示。
     private bool IsFeatureLive(int featureId)
         => VivoFeatureMatrix.IsFeatureSupported(_deviceName, featureId)
            && !_runtimeUnsupported.Contains(featureId);
@@ -616,7 +770,7 @@ internal sealed class VivoManager : IBrandManager
                     break;
 
                 case MultiDeviceOperation.AutomaticPriority:
-                    // vivo 无“自动优先级”概念，忽略以免误发未知命令。
+                    // vivo 无"自动优先级"概念，忽略以免误发未知命令。
                     ApplicationLog.Current?.Info("Vivo", "vivo 无自动优先级概念，忽略该操作。");
                     return true;
 
@@ -824,7 +978,7 @@ internal sealed class VivoManager : IBrandManager
             }
         }
 
-        // 仅当 0x0300 握手成功（通道确认为活的 GAIA 通道）时才打印“已启用主动上报”，
+        // 仅当 0x0300 握手成功（通道确认为活的 GAIA 通道）时才打印"已启用主动上报"，
         // 避免死通道上半死不活却误报成功、误导排查。
         if (_handshakeOk)
             ApplicationLog.Current?.Info("Vivo", "已发送 vivo 注册通知握手，启用耳机主动上报。");
@@ -832,6 +986,275 @@ internal sealed class VivoManager : IBrandManager
             ApplicationLog.Current?.Info("Vivo", "vivo 注册通知握手未确认（0x0300 握手未成功），主动上报可能不生效。");
     }
 
+    // ---- dszsu: 统一通知处理器管理 ----
+    // 注册持久协议订阅，使设备主动状态帧无需等待轮询即可更新业务快照。
+    private void InstallNotificationHandlers(ConnectionLink link)
+    {
+        DisposeNotificationSubscriptions();
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportBattery,
+            frame => ApplyBattery(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.AckNoiseMode,
+            frame => ApplyNoise(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportNoiseMode,
+            frame => ApplyNoise(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.AckLowLatencyGaming,
+            frame => ApplyGameMode(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportLowLatencyGaming,
+            frame => ApplyGameMode(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.AckSpatialAudio,
+            frame => ApplySpatialAudio(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportSpatialAudio,
+            frame => ApplySpatialAudio(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.AckAudioEffect,
+            frame => ApplyAudioEffect(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportAudioEffect,
+            frame => ApplyAudioEffect(frame.Payload.Span)));
+    }
+
+    // 连接释放前解除所有常驻协议订阅，避免旧连接继续修改当前设备状态。
+    private void DisposeNotificationSubscriptions()
+    {
+        foreach (var subscription in _notificationSubscriptions)
+            subscription.Dispose();
+        _notificationSubscriptions.Clear();
+    }
+
+    // ---- GAIA 解析 ----
+    private void ApplyBattery(ReadOnlySpan<byte> payload)
+    {
+        // payload: [0]=0, [1]=left%, [2]=right%, [3]=case%, [4]=charging bits
+        if (payload.Length < 5 || payload[0] != 0)
+            return;
+
+        var charging = payload[4];
+        var left = payload[1] <= 100 ? (byte?)payload[1] : null;
+        var right = payload[2] <= 100 ? (byte?)payload[2] : null;
+        var caseP = payload[3] <= 100 ? (byte?)payload[3] : null;
+
+        ApplicationLog.Current?.Debug("Vivo",
+            $"电量更新：左={left?.ToString() ?? "-"}%，右={right?.ToString() ?? "-"}%，仓={caseP?.ToString() ?? "-"}%，充电位=0x{charging:X2}。");
+
+        _state.SetBattery(
+            left.HasValue ? new BatteryLevel(left.Value, (charging & 1) != 0) : null,
+            right.HasValue ? new BatteryLevel(right.Value, (charging & 2) != 0) : null,
+            caseP.HasValue ? new BatteryLevel(caseP.Value, (charging & 4) != 0) : null);
+        ApplicationLog.Current?.Debug(
+            "Vivo",
+            $"电量状态已更新：left={left?.ToString() ?? "-"}，right={right?.ToString() ?? "-"}，case={caseP?.ToString() ?? "-"}，charging=0x{charging:X2}。");
+    }
+
+    private void ApplyNoise(ReadOnlySpan<byte> payload)
+    {
+        // vivo 0x0230 响应固定 3 字节：[status=0][mode][constant=0x04]（已用 TWS 3e 真机验证）。
+        // mode 字节取值与 VivoConstants 对齐：0=降噪(ANC)，1=关闭(Off)，2=通透(Transparency)。
+        // 为兼容其它型号，若首字节非空则退化为"首字节即 mode"。
+        if (payload.Length < 1)
+            return;
+
+        var modeByte = payload.Length >= 2 && payload[0] == 0 ? payload[1] : payload[0];
+        var mode = MapFromVivoMode(modeByte);
+        if (mode == NoiseMode.Unknown)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"降噪模式字节无法识别：0x{modeByte:X2}，忽略。");
+            return;
+        }
+
+        ApplicationLog.Current?.Debug("Vivo", $"降噪模式更新：{mode}（字节 0x{modeByte:X2}，原始 {FormatBytes(payload)}）。");
+        _state.SetNoise(new NoiseSnapshot(mode, null));
+        ApplicationLog.Current?.Debug("Vivo", $"降噪状态已更新：protocol={payload[1]}，mode={mode}。");
+    }
+
+    // 官方回包第二个字节为低延迟游戏模式开关。
+    private bool ApplyGameMode(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2 || payload[1] > 1)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略无效低延迟游戏模式回包：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        _state.SetGame(new GameSnapshot(payload[1] == 1, null));
+        ApplicationLog.Current?.Debug("Vivo", $"低延迟游戏模式已更新：enabled={payload[1] == 1}。");
+        return true;
+    }
+
+    // 官方回包第二个字节为模式，第三个字节存在时为场景索引。
+    private bool ApplySpatialAudio(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略无效空间音频回包：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        var mode = payload[1] switch
+        {
+            0 => SpatialAudioMode.Off,
+            1 => SpatialAudioMode.Fixed,
+            2 => SpatialAudioMode.HeadTracking,
+            _ => SpatialAudioMode.Unknown
+        };
+        if (mode == SpatialAudioMode.Unknown)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略未知空间音频模式：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        _spatialScene = payload.Length >= 3 ? payload[2] : null;
+        _state.SetSpatialAudio(new SpatialAudioSnapshot(mode));
+        ApplicationLog.Current?.Debug(
+            "Vivo",
+            $"空间音频状态已更新：mode={mode}，scene={_spatialScene?.ToString() ?? "-"}。");
+        return true;
+    }
+
+    // 官方回包第二个字节为音效 ID；游戏场景和 DeepX 载荷需要按官方服务规则单独处理。
+    private bool ApplyAudioEffect(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 2)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略无效内置音效回包：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        var reportedPresetId = payload[1];
+        if (reportedPresetId == VivoAudioEffectCatalog.DeepXCustomEffect && payload.Length >= 20)
+        {
+            var customNameLength = payload[18];
+            if (customNameLength <= payload.Length - 19)
+            {
+                var customName = Encoding.UTF8.GetString(payload.Slice(19, customNameLength));
+                _audioEffectVerified = true;
+                _state.SetEqualizer(new EqualizerSnapshot(reportedPresetId, null));
+                ApplicationLog.Current?.Info(
+                    "Vivo",
+                    $"设备返回 DeepX 自定义音效：name={customName}。当前桌面端仅保留其状态，不将其伪装为内置预设。");
+                return true;
+            }
+
+            ApplicationLog.Current?.Debug("Vivo", $"忽略名称长度无效的 DeepX 音效回包：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        if (!VivoAudioEffectCatalog.TryNormalizeReportedPreset(reportedPresetId, out var presetId))
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略未知内置音效回包：{Convert.ToHexString(payload)}。");
+            return false;
+        }
+
+        var presetKey = VivoAudioEffectCatalog.GetPresetKey(presetId);
+        var knownPreset = _vivoCapability.AudioEffectPresetKeys.Contains(presetKey);
+        if (knownPreset)
+            _audioEffectVerified = true;
+        _state.SetEqualizer(new EqualizerSnapshot(presetId, knownPreset ? presetKey : null));
+        ApplicationLog.Current?.Debug(
+            "Vivo",
+            knownPreset
+                ? $"内置音效状态已更新：reportedId={reportedPresetId}，id={presetId}，preset={presetKey}。"
+                : $"设备返回当前型号不支持的音效：reportedId={reportedPresetId}，id={presetId}，不在内置列表显示。");
+        return true;
+    }
+
+    private static string FormatBytes(ReadOnlySpan<byte> bytes)
+        => bytes.Length == 0 ? "(空)" : BitConverter.ToString(bytes.ToArray());
+
+    private static byte? MapToVivoMode(NoiseMode mode) => mode switch
+    {
+        NoiseMode.Off => VivoConstants.NoiseOff,
+        NoiseMode.NoiseCancellation => VivoConstants.NoiseAnc,
+        NoiseMode.Transparency => VivoConstants.NoiseTransparency,
+        _ => null
+    };
+
+    private static NoiseMode MapFromVivoMode(byte vivoMode) => vivoMode switch
+    {
+        VivoConstants.NoiseOff => NoiseMode.Off,
+        VivoConstants.NoiseAnc => NoiseMode.NoiseCancellation,
+        VivoConstants.NoiseTransparency => NoiseMode.Transparency,
+        _ => NoiseMode.Unknown
+    };
+
+    private void OnStateChanged(object? sender, BusinessSnapshot snapshot)
+        => StateChanged?.Invoke(this, snapshot);
+
+    private BrandPresentation BuildPresentation()
+    {
+        // 降噪三档：key 必须与 DeviceProfileLoader.AncLabel 的识别集一致
+        // （"Off"/"NC"/"Transparency"），否则会被兜底成"降噪"，导致三个按钮同名。
+        IReadOnlyList<NoiseOptionModel> noiseOptions =
+        [
+            new("Off", NoiseMode.Off, VivoConstants.NoiseOff, []),
+            new("NC", NoiseMode.NoiseCancellation, VivoConstants.NoiseAnc, []),
+            new("Transparency", NoiseMode.Transparency, VivoConstants.NoiseTransparency, []),
+        ];
+
+        // 可见控件由 vivo 能力白名单（EarbudFeatures.FeatureID）按型号决定，而非硬编码；
+        // 开发期未知型号乐观显示，便于真机测试命令实现。
+        var visibleControls = new HashSet<string>(VivoFeatureMatrix.ResolveVisibleControls(_deviceName), StringComparer.Ordinal);
+
+        // 当前开关状态（设备轮询/回读得到）；查找耳机为瞬时动作，无持久状态。
+        var controlStates = new Dictionary<string, bool>(StringComparer.Ordinal);
+        if (_gameModeEnabled is { } gameOn)
+            controlStates["game-mode"] = gameOn;
+        if (_spatialSoundEnabled is { } spatialOn)
+            controlStates["spatial-sound"] = spatialOn;
+
+        // 测试期默认可操作；确认不支持的型号由白名单隐藏控件后此字典自然不含该键。
+        var controlEnabledStates = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var key in visibleControls)
+            controlEnabledStates[key] = true;
+
+        // dszsu: 按 capability 补充可见控件和状态
+        if (_vivoCapability.SupportsLowLatencyGaming)
+        {
+            visibleControls.Add("game-mode");
+            controlEnabledStates["game-mode"] = true;
+            var gameEnabled = _state.Snapshot().Game.IsEnabled;
+            if (gameEnabled.HasValue)
+                controlStates["game-mode"] = gameEnabled.Value;
+        }
+        if (_vivoCapability.SupportsAudioEffect && _audioEffectVerified)
+        {
+            visibleControls.Add("equalizer");
+            controlEnabledStates["equalizer"] = true;
+        }
+
+        var currentNoiseKey = _state.Snapshot().Noise.Mode switch
+        {
+            NoiseMode.Off => "Off",
+            NoiseMode.NoiseCancellation => "NC",
+            NoiseMode.Transparency => "Transparency",
+            _ => "Off"
+        };
+
+        return new BrandPresentation(
+            _vivoCapability.IsKnownModel ? _vivoCapability.ModelName : _deviceName ?? "vivo / iQOO TWS",
+            _vivoCapability.IsKnownModel,
+            _vivoCapability.SupportsSpatialAudio,
+            false,                                   // SupportsCustomEqualizer
+            _vivoCapability.SupportsNoiseCancellation, // SupportsNoiseCancellation
+            IsFeatureLive(VivoFeatureMatrix.DualConnection), // CanManageMultiDevice
+            [],                                      // CustomEqFrequencies
+            BrandPresentation.DefaultCustomEqMinimumGain,
+            BrandPresentation.DefaultCustomEqMaximumGain,
+            _audioEffectVerified ? _vivoCapability.AudioEffectPresetKeys : [],
+            visibleControls,
+            controlStates,
+            controlEnabledStates,
+            noiseOptions,
+            currentNoiseKey);
+    }
+
+    // ---- 地址格式化/解析工具 ----
     private static string FormatAddress(ReadOnlySpan<byte> wireAddress)
     {
         var parts = new string[6];
@@ -858,119 +1281,19 @@ internal sealed class VivoManager : IBrandManager
         return true;
     }
 
-    // ---- GAIA 解析 ----
-    private void ApplyBattery(ReadOnlySpan<byte> payload)
+    // 优先使用用户明确指定的官方型号，否则按当前蓝牙名称解析白名单条目。
+    private void ResolveCapability()
     {
-        // payload: [0]=0, [1]=left%, [2]=right%, [3]=case%, [4]=charging bits
-        if (payload.Length < 5 || payload[0] != 0)
-            return;
+        var identificationName = _manualModel ?? _deviceName;
+        var match = _modelCatalog.Match(identificationName);
+        _vivoCapability = new VivoDeviceCapability(match?.Model);
 
-        var charging = payload[4];
-        var left = payload[1] <= 100 ? (byte?)payload[1] : null;
-        var right = payload[2] <= 100 ? (byte?)payload[2] : null;
-        var caseP = payload[3] <= 100 ? (byte?)payload[3] : null;
-
-        ApplicationLog.Current?.Debug("Vivo",
-            $"电量更新：左={left?.ToString() ?? "-"}%，右={right?.ToString() ?? "-"}%，仓={caseP?.ToString() ?? "-"}%，充电位=0x{charging:X2}。");
-
-        _state.SetBattery(
-            left.HasValue ? new BatteryLevel(left.Value, (charging & 1) != 0) : null,
-            right.HasValue ? new BatteryLevel(right.Value, (charging & 2) != 0) : null,
-            caseP.HasValue ? new BatteryLevel(caseP.Value, (charging & 4) != 0) : null);
-    }
-
-    private void ApplyNoise(ReadOnlySpan<byte> payload)
-    {
-        // vivo 0x0230 响应固定 3 字节：[status=0][mode][constant=0x04]（已用 TWS 3e 真机验证）。
-        // mode 字节取值与 VivoConstants 对齐：0=降噪(ANC)，1=关闭(Off)，2=通透(Transparency)。
-        // 为兼容其它型号，若首字节非空则退化为“首字节即 mode”。
-        if (payload.Length < 1)
-            return;
-
-        var modeByte = payload.Length >= 2 && payload[0] == 0 ? payload[1] : payload[0];
-        var mode = MapFromVivoMode(modeByte);
-        if (mode == NoiseMode.Unknown)
+        if (match is null)
         {
-            ApplicationLog.Current?.Debug("Vivo", $"降噪模式字节无法识别：0x{modeByte:X2}，忽略。");
+            ApplicationLog.Current?.Debug("Vivo", $"型号未命中官方目录：device={identificationName ?? ""}。");
             return;
         }
 
-        ApplicationLog.Current?.Debug("Vivo", $"降噪模式更新：{mode}（字节 0x{modeByte:X2}，原始 {FormatBytes(payload)}）。");
-        _state.SetNoise(new NoiseSnapshot(mode, null));
-    }
-
-    private static string FormatBytes(ReadOnlySpan<byte> bytes)
-        => bytes.Length == 0 ? "(空)" : BitConverter.ToString(bytes.ToArray());
-
-    private static byte? MapToVivoMode(NoiseMode mode) => mode switch
-    {
-        NoiseMode.Off => VivoConstants.NoiseOff,
-        NoiseMode.NoiseCancellation => VivoConstants.NoiseAnc,
-        NoiseMode.Transparency => VivoConstants.NoiseTransparency,
-        _ => null
-    };
-
-    private static NoiseMode MapFromVivoMode(byte value) => value switch
-    {
-        VivoConstants.NoiseAnc => NoiseMode.NoiseCancellation,
-        VivoConstants.NoiseOff => NoiseMode.Off,
-        VivoConstants.NoiseTransparency => NoiseMode.Transparency,
-        _ => NoiseMode.Unknown
-    };
-
-    private void OnStateChanged(object? sender, BusinessSnapshot snapshot)
-        => StateChanged?.Invoke(this, snapshot);
-
-    private BrandPresentation BuildPresentation()
-    {
-        // 降噪三档：key 必须与 DeviceProfileLoader.AncLabel 的识别集一致
-        // （"Off"/"NC"/"Transparency"），否则会被兜底成“降噪”，导致三个按钮同名。
-        IReadOnlyList<NoiseOptionModel> noiseOptions =
-        [
-            new("Off", NoiseMode.Off, VivoConstants.NoiseOff, []),
-            new("NC", NoiseMode.NoiseCancellation, VivoConstants.NoiseAnc, []),
-            new("Transparency", NoiseMode.Transparency, VivoConstants.NoiseTransparency, []),
-        ];
-
-        // 可见控件由 vivo 能力白名单（EarbudFeatures.FeatureID）按型号决定，而非硬编码；
-        // 开发期未知型号乐观显示，便于真机测试命令实现。
-        var visibleControls = VivoFeatureMatrix.ResolveVisibleControls(_deviceName);
-
-        // 当前开关状态（设备轮询/回读得到）；查找耳机为瞬时动作，无持久状态。
-        var controlStates = new Dictionary<string, bool>(StringComparer.Ordinal);
-        if (_gameModeEnabled is { } gameOn)
-            controlStates["game-mode"] = gameOn;
-        if (_spatialSoundEnabled is { } spatialOn)
-            controlStates["spatial-sound"] = spatialOn;
-
-        // 测试期默认可操作；确认不支持的型号由白名单隐藏控件后此字典自然不含该键。
-        var controlEnabledStates = new Dictionary<string, bool>(StringComparer.Ordinal);
-        foreach (var key in visibleControls)
-            controlEnabledStates[key] = true;
-
-        var currentNoiseKey = _state.Snapshot().Noise.Mode switch
-        {
-            NoiseMode.Off => "Off",
-            NoiseMode.NoiseCancellation => "NC",
-            NoiseMode.Transparency => "Transparency",
-            _ => "Off"
-        };
-
-        return new BrandPresentation(
-            _deviceName ?? "vivo / iQOO TWS",
-            false,
-            false,
-            false,
-            true,
-            IsFeatureLive(VivoFeatureMatrix.DualConnection),
-            [],
-            BrandPresentation.DefaultCustomEqMinimumGain,
-            BrandPresentation.DefaultCustomEqMaximumGain,
-            [],
-            visibleControls,
-            controlStates,
-            controlEnabledStates,
-            noiseOptions,
-            currentNoiseKey);
+        ApplicationLog.Current?.Debug("Vivo", $"型号命中官方目录：device={identificationName ?? ""}，model={match.Model}。");
     }
 }

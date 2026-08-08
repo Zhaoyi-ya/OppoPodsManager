@@ -323,5 +323,12 @@
   "Common_AppDeviceName": "OPPO Pods",
   "Eq_CustomNewName": "Пользовательский EQ {0}",
   "Eq_CustomDefaultName": "Пользовательский EQ",
-  "MultiDevice_Unnamed": "Устройство {0}"
+  "MultiDevice_Unnamed": "Устройство {0}",
+  "Vivo_AudioEffect_0": "Стандартный",
+  "Vivo_AudioEffect_1": "Четкий голос",
+  "Vivo_AudioEffect_2": "Мощный бас",
+  "Vivo_AudioEffect_3": "Чистые высокие частоты",
+  "Vivo_AudioEffect_4": "Объемный звук",
+  "Vivo_AudioEffect_5": "Объемные аудиокниги",
+  "Vivo_AudioEffect_11": "Мастер-звук"
 }

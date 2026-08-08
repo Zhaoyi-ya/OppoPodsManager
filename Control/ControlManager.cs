@@ -16,6 +16,8 @@ public sealed class ControlManager : IAsyncDisposable
     private readonly SettingsStore? _settings;
     private readonly SemaphoreSlim _connectionGate = new(1, 1);
     private readonly SemaphoreSlim _discoveryGate = new(1, 1);
+    private readonly SemaphoreSlim _reconnectWake = new(0, 1);
+    private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly object _availableDevicesLock = new();
     private IReadOnlyDictionary<string, DeviceConnectionPlan> _availableDevices = new Dictionary<string, DeviceConnectionPlan>();
     private readonly HashSet<string> _confirmedDeviceIds = new(StringComparer.Ordinal);
@@ -24,8 +26,10 @@ public sealed class ControlManager : IAsyncDisposable
     private string? _activeDeviceId;
     private string? _manualDisconnectDeviceId;
     private int _autoConnectInProgress;
+    private int _disposed;
     private long _lastDiscoveryGeneration;
     private CancellationTokenSource? _selectionCancellation;
+    private Task? _reconnectTask;
 
     public ControlManager(
         FrontendState frontendState,
@@ -49,6 +53,8 @@ public sealed class ControlManager : IAsyncDisposable
     public void StartMonitoring()
     {
         _deviceScanner?.StartMonitoring();
+        _reconnectTask ??= RunReconnectLoopAsync();
+        SignalReconnect("控制层启动");
     }
     public event EventHandler<DeviceOptionsChangedEventArgs>? AvailableDevicesChanged;
 
@@ -56,7 +62,8 @@ public sealed class ControlManager : IAsyncDisposable
     {
         try
         {
-            await ApplyPlansAsync(args.Plans, autoConnect: true, cancellationToken: CancellationToken.None, generation: args.Generation);
+            await ApplyPlansAsync(args.Plans, CancellationToken.None, args.Generation);
+            SignalReconnect("蓝牙设备列表变化");
         }
         catch (Exception exception)
         {
@@ -66,7 +73,6 @@ public sealed class ControlManager : IAsyncDisposable
 
     private async Task ApplyPlansAsync(
         IReadOnlyList<DeviceConnectionPlan> plans,
-        bool autoConnect,
         CancellationToken cancellationToken,
         long generation = 0)
     {
@@ -81,7 +87,7 @@ public sealed class ControlManager : IAsyncDisposable
         await _discoveryGate.WaitAsync(cancellationToken);
         try
         {
-            await ApplyPlansCoreAsync(plans, autoConnect, cancellationToken);
+            await ApplyPlansCoreAsync(plans, cancellationToken);
         }
         finally
         {
@@ -91,7 +97,6 @@ public sealed class ControlManager : IAsyncDisposable
 
     private async Task ApplyPlansCoreAsync(
         IReadOnlyList<DeviceConnectionPlan> plans,
-        bool autoConnect,
         CancellationToken cancellationToken)
     {
         plans = ResolveSupportedPlans(plans);
@@ -132,15 +137,50 @@ public sealed class ControlManager : IAsyncDisposable
             return;
         }
 
-        if (autoConnect && _activeManager is null && _manualDisconnectDeviceId is null)
+    }
+
+    // 合并启动、设备变更与手动请求产生的重连信号，避免同一轮变化重复建立连接。
+    private void SignalReconnect(string reason)
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+            return;
+
+        try
         {
-            DeviceConnectionPlan? autoPlan;
-            lock (_availableDevicesLock)
-                autoPlan = _availableDevices.Values.FirstOrDefault(plan =>
-                    _confirmedDeviceIds.Contains(plan.Candidate.StableId)
-                    && _managerFactories.ContainsKey(plan.Brand));
-            if (autoPlan is not null)
-                await ConnectAsync(autoPlan.Candidate.StableId, cancellationToken);
+            if (_reconnectWake.CurrentCount == 0)
+            {
+                _reconnectWake.Release();
+                ApplicationLog.Current?.Debug("Control", $"已投递自动连接信号：reason={reason}。");
+            }
+        }
+        catch (SemaphoreFullException)
+        {
+        }
+    }
+
+    // Windows 与原项目一致：连接失败后不按固定间隔盲重试，只等待下一次设备状态变化或用户请求。
+    private async Task RunReconnectLoopAsync()
+    {
+        try
+        {
+            while (!Volatile.Read(ref _disposed).Equals(1))
+            {
+                await _reconnectWake.WaitAsync(_lifetimeCancellation.Token);
+                while (_reconnectWake.CurrentCount > 0)
+                    await _reconnectWake.WaitAsync(_lifetimeCancellation.Token);
+
+                if (ActiveManager is not null || _manualDisconnectDeviceId is not null)
+                    continue;
+
+                await ConnectFirstAvailableAsync(_lifetimeCancellation.Token);
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Control", "自动连接循环异常终止。", exception);
         }
     }
 
@@ -300,7 +340,7 @@ public sealed class ControlManager : IAsyncDisposable
         {
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
             var plans = await scanner.ScanAsync(cancellationToken);
-            await ApplyPlansAsync(plans, autoConnect: true, cancellationToken);
+            await ApplyPlansAsync(plans, cancellationToken);
             return GetAvailableDeviceOptions();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -623,6 +663,17 @@ public sealed class ControlManager : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+
+        _lifetimeCancellation.Cancel();
+        try { _reconnectWake.Release(); } catch (SemaphoreFullException) { }
+        if (_reconnectTask is not null)
+        {
+            try { await _reconnectTask; }
+            catch (OperationCanceledException) { }
+        }
+
         try { _selectionCancellation?.Cancel(); } catch { }
         _selectionCancellation?.Dispose();
         _selectionCancellation = null;
@@ -644,6 +695,8 @@ public sealed class ControlManager : IAsyncDisposable
 
         _frontendState.Clear();
         _frontendState.InteractivePollingChanged -= OnInteractivePollingChanged;
+        _lifetimeCancellation.Dispose();
+        _reconnectWake.Dispose();
         _connectionGate.Dispose();
         _discoveryGate.Dispose();
     }

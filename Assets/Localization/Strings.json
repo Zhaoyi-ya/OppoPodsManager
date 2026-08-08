@@ -323,5 +323,12 @@
   "Common_AppDeviceName": "OPPO Pods",
   "Eq_CustomNewName": "自定义 EQ {0}",
   "Eq_CustomDefaultName": "自定义 EQ",
-  "MultiDevice_Unnamed": "设备 {0}"
+  "MultiDevice_Unnamed": "设备 {0}",
+  "Vivo_AudioEffect_0": "标准",
+  "Vivo_AudioEffect_1": "清晰人声",
+  "Vivo_AudioEffect_2": "澎湃低音",
+  "Vivo_AudioEffect_3": "清脆高音",
+  "Vivo_AudioEffect_4": "沉浸环绕",
+  "Vivo_AudioEffect_5": "沉浸有声书",
+  "Vivo_AudioEffect_11": "至臻大师"
 }
