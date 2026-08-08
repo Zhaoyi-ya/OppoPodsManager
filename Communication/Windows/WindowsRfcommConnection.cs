@@ -32,6 +32,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
 
     private readonly DeviceCandidate _candidate;
     private readonly Guid _serviceId;
+    private readonly bool _allowBareChannels;
     private readonly object _socketGate = new();
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private IntPtr _socket;
@@ -40,10 +41,11 @@ public sealed class WindowsRfcommConnection : IRawConnection
     private int _connected;
     private int _disposed;
 
-    public WindowsRfcommConnection(DeviceCandidate candidate, Guid serviceId)
+    public WindowsRfcommConnection(DeviceCandidate candidate, Guid serviceId, bool allowBareChannels = true)
     {
         _candidate = candidate;
         _serviceId = serviceId;
+        _allowBareChannels = allowBareChannels;
     }
 
     public bool IsConnected => Volatile.Read(ref _connected) != 0;
@@ -153,7 +155,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
         }
     }
 
-    // 连接策略严格限定为：品牌服务 UUID 自动解析通道、裸通道 1、裸通道 15。
+    // 连接策略严格限定为：SDP 解析的真实通道、品牌服务 UUID 自动解析通道(端口0)、裸通道 1、裸通道 15。
     // 品牌服务 UUID 的尝试顺序由 ControlManager 按蓝牙名称及验证结果决定。
     private IntPtr ConnectCore(ulong address, CancellationToken cancellationToken)
     {
@@ -162,15 +164,29 @@ public sealed class WindowsRfcommConnection : IRawConnection
         // 诊断：把 Windows 为该地址缓存的经典 SDP 服务列出来，确认设备到底有没有暴露 RFCOMM/SPP。
         DumpCachedBluetoothServices(address);
 
-        var attempts = new (string Label, Guid ServiceId, uint Port, int TimeoutMicros)[]
+        // 先用 SDP 查询品牌 GAIA 服务在远端设备上的真实 RFCOMM 通道。Windows 蓝牙缓存缺失
+        // （设备未配对 / SDP 未缓存）时，端口0(按服务UUID解析)会失败，仅猜测裸通道 1/15 极易落到
+        // 非 GAIA 的 RFCOMM 服务上——能建链但不回任何 GAIA 帧，表现即“全命令超时”。解析到的真实
+        // 通道优先于硬编码猜测，可根治该问题；查询失败/超时则退回既有兜底，不影响现有可用路径。
+        var resolvedChannel = QueryRfcommChannel(address, _serviceId);
+
+        var attempts = new List<(string Label, Guid ServiceId, uint Port, int TimeoutMicros)>();
+        if (resolvedChannel.HasValue)
         {
-            ("Service-UUID", _serviceId, 0u, 500_000),
-            ("Channel-1", Guid.Empty, 1u, 500_000),
-            ("Channel-15", Guid.Empty, 15u, 500_000)
-        };
+            attempts.Add(("Service-UUID(resolved)", Guid.Empty, resolvedChannel.Value, 500_000));
+            ApplicationLog.Current?.Info("Bluetooth",
+                $"RFCOMM SDP 解析：address={address:X12}，serviceId={_serviceId}，解析到通道={resolvedChannel.Value}。");
+        }
+        attempts.Add(("Service-UUID", _serviceId, 0u, 500_000));
+        if (_allowBareChannels)
+        {
+            // 裸通道 1/15 仅作兜底：能建链但不回 GAIA 帧时即是死通道，由上层握手判定后禁用并重试。
+            attempts.Add(("Channel-1", Guid.Empty, 1u, 500_000));
+            attempts.Add(("Channel-15", Guid.Empty, 15u, 500_000));
+        }
 
         ApplicationLog.Current?.Debug("Bluetooth",
-            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，端口=0/1/15。");
+            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，端口={(resolvedChannel.HasValue ? resolvedChannel.Value + "/" : "")}0{(_allowBareChannels ? "/1/15" : "")}。");
 
         var lastWsa = 0;
         foreach (var (label, serviceId, port, timeout) in attempts)
@@ -189,9 +205,11 @@ public sealed class WindowsRfcommConnection : IRawConnection
                 $"RFCOMM 连接尝试失败：[{label}] serviceId={(serviceId == Guid.Empty ? "空" : serviceId.ToString())} port={port} WSA={wsaError}。");
         }
 
-        throw new InvalidOperationException(
-            $"RFCOMM 服务不可用（地址 {address:X12}，目标服务 {_serviceId}）。已尝试服务 UUID 的端口 0 及裸通道 1/15，" +
-            $"最后一次失败 WSA 错误={lastWsa}。请确认耳机已与 Windows 配对并处于连接状态，且蓝牙串口未被其它程序占用。");
+        var bareSuffix = _allowBareChannels ? "及裸通道 1/15" : "（已禁用裸通道兜底，仅尝试端口 0）";
+        throw new BluetoothConnectException(
+            $"RFCOMM 服务不可用（地址 {address:X12}，目标服务 {_serviceId}）。已尝试服务 UUID 的端口 0{bareSuffix}，" +
+            $"最后一次失败 WSA 错误={lastWsa}（{BluetoothConnectException.DescribeWsa(lastWsa)}）。请确认耳机已与 Windows 配对并处于连接状态，且蓝牙串口未被其它程序占用。",
+            wsaError: lastWsa);
     }
 
     // 诊断辅助：读取 Windows 为该蓝牙地址缓存的经典 SDP 服务（配对设备会被写入

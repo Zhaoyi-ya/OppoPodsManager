@@ -512,30 +512,71 @@ public sealed class ControlManager : IAsyncDisposable
                     Brand = factory.Brand,
                     Options = plan.Options with { ServiceId = factory.ServiceId }
                 };
-                IBrandManager? manager = null;
-                IRawConnection? connection = null;
-                try
+
+                // 握手阶段若品牌层判定通道不可用（典型为落到不回 GAIA 帧的裸通道），先强制只用服务 UUID
+                // 端口 0 重试一次，给“port 0 当时未就绪”的启动竞态一个自愈机会；仍失败则按原路径报错，
+                // 由用户手动重连（手动重连时设备多半已就绪，port 0 可连）。
+                var allowBare = true;
+                for (var attempt = 0; attempt < 2; attempt++)
                 {
-                    ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {factory.Brand} 会话：service={factory.ServiceId}。");
-                    connection = await scanner.OpenAsync(candidatePlan, cancellationToken);
-                    manager = await factory.CreateAsync(candidatePlan, connection, cancellationToken);
-                    await SelectManagerAsync(manager);
-                    manager = null;
-                    _activeDeviceId = plan.Candidate.StableId;
-                    MarkConfirmed(candidatePlan);
-                    return true;
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    ApplicationLog.Current?.Debug("Control", $"连接尝试失败：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
-                    if (manager is not null)
-                        await manager.DisposeAsync();
-                    else if (connection is not null)
-                        await connection.DisposeAsync();
+                    var attemptPlan = candidatePlan with
+                    {
+                        Options = candidatePlan.Options with { AllowBareChannels = allowBare }
+                    };
+                    IBrandManager? manager = null;
+                    IRawConnection? connection = null;
+                    try
+                    {
+                        ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {factory.Brand} 会话：service={factory.ServiceId}，allowBare={allowBare}。");
+                        connection = await scanner.OpenAsync(attemptPlan, cancellationToken);
+                        manager = await factory.CreateAsync(attemptPlan, connection, cancellationToken);
+                        await SelectManagerAsync(manager);
+                        manager = null;
+                        _activeDeviceId = plan.Candidate.StableId;
+                        MarkConfirmed(candidatePlan);
+                        return true;
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (ChannelUnusableException ex) when (allowBare)
+                    {
+                        // 死通道：放弃裸通道兜底，仅用端口 0 重试。
+                        ApplicationLog.Current?.Info("Control",
+                            $"通道不可用，强制端口 0 重试：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={ex.Message}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                        allowBare = false;
+                        await Task.Delay(TimeSpan.FromSeconds(1.2), cancellationToken);
+                        continue;
+                    }
+                    catch (BluetoothConnectException ex)
+                    {
+                        // 设备暂不可达（典型为 WSA 10064 主机不可达）：属环境/瞬态问题，不是程序错误。
+                        // 记录清晰提示，依赖设备重新连接后的自动重连（DeviceWatcher 重新上报时会再次自动连接）。
+                        var hint = ex.WsaError is 10060 or 10061 or 10064 or 10065
+                            ? $"耳机暂不可达（WSA {ex.WsaError} {BluetoothConnectException.DescribeWsa(ex.WsaError ?? 0)}），可能未真正连上 Windows 或在范围外；设备重新连接后将自动重试。"
+                            : $"RFCOMM 连接失败（WSA {ex.WsaError}）。";
+                        ApplicationLog.Current?.Info("Control",
+                            $"{hint} device={plan.Candidate.DisplayName}，brand={factory.Brand}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                        break;
+                    }
+                    catch (Exception exception)
+                    {
+                        ApplicationLog.Current?.Debug("Control", $"连接尝试失败：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                        break;
+                    }
                 }
             }
 

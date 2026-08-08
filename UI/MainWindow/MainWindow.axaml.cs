@@ -324,10 +324,10 @@ public partial class MainWindow : SukiWindow
         BuildEarphoneCustomUi();
 
         const string iconCharge = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
-        var chargeGeo = StreamGeometry.Parse(iconCharge);
-        LeftChargeBolt.Data = chargeGeo;
-        RightChargeBolt.Data = chargeGeo;
-        CaseChargeBolt.Data = chargeGeo;
+        // 每个 bolt 使用独立 Geometry 实例，避免共享同一 StreamGeometry 在 Avalonia 下偶发不渲染。
+        LeftChargeBolt.Data = StreamGeometry.Parse(iconCharge);
+        RightChargeBolt.Data = StreamGeometry.Parse(iconCharge);
+        CaseChargeBolt.Data = StreamGeometry.Parse(iconCharge);
         _initializingSettings = true;
         try
         {
@@ -792,7 +792,7 @@ public partial class MainWindow : SukiWindow
             return;
         }
 
-        label.Text = $"{value.Percent}%";
+        label.Text = value.IsCharging ? $"{value.Percent}% ⚡" : $"{value.Percent}%";
         bolt.IsVisible = value.IsCharging;
         progress.Value = value.Percent;
         progress.Foreground = value.Percent <= 20

@@ -26,11 +26,25 @@ public sealed class BusinessState
                 Equalizer,
                 Game,
                 SpatialAudio,
+                SoundScene,
                 FeatureStates,
                 MultiDevice,
                 EqualizerEntries,
                 LastUpdatedUtc);
         }
+    }
+
+    // 主动触发一次状态变更通知（用于能力运行期变化，如某项功能超时后需隐藏控件并重绘 UI）。
+    public void NotifyChanged()
+    {
+        BusinessSnapshot snapshot;
+        lock (_gate)
+        {
+            _revision++;
+            snapshot = CreateSnapshot();
+        }
+
+        Changed?.Invoke(this, snapshot);
     }
 
     public void Reset(string? deviceName = null)
@@ -49,6 +63,7 @@ public sealed class BusinessState
             Equalizer = EqualizerSnapshot.Empty;
             Game = GameSnapshot.Empty;
             SpatialAudio = SpatialAudioSnapshot.Empty;
+            SoundScene = SoundEffectSceneSnapshot.Empty;
             FeatureStates = FeatureStateSnapshot.Empty;
             MultiDevice = MultiDeviceSnapshot.Empty;
             EqualizerEntries = [];
@@ -194,6 +209,20 @@ public sealed class BusinessState
         Changed?.Invoke(this, snapshot);
     }
 
+    public void SetSoundEffectScene(SoundEffectSceneSnapshot soundEffectScene)
+    {
+        BusinessSnapshot snapshot;
+        lock (_gate)
+        {
+            SoundScene = soundEffectScene;
+            LastUpdatedUtc = DateTimeOffset.UtcNow;
+            _revision++;
+            snapshot = CreateSnapshot();
+        }
+
+        Changed?.Invoke(this, snapshot);
+    }
+
     public void SetFeatureStates(FeatureStateSnapshot featureStates)
     {
         BusinessSnapshot snapshot;
@@ -247,6 +276,7 @@ public sealed class BusinessState
     private EqualizerSnapshot Equalizer { get; set; } = EqualizerSnapshot.Empty;
     private GameSnapshot Game { get; set; } = GameSnapshot.Empty;
     private SpatialAudioSnapshot SpatialAudio { get; set; } = SpatialAudioSnapshot.Empty;
+    private SoundEffectSceneSnapshot SoundScene { get; set; } = SoundEffectSceneSnapshot.Empty;
     private FeatureStateSnapshot FeatureStates { get; set; } = FeatureStateSnapshot.Empty;
     private MultiDeviceSnapshot MultiDevice { get; set; } = MultiDeviceSnapshot.Empty;
     private IReadOnlyList<EqualizerEntrySnapshot> EqualizerEntries { get; set; } = [];
@@ -265,6 +295,7 @@ public sealed class BusinessState
         Equalizer,
         Game,
         SpatialAudio,
+        SoundScene,
         FeatureStates,
         MultiDevice,
         EqualizerEntries,
@@ -284,6 +315,7 @@ public sealed record BusinessSnapshot(
     EqualizerSnapshot Equalizer,
     GameSnapshot Game,
     SpatialAudioSnapshot SpatialAudio,
+    SoundEffectSceneSnapshot SoundScene,
     FeatureStateSnapshot FeatureStates,
     MultiDeviceSnapshot MultiDevice,
     IReadOnlyList<EqualizerEntrySnapshot> EqualizerEntries,
@@ -366,4 +398,19 @@ public enum SpatialAudioMode
 public sealed record SpatialAudioSnapshot(SpatialAudioMode Mode)
 {
     public static SpatialAudioSnapshot Empty { get; } = new(SpatialAudioMode.Unknown);
+}
+
+// vivo 音效场景（set_audio_effect=0x0118，反编译实证）。scene 为 0-5 枚举，Name 为本地化描述。
+public sealed record SoundEffectSceneSnapshot(byte? Scene, string? Name)
+{
+    public static SoundEffectSceneSnapshot Empty { get; } = new(null, null);
+
+    public static string? ResolveName(byte scene) => scene switch
+    {
+        0 => "关闭",
+        1 => "均衡",
+        2 => "重低音",
+        3 => "清澈人声",
+        _ => null,
+    };
 }

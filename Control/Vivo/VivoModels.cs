@@ -29,7 +29,7 @@ internal static class VivoModels
     }
 
     // 小写 + 仅保留字母数字，与 Kotlin normalize 一致。
-    private static string Normalize(string value)
+    internal static string Normalize(string value)
     {
         var characters = new System.Text.StringBuilder(value.Length);
         foreach (var character in value.ToLowerInvariant())
