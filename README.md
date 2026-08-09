@@ -1,7 +1,5 @@
 # OPPO Pods Manager (Windows / Linux)
 
-## 最近在进行重构+添加vivo适配，所以main分支的开发会放缓，如果感兴趣可以添加我们的QQ群来体验一下新的内测版本1101564539
-
 [中文](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README_EN.md)
 
 ---
@@ -9,6 +7,8 @@
 在桌面端管理你的 OPPO / OnePlus / realme 蓝牙耳机——查看电量、切换降噪、调音、管理多设备连接，无需打开手机 App。
 
 支持三大品牌共 **137 款设备**，能力按型号自动识别，界面只显示你的耳机真正支持的功能。
+
+## 最近在进行重构+添加vivo适配，所以main分支的开发会放缓，如果感兴趣可以添加我们的QQ群来体验一下新的内测版本1101564539
 
 ---
 
