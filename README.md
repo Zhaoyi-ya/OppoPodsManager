@@ -1,5 +1,7 @@
 # OPPO Pods Manager (Windows / Linux)
 
+## 最近在进行重构+添加vivo适配，所以main分支的开发会放缓，如果感兴趣可以添加我们的QQ群来体验一下新的内测版本1101564539
+
 [中文](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README.md) | [English](https://github.com/Zhaoyi-ya/OppoPodsManager/blob/main/README_EN.md)
 
 ---
