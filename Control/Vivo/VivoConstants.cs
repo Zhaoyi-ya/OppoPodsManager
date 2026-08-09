@@ -97,8 +97,10 @@ internal static class VivoConstants
     // 注意：vivo 有两套完全不同的"佩戴"帧，早前把它们混为一谈导致佩戴状态不刷新：
     //  • 佩戴检测开关：SET 0x0103 / QUERY 0x0203 / REPORT 0x8203，payload [..][state]，state 0=关 1=开
     //    （即 APP 里"佩戴检测"功能的总开关，仅连接时/改设置时上报一次，不随取放变化）。
-    //  • 实时佩戴/在盒状态：QUERY 0x020D / REPORT 0x820D，payload [status:0][flags]，flags 位域：
-    //    0x01=右耳佩戴、0x02=左耳佩戴、0x08=在盒(未充)、0x0C=在盒且充电（0x08|0x04）。
+    //  • 实时佩戴/在盒状态：QUERY 0x020D / REPORT 0x820D，payload [status:0][flags]。
+    //    flags 为每耳 2 位（真机实测修正，原先"0x01/0x02=左右佩戴、0x0C=在盒充电"的读法会让
+    //    佩戴与在盒完全颠倒）：右耳 [1:0] → 0x01=在盒、0x02=佩戴；左耳 [3:2] → 0x04=在盒、0x08=佩戴；
+    //    某耳两位皆 0 表示已摘下。故 0x0C 不是"在盒充电"，而是"左右两耳同时佩戴"。
     //    耳机取放时主动推送，是 UI 佩戴状态真正的实时来源。
     public const ushort SetWearDetection = 0x0103;
     public const ushort AckWearDetection = 0x8103;

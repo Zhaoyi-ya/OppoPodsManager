@@ -5,6 +5,12 @@ publish/
 Network/
 Tests/
 *.cmd
+
+## Packaging artifacts (manual `dotnet publish` / dotnet-desktop.yml outputs)
+OppoPodsManager-*.exe
+OppoPodsManager-*.zip
+OppoPodsManager-*.tar.gz
+publish_build.log
 ## IDE / VS
 .vs/
 *.user
