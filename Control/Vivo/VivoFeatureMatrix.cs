@@ -28,13 +28,18 @@ internal static class VivoFeatureMatrix
     public const int SpatialAudio = 12;
     public const int DualConnection = 17;
     public const int LowLatencyGaming = 19;
+    // 内部映射键：与 OPPO 的 0x04 无关，vivo 自有 EarbudFeatures.FeatureID；正式值待与
+    // tws_config.json 对齐确认（当前仅用于本矩阵的 KnownSupported 内部比对，不影响协议帧）。
+    public const int WearDetection = 1;
 
     // feature id → 界面控件 key（与 OPPO FeatureSwitches.ResolveVisibleControls 的命名一致）。
-    private static readonly IReadOnlyDictionary<int, string> FeatureControlKeys = new Dictionary<int, string>(3)
+    private static readonly IReadOnlyDictionary<int, string> FeatureControlKeys = new Dictionary<int, string>(5)
     {
         [FindEarphone] = "find-device",
         [LowLatencyGaming] = "game-mode",
         [SpatialAudio] = "spatial-sound",
+        [WearDetection] = "wear-detection",
+        [DualConnection] = "dual-device",
     };
 
     // 型号归一化名 → 该型号声明支持的功能 id 集合。
@@ -61,7 +66,7 @@ internal static class VivoFeatureMatrix
         ["vivotws2"] = new HashSet<int> { NoiseReduction, FindEarphone },
         ["vivotws2e"] = new HashSet<int> { FindEarphone },
         ["vivotws3"] = new HashSet<int> { NoiseReduction, FindEarphone },
-        ["vivotws3e"] = new HashSet<int> { NoiseReduction, FindEarphone },
+        ["vivotws3e"] = new HashSet<int> { NoiseReduction, FindEarphone, WearDetection, DualConnection },
         ["vivotws3i"] = new HashSet<int> { FindEarphone },
         ["vivotws3pro"] = new HashSet<int> { NoiseReduction, FindEarphone },
         ["vivotws4"] = new HashSet<int> { NoiseReduction, FindEarphone, LowLatencyGaming },
@@ -86,6 +91,22 @@ internal static class VivoFeatureMatrix
         ["vivotwsx1"] = new HashSet<int> { NoiseReduction, FindEarphone },
     };
 
+    // 强制开启（不可切换、无对应设置命令）的功能：硬件支持该能力，但"始终开启"，耳机既不响应
+    // 0x014C 开关下发、0x0249 列表查询也超时。此类功能对用户无意义（点了报错、且无法关闭），
+    // 故不暴露对应控件、也不发起查询/下发，直接按型号隐藏。
+    // 首个已知型号 vivo TWS 3e：用户实测确认其双设备连接为强制开启、不可关闭（0x014C/0x0249 均超时）。
+    private static readonly IReadOnlyDictionary<string, IReadOnlySet<int>> KnownForced = new Dictionary<string, IReadOnlySet<int>>(StringComparer.Ordinal)
+    {
+        ["vivotws3e"] = new HashSet<int> { DualConnection },
+    };
+
+    // 判断某型号某功能是否为"强制开启/不可切换"（硬件支持但无用户开关）。
+    public static bool IsFeatureForced(string? deviceName, int featureId)
+    {
+        var normalized = VivoModels.Normalize(deviceName ?? string.Empty);
+        return KnownForced.TryGetValue(normalized, out var forced) && forced.Contains(featureId);
+    }
+
     // 判断某型号是否支持指定功能 id。
     // 已知型号：仅当其能力集合包含该 id 时为 true；未知型号乐观返回 true（便于测试，
     // 实际不支持的功能由 VivoManager 运行期超时探测隐藏）。
@@ -103,7 +124,7 @@ internal static class VivoFeatureMatrix
     {
         var visible = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (featureId, key) in FeatureControlKeys)
-            if (IsFeatureSupported(deviceName, featureId))
+            if (IsFeatureSupported(deviceName, featureId) && !IsFeatureForced(deviceName, featureId))
                 visible.Add(key);
 
         return visible;

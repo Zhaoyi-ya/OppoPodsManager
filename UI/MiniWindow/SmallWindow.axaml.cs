@@ -199,7 +199,7 @@ public partial class SmallWindow : SukiWindow
     // 显示 Next 快照中的电量和充电状态。
     private static void SetNextBattery(TextBlock label, AvaloniaControl bolt, BatteryLevel? battery)
     {
-        label.Text = battery is { } value ? (value.IsCharging ? $"{value.Percent}% ⚡" : $"{value.Percent}%") : "-%";
+        label.Text = battery is { } value ? $"{value.Percent}%" : "-%";
         bolt.IsVisible = battery?.IsCharging == true;
     }
 

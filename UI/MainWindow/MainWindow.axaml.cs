@@ -647,8 +647,8 @@ public partial class MainWindow : SukiWindow
             || BtnFindDevice.IsVisible;
         FeatureContentPanel.IsVisible = hasVisibleFeature;
         FeaturePlaceholderText.IsVisible = !hasVisibleFeature;
-        var anyWearing = snapshot.Wear.Left == EarWearState.Worn || snapshot.Wear.Right == EarWearState.Worn;
-        BtnFindDevice.IsEnabled = BtnFindDevice.IsVisible && snapshot.IsConnected && !anyWearing;
+        // 查找耳机不再按佩戴状态禁用：无论是否佩戴都允许点击，点击后弹安全警告（防止戴耳内响铃致听力损伤）。
+        BtnFindDevice.IsEnabled = BtnFindDevice.IsVisible && snapshot.IsConnected;
 
         SetNextCheck(CbDualDevice, controlStates, "dual-device", CbDualDevice_Changed);
         SetNextCheck(CbBassEngine, controlStates, "bass-engine", CbBassEngine_Changed);
@@ -792,7 +792,7 @@ public partial class MainWindow : SukiWindow
             return;
         }
 
-        label.Text = value.IsCharging ? $"{value.Percent}% ⚡" : $"{value.Percent}%";
+        label.Text = $"{value.Percent}%";
         bolt.IsVisible = value.IsCharging;
         progress.Value = value.Percent;
         progress.Foreground = value.Percent <= 20
@@ -1441,14 +1441,23 @@ public partial class MainWindow : SukiWindow
             _ = _commandDispatcher?.RunAsync("脊柱健康", manager => manager.SetSpineHealthAsync(enabled, CancellationToken.None));
     }
 
-    private void BtnFindDevice_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
+    private async void BtnFindDevice_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (_controlManager?.ActiveManager is not null)
+        if (_controlManager?.ActiveManager is null)
+            return;
+
+        // 仅在“启动查找”时弹安全警告（查找耳机会让耳机发出较大响铃，戴在耳内可能致听力损伤）。
+        // “停止查找”无风险，不弹窗。
+        if (!_findDeviceActive)
         {
-            _findDeviceActive = !_findDeviceActive;
-            BtnFindDevice.Content = _findDeviceActive ? _stopFindDevice : _findDevice;
-            _ = _commandDispatcher?.RunAsync("查找耳机", manager => manager.SetFindDeviceAsync(_findDeviceActive, CancellationToken.None));
+            var confirmed = await ShowFindWarningDialog();
+            if (!confirmed)
+                return;
         }
+
+        _findDeviceActive = !_findDeviceActive;
+        BtnFindDevice.Content = _findDeviceActive ? _stopFindDevice : _findDevice;
+        _ = _commandDispatcher?.RunAsync("查找耳机", manager => manager.SetFindDeviceAsync(_findDeviceActive, CancellationToken.None));
     }
 
     private void CbEq_SelectionChanged(object? s, SelectionChangedEventArgs e)
@@ -3562,6 +3571,29 @@ public partial class MainWindow : SukiWindow
         DialogOverlay.IsVisible = true;
 
         _updatePendingVersion = newVersion;
+
+        return await _confirmTcs.Task;
+    }
+
+    // 查找耳机安全警告（与“更新提醒”同款的软件内模态浮层 DialogOverlay）。
+    // 仅“启动查找”时调用，返回 true 表示用户已知晓风险并继续。
+    private async Task<bool> ShowFindWarningDialog()
+    {
+        _confirmTcs = new TaskCompletionSource<bool>();
+        _promptTcs = null;
+
+        DialogTitle.Text = "安全警告";
+        DialogMessage.Text = "警告：使用“查找耳机”功能时，请勿将耳机戴在耳朵中。\n耳机响铃音量较大，戴在耳内可能造成永久性听力损伤。";
+        DialogInput.IsVisible = false;
+        DialogSkipBtn.IsVisible = false;
+        DialogMirrorBtn.IsVisible = false;
+        DialogCancelBtn.Content = "取消";
+        DialogCancelBtn.Background = Brushes.Transparent;
+        DialogCancelBtn.IsVisible = true;
+        DialogConfirmBtn.Content = "我已知晓，继续";
+        DialogConfirmBtn.Background = Brushes.Transparent;
+        DialogConfirmBtn.IsVisible = true;
+        DialogOverlay.IsVisible = true;
 
         return await _confirmTcs.Task;
     }

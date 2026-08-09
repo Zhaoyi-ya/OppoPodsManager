@@ -4,27 +4,39 @@ using OppoPodsManager.Control.Oppo.Commands;
 
 namespace OppoPodsManager.Control.Vivo;
 
-// 编码/增量解码 vivo Compact GAIA 帧（对应 vivo_protocol.py frame / Decoder）。
+// 编码/增量解码 vivo Compact GAIA 帧（对应 vivo_gui.py 的 frame / Decoder）。
 // 帧格式：FF [version] [flags] [payloadLen] [vendor_hi] [vendor_lo] [cmd_hi] [cmd_lo] [payload...]
 // vendor / command 均为大端 16 位；默认 flags=0、无校验、无长度扩展（payload <= 254）。
+//
+// 版本/厂商选择（已用官方 App HCI 抓包逐字节验证）：
+//   - 握手 0x0300          → GAIA 厂商(0x000A) + version 4
+//   - 注册通知链 0x0202~0x0206 → VIVO 厂商(0x001B) + version 4
+//   - 其余所有控制帧        → VIVO 厂商(0x001B) + version 3
 internal sealed class VivoFrameCodec : IFrameCodec
 {
     private readonly List<byte> _buffer = [];
-    private readonly int _noiseVersion;
 
-    // noiseVersion：降噪命令（查询/设置）使用的 GAIA 版本，按型号画像给定
-    // （TWS 3e / Air3 Pro 用 v3，家族默认用 v4）。握手与电量固定走 v4。
-    public VivoFrameCodec(int noiseVersion) => _noiseVersion = noiseVersion;
+    // noiseVersion 保留用于兼容 VivoManagerFactory 调用约定；当前所有已验证控制帧统一用
+    // VivoConstants.ControlVersion(3)，握手/注册通知用 HandshakeVersion(4)，不再按型号切换。
+    public VivoFrameCodec(int noiseVersion = VivoConstants.ControlVersion)
+    {
+    }
 
-    // Encode 仅接收 command + payload；vendor 与 version 按命令推断：
-    //  - 握手 / 电量查询：GAIA 厂商或 VIVO 厂商 + version 4
-    //  - 降噪命令：VIVO 厂商 + 画像版本（_noiseVersion）
     public byte[] Encode(ushort command, ReadOnlySpan<byte> payload)
     {
-        var vendor = command == VivoConstants.Handshake ? VivoConstants.GaiaVendor : VivoConstants.VivoVendor;
-        var version = command == VivoConstants.Handshake || command == VivoConstants.QueryBattery
-            ? 4
-            : _noiseVersion;
+        var isHandshake = command == VivoConstants.Handshake;
+        var isRegisterNotification =
+            command is VivoConstants.RegisterNotificationsStart or
+                       VivoConstants.RegisterNotificationsQuery or
+                       VivoConstants.RegisterNotificationsEnable or
+                       VivoConstants.RegisterNotification or
+                       VivoConstants.RegisterNotificationsEnd;
+
+        var vendor = isHandshake ? VivoConstants.GaiaVendor : VivoConstants.VivoVendor;
+        var version = (isHandshake || isRegisterNotification)
+            ? VivoConstants.HandshakeVersion
+            : VivoConstants.ControlVersion;
+
         var frame = new byte[8 + payload.Length];
         frame[0] = VivoConstants.Preamble;
         frame[1] = (byte)version;

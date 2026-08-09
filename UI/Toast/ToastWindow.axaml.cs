@@ -95,7 +95,7 @@ public partial class ToastWindow : Window
     // 将 Next 电量模型转换为 Toast 控件所需的显示值。
     private static void SetNextBattery(TextBlock percentage, AvaloniaControl bolt, BatteryLevel? battery)
     {
-        percentage.Text = battery is { } value ? (value.IsCharging ? $"{value.Percent}% ⚡" : $"{value.Percent}%") : "- %";
+        percentage.Text = battery is { } value ? $"{value.Percent}%" : "- %";
         bolt.IsVisible = battery?.IsCharging == true;
     }
 

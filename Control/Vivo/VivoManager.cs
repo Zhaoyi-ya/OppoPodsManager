@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using OppoPodsManager.Communication.Abstractions;
@@ -15,15 +16,15 @@ namespace OppoPodsManager.Control.Vivo;
 
 // vivo / iQOO TWS 会话管理。
 //
-// 已实现并暴露 UI：电量、降噪（3 档：关闭/降噪/通透，key 对齐 OPPO 的 "Off"/"NC"/"Transparency"）。
-// 查找耳机/游戏模式(低延迟)/空间音效开关的命令实现已就绪（见下方 *CoreAsync）。
-// 空间音频(0x0218)与游戏模式(0x0220)命令字已反编译/抓包验证；游戏模式仍为占位，待真机确认。
-// 佩戴检测(0x0103/0x820D)与音效场景(0x0118/0x8118)经反编译实证并已接入；连接建立后发送
-// 0x0205 注册通知握手，使电量/降噪/佩戴/空间/音效场景改为耳机主动上报（与 OPPO 同源）。
-// 控件可见性由 VivoFeatureMatrix（vivo 能力白名单，对应 EarbudFeatures.FeatureID）按连接型号决定，
-// 与 OPPO 侧 CapabilityLoader 同一思路：已知型号仅显示其能力集合内的功能，未知型号默认乐观显示，
+// ⚠ 协议命令码以 2026-08-09 官方 App HCI 抓包逐字节验证过的 vivo_gui.py 为准（控制变量法）。
+//   已验证并接入：电量(0x0207/0x8207)、噪声控制(0x0131/0x0231/0x8231，per-ear 多选 min-2-of-3)、
+//   佩戴(0x0203/0x8203)、音效/EQ(0x0118/0x0218/0x8118/0x8218)、双击手势(0x0102/0x0202/0x8202)、
+//   长按功能(0x0150/0x0250/0x8150/0x8250)、查找耳机(0x0120/0x8120)、双连(0x0249/0x8249)。
+//   查找耳机/游戏模式(低延迟 0x0151)/空间音效(0x0139)开关已实现；空间音频与游戏模式命令字未实测确认，
+//   默认由能力白名单隐藏，待真机确认。
+//   连接建立后发送 0x0202~0x0206 注册通知握手，使耳机开始主动推送各 report 帧（与 OPPO 同源）。
+// 控件可见性由 VivoFeatureMatrix 按连接型号决定：已知型号仅显示其能力集合内功能，未知型号默认乐观显示，
 // 便于真机逐项验证命令实现，确认不支持的功能由白名单精确隐藏。
-// 其余 OPPO 专属能力（均衡器、3 模式空间音频等）仍返回"不支持"。
 internal sealed class VivoManager : IBrandManager
 {
     private readonly BusinessState _state = new();
@@ -43,6 +44,8 @@ internal sealed class VivoManager : IBrandManager
     // ---- 本地 bug 修复 + 多设备 + 序号守卫 ----
     private bool? _gameModeEnabled;
     private bool? _spatialSoundEnabled;
+    private bool? _wearDetectionEnabled;
+    private bool? _dualDeviceEnabled;
     // 运行期探测到的"不支持"功能（查询超时），本会话内停止轮询并隐藏对应控件。
     private readonly HashSet<int> _runtimeUnsupported = new();
     // 多连接（双设备）：订阅耳机主动上报 / 时间请求，并缓存最近一次设备列表（MAC+state，7 字节外形式）供全量下发。
@@ -56,6 +59,13 @@ internal sealed class VivoManager : IBrandManager
     private int _spatialSeq, _spatialHighest;
     // 设值后设备约 1~2s 才真正落定：此窗口内丢弃降噪回读，避免轮询读到切换前的旧模式覆盖乐观值（UI 回闪）。
     private DateTime _noiseApplyDeadline = DateTime.MinValue;
+    // 双击手势 / 长按功能 最近一次从耳机收到的配置（仅供日志/调试，未接入单档 UI）。
+    private byte? _doubleTapLeft;
+    private byte? _doubleTapRight;
+    private byte? _longPressFunc;
+    // 噪声控制 per-ear 当前字节（SET/REPORT 后维护，便于 UI 回显）。
+    private byte _noiseLeft = VivoConstants.NoiseAll;
+    private byte _noiseRight = VivoConstants.NoiseAll;
     // 0x0300 握手是否成功：仅成功时才说明当前通道是活的 GAIA 通道，可安全启用主动上报。
     private bool _handshakeOk;
 
@@ -315,7 +325,8 @@ internal sealed class VivoManager : IBrandManager
         if (vivoMode is null)
             return false;
 
-        return await SetNoiseModeCoreAsync(vivoMode.Value, cancellationToken);
+        // 单档 UI 无法表达 per-ear 差异：把所选循环集合同时应用到左右两耳。
+        return await SetNoiseModeCoreAsync(vivoMode.Value, vivoMode.Value, cancellationToken);
     }
 
     // ---- 会话建立 ----
@@ -332,10 +343,17 @@ internal sealed class VivoManager : IBrandManager
         // 本地: 额外订阅时间请求/双连上报/佩戴/空间/音效场景/播放状态（dszsu 的 InstallNotificationHandlers 只覆盖了基础帧）
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.PeerTimeRequest, OnPeerTimeRequest));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportMultiConnect, OnMultiConnectReport));
-        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearStatus, OnWearReport));
+        // 实时佩戴/在盒状态（0x820D，随取放主动推送，是 UI 佩戴状态真正的实时来源）
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearState, OnWearReport));
+        // 佩戴检测开关设置（0x8203，仅连接/改设置时上报一次，state 0=关 1=开；不反映实时佩戴）
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearDetection, OnWearDetectionReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportSpatialSound, OnSpatialReport));
-        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportSoundEffectScene, OnSoundSceneReport));
-        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportAudioPlayState, OnPlayStateReport));
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportDoubleTapConfig, OnDoubleTapConfigReport));
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportLongPressFunc, OnLongPressFuncReport));
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.TelemetryReport, OnTelemetryReport));
+        // 固件/型号主动上报（兜底；空闲态一般不推，主要靠首次连接主动查询）
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportFirmware, OnFirmwareReport));
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportModel, OnModelReport));
         // 每次开新会话重置运行期探测到的"不支持"功能（避免首次连接因通道协商失败而误判永久隐藏）。
         _runtimeUnsupported.Clear();
 
@@ -362,6 +380,12 @@ internal sealed class VivoManager : IBrandManager
         await RefreshBatteryAsync(link, cancellationToken);
         // 降噪始终查询（已验证功能）
         await RefreshNoiseAsync(link, cancellationToken);
+        // 设备信息：首次连接主动查固件版本/型号（同 OPPO 首次连接查 0x0105），空闲态不主动推送
+        await RefreshDeviceInfoAsync(link, cancellationToken);
+        // 实时佩戴/在盒状态（0x820D）随取放主动推送，由订阅处理；此处查询仅用于即时校准。
+        await RefreshWearStatusAsync(link, cancellationToken);
+        // 佩戴检测开关：查询 0x0203 → 0x8203 上报，回填功能开关勾选态（state 0=关 1=开）
+        await RefreshWearDetectionAsync(link, cancellationToken);
         // dszsu: 按 capability 条件查询游戏/空间/音效
         if (_vivoCapability.SupportsLowLatencyGaming)
             await RefreshGameModeAsync(link, cancellationToken);
@@ -411,7 +435,7 @@ internal sealed class VivoManager : IBrandManager
         try
         {
             var response = await link.RequestAsync(
-                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, _profile.NoiseQueryPayload, cancellationToken);
+                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, new byte[] { 0x05 }, cancellationToken);
             // 仅接受最新发出的查询响应；过期的在途旧查询（设值前发出）直接丢弃，防止 UI 闪回旧状态。
             if (seq < _noiseHighest)
             {
@@ -433,6 +457,150 @@ internal sealed class VivoManager : IBrandManager
         {
             ApplicationLog.Current?.Debug("Vivo", $"降噪查询失败：{exception.Message}");
         }
+    }
+
+    // ---- 设备信息主动查询（首次连接即查，填充"设备详情"页固件版本/型号）----
+    // 空闲态耳机不会主动推送固件版本，必须主动发 0x021C（同 OPPO 首次连接查 0x0105）。
+    // 解析容错：先记录原始字节便于诊断，再尝试 UTF8 解码（跳过首 2 字节，与 OPPO 固件解析同理）；
+    // 若解码结果非可打印固件串，回退为十六进制显示，不崩溃。
+    private async Task RefreshDeviceInfoAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await link.RequestAsync(
+                VivoConstants.QueryFirmware, VivoConstants.ReportFirmware, Array.Empty<byte>(), cancellationToken);
+            ApplicationLog.Current?.Debug("Vivo", $"初始固件查询：success={response is not null}。");
+            if (response is not null)
+                ApplyFirmware(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"固件查询失败：{exception.Message}");
+        }
+
+        try
+        {
+            var response = await link.RequestAsync(
+                VivoConstants.QueryModel, VivoConstants.ReportModel, Array.Empty<byte>(), cancellationToken);
+            ApplicationLog.Current?.Debug("Vivo", $"初始型号查询：success={response is not null}。");
+            if (response is not null)
+                ApplyModel(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"型号查询失败：{exception.Message}");
+        }
+    }
+
+    private void OnFirmwareReport(ProtocolFrame frame) => ApplyFirmware(frame.Payload.Span);
+    private void OnModelReport(ProtocolFrame frame) => ApplyModel(frame.Payload.Span);
+
+    private void ApplyFirmware(ReadOnlySpan<byte> payload)
+    {
+        // 诊断：记录原始字节，便于确认 vivo 固件应答格式
+        var rawHex = Convert.ToHexString(payload.ToArray());
+        ApplicationLog.Current?.Debug("Vivo", $"固件版本原始响应：bytes={payload.Length}，hex={rawHex}。");
+
+        if (payload.Length < 1)
+            return;
+
+        // vivo 固件为紧凑二进制版本（实测 00 01 02 03 04 05 09 0C → 2.5.9）：
+        // 版本三段分别落在固定字节位 [2]=主版本、[5]=次版本、[6]=修订号，与官方 APP 显示一致。
+        // 首字节 0x00 区分于字符串应答；若载荷主要是可打印文本则按字符串处理（不误伤可读固件串）。
+        if (payload[0] == 0 && payload.Length >= 7 && !IsMostlyPrintable(payload))
+        {
+            var major = payload[2];
+            var minor = payload[5];
+            var patch = payload[6];
+            // 合理性闸门：三段都在 [0,99] 才视为合法语义化版本，否则回退十六进制避免误报
+            if (major <= 99 && minor <= 99 && patch <= 99)
+            {
+                SetFirmware(NormalizeFirmware($"{major}.{minor}.{patch}"), rawHex);
+                return;
+            }
+        }
+
+        // 兜底：可打印字符串（跳过首 2 字节头，与 OPPO 固件解析一致；若 0 字节头则整体解码）
+        var text = payload[0] == 0 && payload.Length >= 3
+            ? Encoding.UTF8.GetString(payload[2..]).TrimEnd('\0', ' ')
+            : Encoding.UTF8.GetString(payload).TrimEnd('\0', ' ');
+
+        // 仅接受含可打印 ASCII 的结果；否则回退十六进制，避免把二进制当版本号
+        var printable = !string.IsNullOrEmpty(text) && text.All(c => c == '.' || (c >= 0x20 && c <= 0x7E));
+        SetFirmware(printable ? NormalizeFirmware(text) : rawHex, rawHex);
+    }
+
+    // 统一写入固件版本（去重 + 日志）
+    private void SetFirmware(string? firmware, string rawHex)
+    {
+        if (string.IsNullOrEmpty(firmware))
+            return;
+        EnsureIdentity();
+        var current = _state.Snapshot().Identity!;
+        if (current.FirmwareVersion != firmware)
+        {
+            _state.SetIdentity(current with { FirmwareVersion = firmware });
+            ApplicationLog.Current?.Info("Vivo", $"固件版本解析完成：version={firmware}（rawHex={rawHex}）。");
+        }
+    }
+
+    // 固件版本归一化：遥测 "V" 字段形如 "2.5.9_2.5.9"（下划线左=固件、右=兼容/副版本），
+    // 官方 APP 仅展示左侧；去掉下划线及其后内容，统一为 "主.次.修订"。
+    private static string NormalizeFirmware(string firmware)
+    {
+        var underscore = firmware.IndexOf('_');
+        return underscore >= 0 ? firmware[..underscore] : firmware;
+    }
+
+    // 判断载荷是否主要是可打印 ASCII（用于区分二进制固件与字符串固件应答）
+    private static bool IsMostlyPrintable(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length == 0)
+            return false;
+        var printable = 0;
+        foreach (var b in payload)
+            if (b is (byte)'.' or >= 0x20 and <= 0x7E)
+                printable++;
+        return printable * 2 >= payload.Length; // 可打印占比 >= 50%
+    }
+
+    private void ApplyModel(ReadOnlySpan<byte> payload)
+    {
+        var rawHex = Convert.ToHexString(payload.ToArray());
+        ApplicationLog.Current?.Debug("Vivo", $"型号原始响应：bytes={payload.Length}，hex={rawHex}。");
+
+        if (payload.Length < 1)
+            return;
+
+        var text = payload[0] == 0 && payload.Length >= 3
+            ? Encoding.UTF8.GetString(payload[2..]).TrimEnd('\0', ' ')
+            : Encoding.UTF8.GetString(payload).TrimEnd('\0', ' ');
+        var printable = !string.IsNullOrEmpty(text) && text.All(c => c == '.' || (c >= 0x20 && c <= 0x7E));
+        var model = printable ? text : null;
+
+        if (!string.IsNullOrEmpty(model))
+        {
+            EnsureIdentity();
+            var current = _state.Snapshot().Identity!;
+            if (current.ModelName != model)
+            {
+                _state.SetIdentity(current with { ModelName = model });
+                ApplicationLog.Current?.Info("Vivo", $"型号解析完成：model={model}。");
+            }
+        }
+    }
+
+    // vivo 不走 OPPO 的 DeviceInfoManager 产品查询流程，首次填设备信息前确保 Identity 已建立
+    private void EnsureIdentity()
+    {
+        if (_state.Snapshot().Identity is not null)
+            return;
+        _state.SetIdentity(new DeviceIdentity(
+            string.Empty,
+            _deviceName ?? "vivo / iQOO TWS",
+            _vivoCapability.IsKnownModel ? _vivoCapability.ModelName : null,
+            null,
+            null));
     }
 
     // 读取一次低延迟游戏模式；官方通知接入前不参与周期轮询。
@@ -530,14 +698,14 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    private async Task<bool> SetNoiseModeCoreAsync(byte vivoMode, CancellationToken cancellationToken)
+    // 噪声控制是 per-ear 多选（min-2-of-3）：payload = [05][左耳字节][右耳字节]。
+    // 单档 UI（OPPO 风格三按钮）只能表达一个"循环集合"，故把所选模式同时应用到左右两耳。
+    private async Task<bool> SetNoiseModeCoreAsync(byte leftByte, byte rightByte, CancellationToken cancellationToken)
     {
         if (_link is null)
             return false;
 
-        var payload = new byte[1 + _profile.NoiseSetSuffix.Length];
-        payload[0] = vivoMode;
-        _profile.NoiseSetSuffix.CopyTo(payload, 1);
+        var payload = new byte[] { 0x05, leftByte, rightByte };
 
         try
         {
@@ -550,8 +718,9 @@ internal sealed class VivoManager : IBrandManager
             ++_noiseSeq;
             _noiseHighest = _noiseSeq;
             _noiseApplyDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2.5);
-            // 我们发出的 vivoMode 必为已知值（NoiseAnc/NoiseOff/NoiseTransparency），映射结果恒有效。
-            _state.SetNoise(new NoiseSnapshot(MapFromVivoMode(vivoMode), null));
+            _noiseLeft = leftByte;
+            _noiseRight = rightByte;
+            _state.SetNoise(new NoiseSnapshot(MapFromVivoMode(leftByte), null));
             return true;
         }
         catch (Exception exception)
@@ -630,6 +799,8 @@ internal sealed class VivoManager : IBrandManager
 
             await RefreshBatteryAsync(link, cancellationToken);
             await RefreshNoiseAsync(link, cancellationToken);
+            // 佩戴状态：0x8203 连接后不再主动推送，靠周期查询刷新（查询失败已在内部吞掉，不影响轮询）
+            await RefreshWearStatusAsync(link, cancellationToken);
             if (IsFeatureLive(VivoFeatureMatrix.LowLatencyGaming))
                 await RefreshGameModeAsync(link, cancellationToken);
             if (IsFeatureLive(VivoFeatureMatrix.SpatialAudio))
@@ -642,7 +813,8 @@ internal sealed class VivoManager : IBrandManager
     // 综合"能力白名单(VivoFeatureMatrix.KnownSupported，已知型号仅显示其声明支持的功能) + 运行期超时探测"判断某功能当前应查询/展示。
     private bool IsFeatureLive(int featureId)
         => VivoFeatureMatrix.IsFeatureSupported(_deviceName, featureId)
-           && !_runtimeUnsupported.Contains(featureId);
+           && !_runtimeUnsupported.Contains(featureId)
+           && !VivoFeatureMatrix.IsFeatureForced(_deviceName, featureId);
 
     // ---- 多连接（双设备）----
     // 命令真值来源：开源 Vivopods 项目（HyperEars 抓包 + 官方 APK jadx 反编译双重确认），见 VivoConstants 注释。
@@ -660,7 +832,8 @@ internal sealed class VivoManager : IBrandManager
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Vivo", $"多设备列表查询失败：{exception.Message}");
-            // 不支持双连的机型（如 TWS 3e）会超时：运行期标记本会话不支持，隐藏面板并停止轮询。
+            // 部分未收录/未知型号若不支持双连列表查询会超时：运行期标记本会话不支持，隐藏面板并停止轮询。
+            // 注意：TWS 3e 等"强制开启"型号已由 VivoFeatureMatrix.KnownForced 直接隐藏（IsFeatureLive=false），不会走到此分支。
             if (exception is TimeoutException && _runtimeUnsupported.Add(VivoFeatureMatrix.DualConnection))
                 _state.NotifyChanged();
             return false;
@@ -813,6 +986,8 @@ internal sealed class VivoManager : IBrandManager
         {
             await _link.RequestAsync(VivoConstants.EnableMultiConnect, VivoConstants.AckEnableMultiConnect,
                 new byte[] { enabled ? (byte)1 : (byte)0 }, cancellationToken);
+            _dualDeviceEnabled = enabled;
+            _state.NotifyChanged();
             return true;
         }
         catch (Exception exception)
@@ -857,10 +1032,25 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    // ---- 佩戴检测（反编译实证 259 / 525）----
-    // 0x820D 上报负载 [status:0][flags]，flags 位域：0x01=右耳佩戴、0x02=左耳佩戴、0x0C=在充电盒。
+    // ---- 实时佩戴/在盒状态（REPORT 0x820D，随取放主动推送）----
+    // payload [status:0][flags]，flags 位域（真机实测修正：原"佩戴/入盒"语义左右对调，已校正）：
+    //   右耳占用低 2 位 [1:0]：0x01=入盒、0x02=佩戴；左耳占用高 2 位 [3:2]：0x04=入盒、0x08=佩戴；
+    //   某耳两位均 0 表示已摘除（Removed）。0x0C 不再是"入盒充电"，而是"右佩戴+左佩戴"的无效组合。
     private void OnWearReport(ProtocolFrame frame)
         => ApplyWear(frame.Payload.Span);
+
+    // 佩戴检测开关设置（REPORT 0x8203，仅连接/改设置时上报一次，state 0=关 1=开）。
+    // 注意：这是"佩戴检测"功能的总开关，不是实时佩戴状态，切勿写入 WearSnapshot。
+    private void OnWearDetectionReport(ProtocolFrame frame)
+    {
+        var p = frame.Payload.Span;
+        if (p.Length < 2)
+            return;
+        var enabled = p[1] != 0;
+        ApplicationLog.Current?.Debug("Vivo", $"佩戴检测开关状态：{(enabled ? "开" : "关")}（payload={Convert.ToHexString(p.ToArray())}）。");
+        _wearDetectionEnabled = enabled;
+        _state.NotifyChanged();
+    }
 
     private void ApplyWear(ReadOnlySpan<byte> payload)
     {
@@ -868,13 +1058,14 @@ internal sealed class VivoManager : IBrandManager
             return;
 
         var flags = payload.Length >= 2 ? payload[1] : payload[0];
-        var inCase = (flags & 0x0C) != 0;
-        var leftWorn = (flags & 0x02) != 0;
-        var rightWorn = (flags & 0x01) != 0;
+        var rightInCase = (flags & 0x01) != 0;
+        var rightWorn = (flags & 0x02) != 0;
+        var leftInCase = (flags & 0x04) != 0;
+        var leftWorn = (flags & 0x08) != 0;
 
-        var left = inCase ? EarWearState.InCase : (leftWorn ? EarWearState.Worn : EarWearState.Removed);
-        var right = inCase ? EarWearState.InCase : (rightWorn ? EarWearState.Worn : EarWearState.Removed);
-        ApplicationLog.Current?.Debug("Vivo", $"佩戴状态更新：左={left}，右={right}（flags=0x{flags:X2}）。");
+        var right = rightInCase ? EarWearState.InCase : (rightWorn ? EarWearState.Worn : EarWearState.Removed);
+        var left = leftInCase ? EarWearState.InCase : (leftWorn ? EarWearState.Worn : EarWearState.Removed);
+        ApplicationLog.Current?.Debug("Vivo", $"佩戴状态更新：左={left}，右={right}（flags=0x{flags:X2}，右 入盒={rightInCase}/佩戴={rightWorn}，左 入盒={leftInCase}/佩戴={leftWorn}）。");
         _state.SetWear(new WearSnapshot(left, right));
     }
 
@@ -903,13 +1094,27 @@ internal sealed class VivoManager : IBrandManager
         try
         {
             var response = await link.RequestAsync(
-                VivoConstants.QueryWearStatus, VivoConstants.ReportWearStatus, Array.Empty<byte>(), cancellationToken);
+                VivoConstants.QueryWearState, VivoConstants.ReportWearState, Array.Empty<byte>(), cancellationToken);
             if (response is not null)
                 ApplyWear(response.Payload.Span);
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Vivo", $"佩戴状态查询失败：{exception.Message}");
+        }
+    }
+
+    // 佩戴检测开关状态：查询 0x0203，耳机回 0x8203（由 OnWearDetectionReport 解析并回填 _wearDetectionEnabled）。
+    private async Task RefreshWearDetectionAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await link.RequestAsync(
+                VivoConstants.QueryWearDetection, VivoConstants.ReportWearDetection, Array.Empty<byte>(), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"佩戴检测开关查询失败：{exception.Message}");
         }
     }
 
@@ -930,27 +1135,98 @@ internal sealed class VivoManager : IBrandManager
         _state.NotifyChanged();
     }
 
-    private void OnSoundSceneReport(ProtocolFrame frame)
-        => ApplySoundEffectScene(frame.Payload.Span);
+    // ---- 双击手势配置同步（改设置时上报，非触发事件）----
+    // 0x8202 payload = [00][左动作码][右动作码]；亦为注册通知-开始 ACK（空/短帧），按形态区分。
+    private void OnDoubleTapConfigReport(ProtocolFrame frame)
+        => ApplyDoubleTapConfig(frame.Payload.Span);
 
-    private void ApplySoundEffectScene(ReadOnlySpan<byte> payload)
+    private void ApplyDoubleTapConfig(ReadOnlySpan<byte> payload)
     {
-        if (payload.Length < 1)
-            return;
+        if (payload.Length < 3 || payload[0] != 0x00)
+            return; // 注册通知 ACK 等非配置帧，忽略
 
-        var scene = payload.Length >= 2 ? payload[1] : payload[0];
-        var name = SoundEffectSceneSnapshot.ResolveName(scene) ?? $"场景{scene}";
-        ApplicationLog.Current?.Debug("Vivo", $"音效场景更新：{name}（字节 0x{scene:X2}）。");
-        _state.SetSoundEffectScene(new SoundEffectSceneSnapshot(scene, name));
+        var left = payload[1];
+        var right = payload[2];
+        _doubleTapLeft = left;
+        _doubleTapRight = right;
+        var lName = VivoConstants.TapLeftCodes.TryGetValue(left, out var ln) ? ln : $"0x{left:X2}";
+        var rName = VivoConstants.TapRightCodes.TryGetValue(right, out var rn) ? rn : $"0x{right:X2}";
+        ApplicationLog.Current?.Info("Vivo",
+            $"双击手势配置同步：左={lName}(0x{left:X2}) 右={rName}(0x{right:X2})。");
     }
 
-    private void OnPlayStateReport(ProtocolFrame frame)
+    // ---- 长按手势功能（状态开关：无/切换噪声控制/来电拒接）----
+    // 0x8250 / 0x8150 payload = [00][03][功能码]
+    private void OnLongPressFuncReport(ProtocolFrame frame)
+        => ApplyLongPressFunc(frame.Payload.Span);
+
+    private void ApplyLongPressFunc(ReadOnlySpan<byte> payload)
     {
-        var p = frame.Payload.Span;
-        if (p.Length < 1)
+        if (payload.Length < 3 || payload[1] != 0x03)
             return;
-        var v = p.Length >= 2 ? p[1] : p[0];
-        ApplicationLog.Current?.Debug("Vivo", $"媒体播放状态：{(v != 0 ? "播放中" : "暂停/停止")}（0x{v:X2}）。");
+
+        var func = payload[2];
+        _longPressFunc = func;
+        var name = VivoConstants.LongPressFuncCodes.TryGetValue(func, out var n) ? n : $"0x{func:X2}";
+        ApplicationLog.Current?.Info("Vivo", $"长按手势功能：{name}(0x{func:X2})。");
+    }
+
+    // ---- 遥测/设备信息上报（0x8224，耳机主动推送）----
+    // payload = [00 01 22] + JSON + [00] 结束符
+    // JSON 含 "V"（固件版本，如 "2.5.9_2.5.9"）、"C"（硬件版本）、"D"（计数器/时间戳）
+    private void OnTelemetryReport(ProtocolFrame frame)
+        => ApplyTelemetry(frame.Payload.Span);
+
+    private void ApplyTelemetry(ReadOnlySpan<byte> payload)
+    {
+        // 最小长度：3 字节头 + 至少 {"V":""} + 1 字节结束符 ≈ 12 字节
+        if (payload.Length < 12)
+            return;
+
+        // 跳过 3 字节头 (00 01 22)，截取到末尾 00 结束符之前
+        var jsonStart = 3;
+        var jsonEnd = payload.Length - 1; // 跳过尾部 00
+        if (jsonEnd <= jsonStart)
+            return;
+
+        var jsonBytes = payload[jsonStart..jsonEnd];
+        var jsonStr = Encoding.UTF8.GetString(jsonBytes);
+
+        try
+        {
+            using var doc = JsonDocument.Parse(jsonStr);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("V", out var vElem) && vElem.ValueKind == JsonValueKind.String)
+            {
+                var rawFirmware = vElem.GetString();
+                var firmware = NormalizeFirmware(rawFirmware ?? string.Empty);
+                if (!string.IsNullOrEmpty(firmware))
+                {
+                    var current = _state.Snapshot().Identity;
+                    if (current is not null && current.FirmwareVersion != firmware)
+                    {
+                        _state.SetIdentity(current with { FirmwareVersion = firmware });
+                        ApplicationLog.Current?.Info("Vivo", $"遥测上报固件版本：{firmware}。");
+                    }
+                    else if (current is null)
+                    {
+                        // 首次收到遥测时 Identity 尚未建立，用设备名创建最小身份
+                        _state.SetIdentity(new DeviceIdentity(
+                            _deviceName ?? string.Empty,
+                            _deviceName ?? "vivo / iQOO TWS",
+                            _vivoCapability.IsKnownModel ? _vivoCapability.ModelName : null,
+                            firmware,
+                            null));
+                        ApplicationLog.Current?.Info("Vivo", $"遥测首次建立设备身份，固件版本：{firmware}。");
+                    }
+                }
+            }
+        }
+        catch (JsonException ex)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"遥测 JSON 解析失败：{ex.Message}，原始={jsonStr}。");
+        }
     }
 
     // 注册通知握手：与 OPPO 同源。依次发空载荷帧，耳机应答后即主动推送各 report 帧。
@@ -1054,23 +1330,23 @@ internal sealed class VivoManager : IBrandManager
 
     private void ApplyNoise(ReadOnlySpan<byte> payload)
     {
-        // vivo 0x0230 响应固定 3 字节：[status=0][mode][constant=0x04]（已用 TWS 3e 真机验证）。
-        // mode 字节取值与 VivoConstants 对齐：0=降噪(ANC)，1=关闭(Off)，2=通透(Transparency)。
-        // 为兼容其它型号，若首字节非空则退化为"首字节即 mode"。
-        if (payload.Length < 1)
-            return;
-
-        var modeByte = payload.Length >= 2 && payload[0] == 0 ? payload[1] : payload[0];
-        var mode = MapFromVivoMode(modeByte);
-        if (mode == NoiseMode.Unknown)
+        // 实测（官方 App 抓包）：噪声控制 report/ack 0x8231 / 0x8131 payload = [00][05][左耳字节][右耳字节]。
+        if (payload.Length < 4 || payload[0] != 0 || payload[1] != 0x05)
         {
-            ApplicationLog.Current?.Debug("Vivo", $"降噪模式字节无法识别：0x{modeByte:X2}，忽略。");
+            ApplicationLog.Current?.Debug("Vivo", $"忽略非法噪声控制回包：{Convert.ToHexString(payload)}。");
             return;
         }
 
-        ApplicationLog.Current?.Debug("Vivo", $"降噪模式更新：{mode}（字节 0x{modeByte:X2}，原始 {FormatBytes(payload)}）。");
+        var left = payload[2];
+        var right = payload[3];
+        _noiseLeft = left;
+        _noiseRight = right;
+
+        // 单档 UI 只能显示一种模式，用左耳循环集合代表整体。
+        var mode = MapFromVivoMode(left);
+        ApplicationLog.Current?.Debug("Vivo",
+            $"噪声控制更新：左=0x{left:X2}({VivoConstants.NoiseByteToText(left)})，右=0x{right:X2}({VivoConstants.NoiseByteToText(right)})。");
         _state.SetNoise(new NoiseSnapshot(mode, null));
-        ApplicationLog.Current?.Debug("Vivo", $"降噪状态已更新：protocol={payload[1]}，mode={mode}。");
     }
 
     // 官方回包第二个字节为低延迟游戏模式开关。
@@ -1207,6 +1483,10 @@ internal sealed class VivoManager : IBrandManager
             controlStates["game-mode"] = gameOn;
         if (_spatialSoundEnabled is { } spatialOn)
             controlStates["spatial-sound"] = spatialOn;
+        if (_wearDetectionEnabled is { } wearOn)
+            controlStates["wear-detection"] = wearOn;
+        if (_dualDeviceEnabled is { } dualOn)
+            controlStates["dual-device"] = dualOn;
 
         // 测试期默认可操作；确认不支持的型号由白名单隐藏控件后此字典自然不含该键。
         var controlEnabledStates = new Dictionary<string, bool>(StringComparer.Ordinal);
