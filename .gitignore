@@ -30,3 +30,6 @@ Desktop.ini
 *_backup*/
 *.orig
 *.tmp.vscode/
+
+## Local docs (excluded from GitHub sync)
+/VIVO_COMMANDS.md

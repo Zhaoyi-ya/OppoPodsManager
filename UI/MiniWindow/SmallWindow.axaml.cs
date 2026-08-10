@@ -38,16 +38,12 @@ public partial class SmallWindow : SukiWindow
     private OppoPodsManager.Assets.UserSettings.SettingsManager? _nextSettings;
     private IDisposable? _interactiveSurface;
 
-    private static readonly SolidColorBrush BrushGray   = new(Color.FromRgb(0xCC, 0xCC, 0xCC));
-    private static readonly SolidColorBrush BrushAccent = new(Color.FromRgb(0x60, 0x90, 0xFF));
-    private static readonly SolidColorBrush BrushWhite  = new(Colors.White);
-
+    // 窗口外观相关画刷（卡片背景/边框/窗口/背景染色）保留在小窗，由 _nextSettings 驱动。
+    // ANC/状态等语义色彩统一取自共享 AppPalette（与主窗口一致，随主题切换）。
     private readonly SolidColorBrush _cardBgBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _cardBorderBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _windowBgBrush = new(Colors.Transparent);
     private readonly SolidColorBrush _bgTintBrush = new(Color.FromArgb(0x66, 0x00, 0x00, 0x00));
-    private readonly SolidColorBrush _ancInactiveBgBrush = new(Color.FromArgb(0x10, 0x00, 0x00, 0x00));
-    private readonly SolidColorBrush _ancSubInactiveBgBrush = new(Color.FromArgb(0x0C, 0x00, 0x00, 0x00));
     private Avalonia.Media.Imaging.Bitmap? _backgroundBitmap;
     private string _backgroundCacheKey = "";
 
@@ -352,6 +348,8 @@ public partial class SmallWindow : SukiWindow
             ? Application.Current?.ActualThemeVariant
             : theme.ActiveBaseTheme;
         var isLight = activeTheme == Avalonia.Styling.ThemeVariant.Light;
+        // 同步共享调色板主题标志，小窗 ANC/状态取色与主窗口保持一致。
+        AppPalette.IsLightTheme = isLight;
         var transparencyPct = Math.Clamp(ReadIntSetting("CardOpacity", 50), 0, 90);
         var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255);
         var hasCustomBackground = HasCustomBackgroundEnabled();
@@ -518,7 +516,7 @@ public partial class SmallWindow : SukiWindow
             if (i > 0)
             {
                 AncSubRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
-                var sep = new Border { Width = 1, Background = BrushGray, Opacity = 0.12 };
+                var sep = new Border { Width = 1, Background = AppPalette.BrushGray, Opacity = 0.12 };
                 Grid.SetColumn(sep, col);
                 AncSubRow.Children.Add(sep);
                 col++;
@@ -532,7 +530,7 @@ public partial class SmallWindow : SukiWindow
                 Content = DeviceProfileLoader.AncLabel(child.Key), Tag = child, MinWidth = 60, Height = 26,
                 BorderThickness = new Thickness(0), Padding = new Thickness(8, 0),
                 Background = Brushes.Transparent, Focusable = false,
-                Foreground = BrushGray, FontSize = 13,
+                Foreground = AppPalette.BrushGray, FontSize = 13,
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center
             };
             btn.Click += AncSub_Click;
@@ -567,7 +565,7 @@ public partial class SmallWindow : SukiWindow
         var icon = new PathShape
         {
             Data = StreamGeometry.Parse(AncIcons.GetAncIcon(opt.Key)),
-            Width = iconSize, Height = iconSize, Fill = BrushGray,
+            Width = iconSize, Height = iconSize, Fill = AppPalette.BrushGray,
             Stretch = Stretch.Uniform
         };
         var clickArea = new Ellipse
@@ -590,7 +588,7 @@ public partial class SmallWindow : SukiWindow
         var label = new TextBlock
         {
             Text = labelText, FontSize = labelText.Length > 10 ? Math.Max(8, fontSize - 2) : fontSize,
-            Foreground = BrushGray, TextAlignment = TextAlignment.Center,
+            Foreground = AppPalette.BrushGray, TextAlignment = TextAlignment.Center,
             Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap
         };
 
@@ -610,14 +608,14 @@ public partial class SmallWindow : SukiWindow
         foreach (var (key, (bg, icon, label)) in _ancMainButtons)
         {
             var active = key == _ancMain;
-            bg.Fill   = active ? BrushAccent : _ancInactiveBgBrush;
-            icon.Fill = active ? BrushWhite : BrushGray;
+            bg.Fill   = active ? AppPalette.Accent : AppPalette.CircleGray;
+            icon.Fill = active ? AppPalette.BrushWhitePure : AppPalette.BrushGray;
         }
         foreach (var (key, (btn, bg)) in _ancSubButtons)
         {
             var active = key == _ancLevel;
-            bg.Background = active ? BrushAccent : _ancSubInactiveBgBrush;
-            btn.Foreground = active ? BrushWhite : BrushGray;
+            bg.Background = active ? AppPalette.Accent : AppPalette.BrushCircleStrokeInactive;
+            btn.Foreground = active ? AppPalette.BrushWhitePure : AppPalette.BrushGray;
         }
     }
 

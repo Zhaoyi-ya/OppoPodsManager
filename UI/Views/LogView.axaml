@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:l10n="using:OppoPodsManager.Assets.Localization"
+    x:Class="OppoPodsManager.UI.Views.LogView">
+  <Border Margin="16,12,16,16" Padding="12,10"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+    <Grid RowDefinitions="Auto,*">
+      <!-- 顶栏（始终固定） -->
+      <Grid Grid.Row="0" Margin="0,0,0,10">
+        <TextBlock Text="{l10n:Translate Log_Title}" FontSize="16"
+          VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+        <Button x:Name="BtnLogBack" Width="28" Height="28"
+          HorizontalAlignment="Left" Background="Transparent" BorderThickness="0"
+          Click="BtnLogBack_Click" Padding="0">
+          <Path Data="M15,6 L9,12 L15,18" Stroke="{DynamicResource SukiText}"
+            StrokeThickness="2" StrokeLineCap="Round"
+            Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+        </Button>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+          <Button x:Name="BtnLogExport" Content="{l10n:Translate Log_ExportZip}" Height="28" FontSize="13"
+            Click="BtnLogExport_Click" Padding="12,0" Classes="TextPanelButton"/>
+        </StackPanel>
+      </Grid>
+      <!-- 日志列表（内容滚动） -->
+      <ListBox Grid.Row="1" x:Name="LbLog" BorderThickness="0" Background="Transparent"
+        FontSize="13">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="x:String">
+            <TextBlock Text="{Binding}" FontSize="13"
+              Foreground="{DynamicResource SukiText}" TextWrapping="NoWrap"/>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+  </Border>
+</UserControl>

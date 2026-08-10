@@ -150,6 +150,9 @@ public sealed record VivoModelDefinition(
     int DeviceType,
     IReadOnlyDictionary<string, int> Features)
 {
+    // 按型号噪声模式映射（mode 字节 + reduceModel 档位），默认 Canonical（全 vivo 型号统一）。
+    // 非位置属性：运行时由 VivoDeviceModelData 按 ModelId 覆盖，不纳入相等性比较。
+    public VivoNoiseModeMap NoiseMap { get; init; } = VivoNoiseModeMap.Canonical;
     public string Brand => DisplayName.StartsWith("iQOO", StringComparison.OrdinalIgnoreCase) ? "iQOO" : "vivo";
     public string Series => DeviceType == 4 ? "Headphones" : "TWS";
     public int EnabledFeatureCount => Features.Values.Count(value => value > 0);
@@ -167,9 +170,9 @@ public sealed record VivoModelDefinition(
         if (SupportsNoiseCancellation)
         {
             features.Add("noise-cancellation");
-            noiseModes[VivoConstants.NoiseAnc] = NoiseMode.NoiseCancellation;
-            noiseModes[VivoConstants.NoiseOff] = NoiseMode.Off;
-            noiseModes[VivoConstants.NoiseTransparency] = NoiseMode.Transparency;
+            noiseModes[NoiseMap.NoiseCancellation] = NoiseMode.NoiseCancellation;
+            noiseModes[NoiseMap.Off] = NoiseMode.Off;
+            noiseModes[NoiseMap.Transparency] = NoiseMode.Transparency;
         }
         if (SupportsLowLatencyGaming)
             features.Add("game-mode");

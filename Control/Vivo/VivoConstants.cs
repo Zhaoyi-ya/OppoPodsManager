@@ -1,3 +1,5 @@
+using OppoPodsManager.Control.Oppo.Models;
+
 namespace OppoPodsManager.Control.Vivo;
 
 // vivo TWS GAIA 协议常量。
@@ -42,33 +44,65 @@ internal static class VivoConstants
     public const ushort QueryBattery = 0x0207;
     public const ushort ReportBattery = 0x8207;   // [00][左%][右%][仓%][充电位]
 
-    // ---- 噪声控制（长按「切换噪声控制」手势的目标循环集合；per-ear 多选，min-2-of-3）----
-    // 实测（官方 App 抓包）：
-    //   SET   0x0131 payload = [05][左耳字节][右耳字节]
-    //   QUERY 0x0231 payload = [05]
-    //   REPORT/Ack 0x8231 / 0x8131 payload = [00][05][左耳字节][右耳字节]
-    public const ushort SetNoiseMode = 0x0131;
-    public const ushort QueryNoiseMode = 0x0231;
-    public const ushort AckNoiseMode = 0x8131;
-    public const ushort ReportNoiseMode = 0x8231;
+    // ---- 噪声控制（APK 逆向实锤：set_noise_mode = 0x0130，真正切「当前出声模式」的命令）----
+    // 证据链（EarbudSettingsFetcher.java 命令映射 / C7738b.java:m37736o 帧构造器 /
+    //   C4258d.java:m20928W receiveNoiseModelState 回读 / 真机手动切换推送 0x8230）：
+    //   SET   0x0130 payload = [mode, reduceModel]（2 字节；reduceModel = 降噪/通透档位，无 0x05 前缀）
+    //   QUERY 0x0230 payload = 空（GAIA 查询默认空载荷，m37736o 对 0x0230 无特例→空字节）
+    //   REPORT/Ack 0x8230 / 0x8130 payload = [状态][mode][reduceModel][transparent?]
+    //     · 长度==2（SET ack 回声）：mode=payload[0]，reduceModel=payload[1]
+    //     · 长度>=3（查询响应/主动上报）：mode=payload[1]，reduceModel=payload[2]
+    //   模式字节语义（APK 逆向全链路实锤，全 vivo 型号统一）：0=降噪(NC) / 1=关闭(Off) / 2=通透(Transparency)
+    //   （UI 控件 m23148v2 的 int 参数 0/1/2/4 是 UI 主模式标签，被原样作为 set_noise_mode 首字节发出，APK 内无按型号重映射）
+    //   降噪档位 reduceModel（真机推送实锤）：降噪(NC)→0x04，通透(Transparency)→0x01
+    // 重要更正：旧工程把噪声命令族整体编为 0x0131/0x0231/0x8231，且误以为 0x010C(set_anc_mode) 才切出声模式；
+    //   真机证明 0x010C 仅改 ancModeConfig、不切模式（ACK 但不出声），真正生效的是 0x0130 系。
+    public const ushort SetNoiseMode = 0x0130;
+    public const ushort QueryNoiseMode = 0x0230;
+    public const ushort AckNoiseMode = 0x8130;
+    public const ushort ReportNoiseMode = 0x8230;
 
-    // 噪声字节 → 该耳长按「切换噪声控制」时循环切换的模式集合（min-2-of-3 至少勾选 2 个）：
-    //   0x0b = {关闭, 通透, 降噪} 全选（基线/默认）
-    //   0x0a = {通透, 降噪}           （排除关闭）
-    //   0x08 = {关闭, 降噪}           （排除通透）
-    //   0x09 = {关闭, 通透}           （排除降噪）
-    //   0xff = {}                    （无/禁用噪声切换，功能选"无"）
-    // 下方 NoiseOff/NoiseAnc/NoiseTransparency 取「该模式被排除」的循环集合，供 OPPO 风格三档 UI 复用。
-    public const byte NoiseAll          = 0x0b; // 全选
-    public const byte NoiseExcludeOff   = 0x0a; // 排除关闭 → UI「通透/降噪」
-    public const byte NoiseExcludeTrans = 0x08; // 排除通透 → UI「关闭/降噪」
-    public const byte NoiseExcludeAnc   = 0x09; // 排除降噪 → UI「关闭/通透」
-    public const byte NoiseNone         = 0xff; // 无
+    // set_noise_mode(0x0130) 第二字节 reduceModel 档位（真机手动切换推送 0x8230 实锤：NC=000104 / Trans=000201）。
+    public const byte NoiseReduceNcDefault     = 0x04; // 降噪档位（NC）
+    public const byte NoiseReduceTransDefault  = 0x01; // 通透档位（Transparency）
 
-    // OPPO 风格单档 UI 复用：每个按钮 = 把该模式从循环集合中排除（保留另两个）。
-    public const byte NoiseOff            = NoiseExcludeAnc;   // 0x09 → 循环 关闭/通透
-    public const byte NoiseAnc            = NoiseExcludeTrans; // 0x08 → 循环 关闭/降噪
-    public const byte NoiseTransparency   = NoiseExcludeOff;   // 0x0a → 循环 通透/降噪
+    // 当前降噪模式字节（set_noise_mode 0x0130 payload[0]），即 APK 权威值：0=降噪(NC) / 1=关闭(Off) / 2=通透(Trans)。
+    // 全 vivo 型号统一（APK 逆向证实无按型号重映射）；如需按型号覆盖，请改 VivoNoiseModeMap 而非此处标量常量。
+    public const byte NoiseModeOff         = 0x01; // 关闭（canonical）
+    public const byte NoiseModeAnc         = 0x00; // 降噪（canonical）
+    public const byte NoiseModeTransparency = 0x02; // 通透（canonical）
+
+    // 兼容别名：历史代码用 NoiseOff/NoiseAnc/NoiseTransparency 作模式字节，现对齐官方 0/1/2。
+    // （MapTo/MapFromVivoMode、NoiseOptionModel、SetNoiseCancellationProtocolAsync、VivoModelCatalog 均复用此名）
+    public const byte NoiseOff          = NoiseModeOff;
+    public const byte NoiseAnc          = NoiseModeAnc;
+    public const byte NoiseTransparency = NoiseModeTransparency;
+
+    // ---- 0x010C 系（set_anc_mode）：仅改 ancModeConfig 配置项，不切当前出声模式（仅供诊断/对照）----
+    // APK 逆向实锤（C7738b.java:m37736o 帧构造器对 268 走单字节特例；C4258d.java:m20910F 取 bArr→ancModeConfig
+    //   并广播 ANC_CHANGED；EarbudSettingsFetcher.java:receiveAncStateACK 路由到 ancModeConfig 更新）：
+    //   SET   0x010C payload = [mode]（单字节；mode 0=关闭 / 1=降噪 / 2=通透）
+    //   Ack   可能回 0x010C 自身（APK 路由表 268→receiveAncStateACK）或 SET|0x8000 = 0x810C
+    //   主动上报可能 0x820C；查询 0x020C
+    // ⚠️ 真机实锤：App 点选发 0x010C 并收 0x810C ACK（success=True），耳机实际不出声切换；
+    //   末尾 0x8230 主动推送帧是用户在耳机上手动切的。故 0x010C 不能用于切当前出声模式。
+    public const ushort SetAncMode   = 0x010C;
+    public const ushort AckAncMode   = 0x810C; // SET|0x8000 约定（设备若回 0x010C 本身，路由订阅已覆盖）
+    public const ushort QueryAncMode = 0x020C;
+    public const ushort ReportAncMode = 0x820C;
+
+    // 当前生效模式切换所用命令 = set_noise_mode(0x0130)。真机已验证 0x010C 无效，切模式必须走 0x0130 系。
+    public const ushort ActiveNoiseSetCommand   = SetNoiseMode;   // 0x0130
+    public const ushort ActiveNoiseAckCommand   = AckNoiseMode;   // 0x8130
+    public const ushort ActiveNoiseQueryCommand = QueryNoiseMode; // 0x0230
+
+    // （已废弃）旧误判的「长按循环集合」位掩码，保留仅供过渡参考，勿再用于当前模式切换。
+    //   0x0b=全选 / 0x0a={通透,降噪} / 0x08={关闭,降噪} / 0x09={关闭,通透} / 0xff=无
+    public const byte NoiseCycleAll          = 0x0b;
+    public const byte NoiseCycleExcludeOff   = 0x0a;
+    public const byte NoiseCycleExcludeTrans = 0x08;
+    public const byte NoiseCycleExcludeAnc   = 0x09;
+    public const byte NoiseCycleNone         = 0xff;
 
     // ---- 双击手势 ----
     // SET   0x0102 payload = [动作码]（单字节；耳机按数值范围判左右：0x00~0x06=左耳，0x10~0x16=右耳）
@@ -195,33 +229,6 @@ internal static class VivoConstants
         [0x03] = "来电拒接",
     };
 
-    // ---- 噪声字节 ↔ 模式集合 ----
-    public static readonly IReadOnlyDictionary<byte, IReadOnlySet<string>> NoiseByteToSelection = new Dictionary<byte, IReadOnlySet<string>>
-    {
-        [0x0b] = new HashSet<string> { "关闭", "通透", "降噪" },
-        [0x0a] = new HashSet<string> { "通透", "降噪" },
-        [0x08] = new HashSet<string> { "关闭", "降噪" },
-        [0x09] = new HashSet<string> { "关闭", "通透" },
-        [0xff] = new HashSet<string>(),
-    };
-
-    public static string NoiseByteToText(byte b)
-    {
-        if (NoiseByteToSelection.TryGetValue(b, out var set))
-            return set.Count == 0 ? "无(禁用)" : string.Join("+", set);
-        return $"0x{b:X2}(未知)";
-    }
-
-    // 模式集合 → 字节（未知集合回退到全选 0x0b）
-    public static byte NoiseSelectionToByte(IReadOnlySet<string>? selection)
-    {
-        if (selection is null || selection.Count == 0)
-            return NoiseNone;
-        foreach (var kvp in NoiseByteToSelection)
-            if (kvp.Value.Count == selection.Count && kvp.Value.SetEquals(selection))
-                return kvp.Key;
-        return NoiseAll;
-    }
 }
 
 // 型号画像（保留兼容 VivoManagerFactory；当前所有控制帧统一用 VivoConstants.ControlVersion）。
@@ -230,4 +237,31 @@ public sealed record VivoProfile(int GaiaVersion, byte[] NoiseQueryPayload, byte
     public static readonly VivoProfile Air3ProV3 = new(3, [], [4, 0]);
     public static readonly VivoProfile Tws3eV3 = new(3, [], [3]);
     public static readonly VivoProfile FamilyDefaultV4 = new(4, [0], [3, 1]);
+}
+
+// 噪声模式字节 + 降噪档位（reduceModel）映射，按型号可覆盖（见 VivoDeviceModelData.NoiseModeOverrides）。
+// 真值来自 APK 逆向 + TWS 3e 实测，全 vivo 型号统一（Canonical）：
+//   mode 字节：0=降噪(NC) / 1=关闭(Off) / 2=通透(Trans)
+//   reduceModel：降噪(NC)→0x04，关闭(Off)→0x04，通透(Trans)→0x01
+public sealed record VivoNoiseModeMap(
+    byte NoiseCancellation, byte Off, byte Transparency, byte ReduceNc, byte ReduceOff, byte ReduceTransparency)
+{
+    public static readonly VivoNoiseModeMap Canonical =
+        new(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault);
+
+    public byte ModeByte(NoiseMode mode) => mode switch
+    {
+        NoiseMode.NoiseCancellation => NoiseCancellation,
+        NoiseMode.Off => Off,
+        NoiseMode.Transparency => Transparency,
+        _ => Off,
+    };
+
+    public byte ReduceForMode(NoiseMode mode) => mode switch
+    {
+        NoiseMode.NoiseCancellation => ReduceNc,
+        NoiseMode.Off => ReduceOff,
+        NoiseMode.Transparency => ReduceTransparency,
+        _ => ReduceOff,
+    };
 }

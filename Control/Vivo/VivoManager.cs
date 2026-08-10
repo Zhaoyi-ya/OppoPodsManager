@@ -39,6 +39,7 @@ internal sealed class VivoManager : IBrandManager
     private byte? _spatialScene;
     private bool _audioEffectVerified;
     private VivoProfile _profile = VivoProfile.FamilyDefaultV4;
+    private VivoNoiseModeMap _noiseMap = VivoNoiseModeMap.Canonical; // 按型号解析的噪声模式字节/档位映射
     // ---- dszsu: 结构化能力系统 ----
     private VivoDeviceCapability _vivoCapability = new(null);
     // ---- 本地 bug 修复 + 多设备 + 序号守卫 ----
@@ -63,9 +64,10 @@ internal sealed class VivoManager : IBrandManager
     private byte? _doubleTapLeft;
     private byte? _doubleTapRight;
     private byte? _longPressFunc;
-    // 噪声控制 per-ear 当前字节（SET/REPORT 后维护，便于 UI 回显）。
-    private byte _noiseLeft = VivoConstants.NoiseAll;
-    private byte _noiseRight = VivoConstants.NoiseAll;
+    // 噪声控制当前模式与降噪档位（SET/REPORT 后维护，便于 UI 回显）。
+    private byte _noiseMode = 0xFF;   // 0xFF = 尚未得知
+    private byte _reduceModel;        // 降噪档位（reduceNoiseModelConfig），随回读更新
+    private readonly Dictionary<NoiseMode, byte> _reduceModelByMode = new(); // 设备回读的每模式 reduceModel 缓存，SET 时原样回传
     // 0x0300 握手是否成功：仅成功时才说明当前通道是活的 GAIA 通道，可安全启用主动上报。
     private bool _handshakeOk;
 
@@ -301,11 +303,11 @@ internal sealed class VivoManager : IBrandManager
 
     public async Task<bool> SetNoiseCancellationProtocolAsync(byte protocolIndex, CancellationToken cancellationToken)
     {
-        var mode = (int)protocolIndex switch
+        var mode = protocolIndex switch
         {
-            VivoConstants.NoiseOff => NoiseMode.Off,
-            VivoConstants.NoiseAnc => NoiseMode.NoiseCancellation,
-            VivoConstants.NoiseTransparency => NoiseMode.Transparency,
+            _ when protocolIndex == _noiseMap.Off => NoiseMode.Off,
+            _ when protocolIndex == _noiseMap.NoiseCancellation => NoiseMode.NoiseCancellation,
+            _ when protocolIndex == _noiseMap.Transparency => NoiseMode.Transparency,
             _ => (NoiseMode?)null
         };
         if (mode is null)
@@ -321,12 +323,11 @@ internal sealed class VivoManager : IBrandManager
 
     public async Task<bool> SetNoiseCancellationAsync(NoiseMode mode, CancellationToken cancellationToken)
     {
-        var vivoMode = MapToVivoMode(mode);
-        if (vivoMode is null)
+        if (MapToVivoMode(mode) is null)
             return false;
 
-        // 单档 UI 无法表达 per-ear 差异：把所选循环集合同时应用到左右两耳。
-        return await SetNoiseModeCoreAsync(vivoMode.Value, vivoMode.Value, cancellationToken);
+        // 官方 App 为全局单模式（左右耳共用同一 mode 字节），直接设当前生效模式。
+        return await SetNoiseModeCoreAsync(mode, cancellationToken);
     }
 
     // ---- 会话建立 ----
@@ -336,6 +337,8 @@ internal sealed class VivoManager : IBrandManager
         _deviceName = deviceName;
         ResolveCapability();
         _profile = VivoModels.SelectProfile(deviceName);
+        _noiseMap = _modelCatalog.Find(deviceName)?.NoiseMap ?? VivoNoiseModeMap.Canonical;
+        _reduceModelByMode.Clear();
         ApplicationLog.Current?.Debug("Vivo", $"选择协议画像：device={deviceName}，model={_vivoCapability.ModelName}，known={_vivoCapability.IsKnownModel}，gaiaVersion={_profile.GaiaVersion}，queryPayload={_profile.NoiseQueryPayload.Length} 字节，setSuffix={string.Join(",", _profile.NoiseSetSuffix)}。");
         _link = link;
         // dszsu: 统一安装通知处理器
@@ -435,7 +438,7 @@ internal sealed class VivoManager : IBrandManager
         try
         {
             var response = await link.RequestAsync(
-                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, new byte[] { 0x05 }, cancellationToken);
+                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, Array.Empty<byte>(), cancellationToken);
             // 仅接受最新发出的查询响应；过期的在途旧查询（设值前发出）直接丢弃，防止 UI 闪回旧状态。
             if (seq < _noiseHighest)
             {
@@ -698,36 +701,52 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    // 噪声控制是 per-ear 多选（min-2-of-3）：payload = [05][左耳字节][右耳字节]。
-    // 单档 UI（OPPO 风格三按钮）只能表达一个"循环集合"，故把所选模式同时应用到左右两耳。
-    private async Task<bool> SetNoiseModeCoreAsync(byte leftByte, byte rightByte, CancellationToken cancellationToken)
+    // 噪声控制当前模式切换：payload = [mode, reduceModel]（官方 App set_noise_mode 0x0130 实测 / C7738b.java:m37736o）。
+    // reduceModel 按模式选档位（真机推送实锤）：通透(Transparency)→0x01；降噪(NC)与关闭(Off)均用降噪档位 0x04。
+    private async Task<bool> SetNoiseModeCoreAsync(NoiseMode mode, CancellationToken cancellationToken)
     {
         if (_link is null)
             return false;
 
-        var payload = new byte[] { 0x05, leftByte, rightByte };
+        // 当前生效降噪模式走 set_noise_mode（0x0130），payload 为 2 字节 [mode, reduceModel]
+        // （APK 帧构造器 304 走多参数分支 [mode, reduceModel]）。0x010C(set_anc_mode) 仅改 ancModeConfig、
+        // 不切出声模式——真机已验证 ACK 但不出声，故改走 0x0130。
+        // mode 字节取当前型号映射（_noiseMap）；reduceModel 优先用设备回读缓存（按模式），
+        // 未得知时回退型号默认档位（NC/Off→0x04，Trans→0x01，与设备自身推送一致）。
+        var vivoModeByte = _noiseMap.ModeByte(mode);
+        var reduceModel = _reduceModelByMode.TryGetValue(mode, out var cachedReduce)
+            ? cachedReduce
+            : _noiseMap.ReduceForMode(mode);
+        var payload = new byte[] { vivoModeByte, reduceModel };
 
         try
         {
-            await _link.RequestAsync(VivoConstants.SetNoiseMode, VivoConstants.AckNoiseMode, payload, cancellationToken);
-            // 乐观更新：立即把 UI 切到目标模式，避免"设值后回读旧值→UI 闪回切换前状态"。
-            // 设备约 1~2s 才真正落定，立即回读必然拿到切换前的值。抬高查询序号纪元，
-            // 使轮询中可能已在途的旧查询响应在回程时被丢弃，不会用旧模式覆盖本次乐观值；
-            // 同时开启沉降窗口，丢弃窗口内（设值后设备未落定）的回读，避免旧模式覆盖乐观值；
-            // 窗口过后轮询自然读回并校正真实状态（若 SET 实际生效则读回新模式，UI 无变化）。
-            ++_noiseSeq;
-            _noiseHighest = _noiseSeq;
-            _noiseApplyDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2.5);
-            _noiseLeft = leftByte;
-            _noiseRight = rightByte;
-            _state.SetNoise(new NoiseSnapshot(MapFromVivoMode(leftByte), null));
-            return true;
+            await _link.RequestAsync(VivoConstants.ActiveNoiseSetCommand, VivoConstants.ActiveNoiseAckCommand, payload, cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            // 设备可能以 set 自身（0x0130）或 0x8230 上报帧回包；Router 订阅已捕获并解析，
+            // 状态已被 ApplyNoise 更新，故视为已生效，不报错。
+            ApplicationLog.Current?.Info("Vivo",
+                $"set_noise_mode(0x{VivoConstants.ActiveNoiseSetCommand:X4}) 未在约定 ack(0x{VivoConstants.ActiveNoiseAckCommand:X4}) 收到回包，但已通过其他回包帧更新状态。");
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Error("Vivo", $"设置降噪失败：{exception.Message}", exception);
             return false;
         }
+
+        // 乐观更新：立即把 UI 切到目标模式，避免"设值后回读旧值→UI 闪回切换前状态"。
+        // 设备约 1~2s 才真正落定，立即回读必然拿到切换前的值。抬高查询序号纪元，
+        // 使轮询中可能已在途的旧查询响应在回程时被丢弃，不会用旧模式覆盖本次乐观值；
+        // 同时开启沉降窗口，丢弃窗口内（设值后设备未落定）的回读，避免旧模式覆盖乐观值；
+        // 窗口过后轮询自然读回并校正真实状态（若 SET 实际生效则读回新模式，UI 无变化）。
+        ++_noiseSeq;
+        _noiseHighest = _noiseSeq;
+        _noiseApplyDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2.5);
+        _noiseMode = _noiseMap.ModeByte(mode);
+        _state.SetNoise(new NoiseSnapshot(mode, null));
+        return true;
     }
 
     // ---- T1：查找耳机（发声），游戏模式，空间音效开关 ----
@@ -1276,6 +1295,16 @@ internal sealed class VivoManager : IBrandManager
         _notificationSubscriptions.Add(link.Router.Subscribe(
             VivoConstants.ReportNoiseMode,
             frame => ApplyNoise(frame.Payload.Span)));
+        // 0x010C 系（set_anc_mode）：仅改 ancModeConfig 配置项，不切当前出声模式，故仅作诊断订阅，路由到 ApplyAnc。
+        // 真正切「当前出声模式」的回包帧（0x8130 ack / 0x8230 主动上报）已在上方订阅到 ApplyNoise。
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.SetAncMode,   frame => ApplyAnc(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.AckAncMode,   frame => ApplyAnc(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.ReportAncMode, frame => ApplyAnc(frame.Payload.Span)));
+        _notificationSubscriptions.Add(link.Router.Subscribe(
+            VivoConstants.QueryAncMode, frame => ApplyAnc(frame.Payload.Span)));
         _notificationSubscriptions.Add(link.Router.Subscribe(
             VivoConstants.AckLowLatencyGaming,
             frame => ApplyGameMode(frame.Payload.Span)));
@@ -1330,24 +1359,72 @@ internal sealed class VivoManager : IBrandManager
 
     private void ApplyNoise(ReadOnlySpan<byte> payload)
     {
-        // 实测（官方 App 抓包）：噪声控制 report/ack 0x8231 / 0x8131 payload = [00][05][左耳字节][右耳字节]。
-        if (payload.Length < 4 || payload[0] != 0 || payload[1] != 0x05)
+        // 官方回包格式（receiveNoiseModelState）：
+        //   · 长度==2（SET ack 回声）：mode=payload[0]，reduceModel=payload[1]
+        //   · 长度>=3（查询响应/主动上报）：mode=payload[1]，reduceModel=payload[2]
+        byte mode;
+        byte reduceModel;
+        if (payload.Length >= 3)
+        {
+            mode = payload[1];
+            reduceModel = payload.Length >= 4 ? payload[2] : (byte)0;
+        }
+        else if (payload.Length == 2)
+        {
+            mode = payload[0];
+            reduceModel = payload[1];
+        }
+        else if (payload.Length == 1)
+        {
+            mode = payload[0];
+            reduceModel = 0;
+        }
+        else
         {
             ApplicationLog.Current?.Debug("Vivo", $"忽略非法噪声控制回包：{Convert.ToHexString(payload)}。");
             return;
         }
 
-        var left = payload[2];
-        var right = payload[3];
-        _noiseLeft = left;
-        _noiseRight = right;
+        _noiseMode = mode;
+        _reduceModel = reduceModel;
 
-        // 单档 UI 只能显示一种模式，用左耳循环集合代表整体。
-        var mode = MapFromVivoMode(left);
+        var mapped = MapFromVivoMode(mode);
+        // 缓存设备回读的每模式 reduceModel，SET 时原样回传（不同型号默认档位可能不同）。
+        if (mapped is NoiseMode.Off or NoiseMode.NoiseCancellation or NoiseMode.Transparency)
+            _reduceModelByMode[mapped] = reduceModel;
         ApplicationLog.Current?.Debug("Vivo",
-            $"噪声控制更新：左=0x{left:X2}({VivoConstants.NoiseByteToText(left)})，右=0x{right:X2}({VivoConstants.NoiseByteToText(right)})。");
-        _state.SetNoise(new NoiseSnapshot(mode, null));
+            $"噪声控制更新：mode=0x{mode:X2}({mapped})，reduceModel=0x{reduceModel:X2}。");
+        _state.SetNoise(new NoiseSnapshot(mapped, null));
     }
+
+    // 当前生效降噪模式解析（set_anc_mode 0x010C 系回包）。
+    // APK receiveAncStateACK 取 bArr[1] 为模式字节（m20910F(bArr[1])），长度>=2 时 mode=payload[1]；
+    // 个别固件单字节回包时 mode=payload[0]。不包含 reduceModel（降噪档位由 0x0131 循环集合承载）。
+    private void ApplyAnc(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length == 0)
+        {
+            ApplicationLog.Current?.Debug("Vivo", "忽略非法 ANC 生效模式回包：空。");
+            return;
+        }
+
+        // 0x010C(set_anc_mode) 诊断系使用经典约定（APK 实锤）：mode 0=关闭 / 1=降噪 / 2=通透，与 0x0130 系字节相反，故单独映射。
+        var mode = payload.Length >= 2 ? payload[1] : payload[0];
+        var mapped = MapFromAncMode(mode);
+        _noiseMode = mode;
+        ApplicationLog.Current?.Debug("Vivo",
+            $"ANC 生效模式更新：mode=0x{mode:X2}({mapped})，payload={Convert.ToHexString(payload)}。");
+        _state.SetNoise(new NoiseSnapshot(mapped, null));
+    }
+
+    // 0x010C(set_anc_mode) 诊断系使用经典约定（APK 实锤）：0=关闭 / 1=降噪 / 2=通透。
+    private static NoiseMode MapFromAncMode(byte vivoMode) => vivoMode switch
+    {
+        0 => NoiseMode.Off,
+        1 => NoiseMode.NoiseCancellation,
+        2 => NoiseMode.Transparency,
+        _ => NoiseMode.Unknown
+    };
 
     // 官方回包第二个字节为低延迟游戏模式开关。
     private bool ApplyGameMode(ReadOnlySpan<byte> payload)
@@ -1443,21 +1520,22 @@ internal sealed class VivoManager : IBrandManager
     private static string FormatBytes(ReadOnlySpan<byte> bytes)
         => bytes.Length == 0 ? "(空)" : BitConverter.ToString(bytes.ToArray());
 
-    private static byte? MapToVivoMode(NoiseMode mode) => mode switch
+    private byte? MapToVivoMode(NoiseMode mode) => mode switch
     {
-        NoiseMode.Off => VivoConstants.NoiseOff,
-        NoiseMode.NoiseCancellation => VivoConstants.NoiseAnc,
-        NoiseMode.Transparency => VivoConstants.NoiseTransparency,
+        NoiseMode.Off => _noiseMap.Off,
+        NoiseMode.NoiseCancellation => _noiseMap.NoiseCancellation,
+        NoiseMode.Transparency => _noiseMap.Transparency,
         _ => null
     };
 
-    private static NoiseMode MapFromVivoMode(byte vivoMode) => vivoMode switch
+    // set_noise_mode(0x0130) 系：mode 字节取当前型号映射（_noiseMap，canonical 0=NC/1=Off/2=Trans）。
+    private NoiseMode MapFromVivoMode(byte vivoMode)
     {
-        VivoConstants.NoiseOff => NoiseMode.Off,
-        VivoConstants.NoiseAnc => NoiseMode.NoiseCancellation,
-        VivoConstants.NoiseTransparency => NoiseMode.Transparency,
-        _ => NoiseMode.Unknown
-    };
+        if (vivoMode == _noiseMap.NoiseCancellation) return NoiseMode.NoiseCancellation;
+        if (vivoMode == _noiseMap.Off) return NoiseMode.Off;
+        if (vivoMode == _noiseMap.Transparency) return NoiseMode.Transparency;
+        return NoiseMode.Unknown;
+    }
 
     private void OnStateChanged(object? sender, BusinessSnapshot snapshot)
         => StateChanged?.Invoke(this, snapshot);
@@ -1468,9 +1546,9 @@ internal sealed class VivoManager : IBrandManager
         // （"Off"/"NC"/"Transparency"），否则会被兜底成"降噪"，导致三个按钮同名。
         IReadOnlyList<NoiseOptionModel> noiseOptions =
         [
-            new("Off", NoiseMode.Off, VivoConstants.NoiseOff, []),
-            new("NC", NoiseMode.NoiseCancellation, VivoConstants.NoiseAnc, []),
-            new("Transparency", NoiseMode.Transparency, VivoConstants.NoiseTransparency, []),
+            new("Off", NoiseMode.Off, _noiseMap.Off, []),
+            new("NC", NoiseMode.NoiseCancellation, _noiseMap.NoiseCancellation, []),
+            new("Transparency", NoiseMode.Transparency, _noiseMap.Transparency, []),
         ];
 
         // 可见控件由 vivo 能力白名单（EarbudFeatures.FeatureID）按型号决定，而非硬编码；

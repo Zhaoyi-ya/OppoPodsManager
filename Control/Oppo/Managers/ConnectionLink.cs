@@ -33,7 +33,7 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
 
     public async Task SendAsync(ushort command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
-        ApplicationLog.Current?.Debug("Protocol", $"发送数据帧：command=0x{command:X4}，bytes={payload.Length}。");
+        ApplicationLog.Current?.Debug("Protocol", $"发送数据帧：command=0x{command:X4}，bytes={payload.Length}，payload={FormatPayload(payload.Span)}。");
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_connection.IsConnected)
             throw new InvalidOperationException("The raw connection is not connected.");

@@ -1,0 +1,165 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:OppoPodsManager"
+             xmlns:l10n="using:OppoPodsManager.Assets.Localization"
+             x:Class="OppoPodsManager.UI.Views.PersonalView">
+ <StackPanel Spacing="14" HorizontalAlignment="Stretch" Margin="0,0,0,40">
+  <TextBlock Text="{l10n:Translate Personal_Title}" FontSize="16"
+     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+
+  <!-- 外观 -->
+  <Border Padding="18,16"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="10">
+    <TextBlock Text="{l10n:Translate Personal_Appearance}" FontSize="14"
+        Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_Language}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <ComboBox x:Name="CbLanguage" Height="28" Padding="8,0" Width="180" HorizontalAlignment="Left"/>
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_Theme}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <ComboBox x:Name="CbTheme" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
+      <ComboBoxItem Content="{l10n:Translate Personal_ThemeFollowSystem}"/><ComboBoxItem Content="{l10n:Translate Personal_ThemeDark}"/><ComboBoxItem Content="{l10n:Translate Personal_ThemeLight}"/>
+     </ComboBox>
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_TransparencyPreset}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <ComboBox x:Name="CbTransparencyPreset" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
+      <ComboBoxItem Content="{l10n:Translate Personal_Custom}"/><ComboBoxItem Content="{l10n:Translate Personal_Clear}"/>
+      <ComboBoxItem Content="{l10n:Translate Personal_Balanced}"/><ComboBoxItem Content="{l10n:Translate Personal_Transparent}"/>
+     </ComboBox>
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_CardOpacity}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <Slider x:Name="SlOpacity" Minimum="0" Maximum="90" Value="50" Width="160"
+         TickFrequency="10" IsSnapToTickEnabled="True"/>
+     <TextBlock x:Name="TbOpacity" Text="50%" FontSize="12" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}" Opacity="0.5" Width="32"/>
+     <Button x:Name="BtnResetOpacity" Width="28" Height="28" Padding="0" Background="Transparent" BorderThickness="0">
+      <Path Data="M3,12A9,9 0,1 0,6.64 4.75M3,4V12H11" Stroke="{DynamicResource SukiText}" StrokeThickness="1.5" Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
+     </Button>
+    </StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_ToastDuration}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <ComboBox x:Name="CbToastDuration" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
+      <ComboBoxItem Content="3s"/>
+      <ComboBoxItem Content="4s"/>
+       <ComboBoxItem Content="{l10n:Translate Personal_ToastDurationDefault}"/>
+      <ComboBoxItem Content="6s"/>
+      <ComboBoxItem Content="7s"/>
+      <ComboBoxItem Content="8s"/>
+     </ComboBox>
+    </StackPanel>
+   </StackPanel>
+  </Border>
+
+  <!-- 背景 -->
+  <Border x:Name="BackgroundSettingsCard" Padding="18,16" HorizontalAlignment="Stretch"
+    CornerRadius="14" ClipToBounds="True" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel x:Name="BackgroundSettingsContent" Spacing="12">
+    <Grid ColumnDefinitions="*,Auto">
+     <TextBlock Text="{l10n:Translate Personal_Background}" FontSize="14"
+        VerticalAlignment="Center" Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+     <Border Grid.Column="1" x:Name="BgThumbAdd" Height="28" Padding="12,0"
+         Cursor="Hand" Classes="bgThumbAdd">
+      <TextBlock Text="{l10n:Translate Personal_AddNewBackground}" FontSize="13" VerticalAlignment="Center"
+         Foreground="{DynamicResource SukiText}"/>
+     </Border>
+    </Grid>
+    <Grid ColumnDefinitions="28,*,28" ClipToBounds="True">
+     <Button Grid.Column="0" x:Name="BtnBgLeft" Content="&#8249;" FontSize="19"
+         Width="28" Height="60" Padding="0" VerticalAlignment="Center"
+         Background="Transparent" BorderThickness="0"
+         Foreground="{DynamicResource SukiText}" Opacity="0.45"
+         Click="BtnBgLeft_Click"/>
+     <Border Grid.Column="1" HorizontalAlignment="Stretch" ClipToBounds="True">
+      <ScrollViewer x:Name="BgThumbScroller" HorizontalAlignment="Stretch" ClipToBounds="True"
+          HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+       <StackPanel x:Name="BgThumbList" Orientation="Horizontal" Spacing="10">
+        <Border x:Name="BgThumbDefault" Width="90" Height="60" CornerRadius="8"
+            Cursor="Hand" Classes="bgThumb">
+         <Border.Background>
+          <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+           <GradientStop Color="White" Offset="0"/>
+           <GradientStop Color="White" Offset="0.45"/>
+           <GradientStop Color="#222222" Offset="0.45"/>
+           <GradientStop Color="#222222" Offset="1"/>
+          </LinearGradientBrush>
+         </Border.Background>
+        </Border>
+       </StackPanel>
+      </ScrollViewer>
+     </Border>
+     <Button Grid.Column="2" x:Name="BtnBgRight" Content="&#8250;" FontSize="19"
+         Width="28" Height="60" Padding="0" VerticalAlignment="Center"
+         Background="Transparent" BorderThickness="0"
+         Foreground="{DynamicResource SukiText}" Opacity="0.45"
+         Click="BtnBgRight_Click"/>
+    </Grid>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+     <TextBlock Text="{l10n:Translate Personal_BackgroundBlur}" FontSize="13" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}"/>
+     <Slider x:Name="SlBgBlur" Minimum="0" Maximum="20" Value="0" Width="160"
+         TickFrequency="5" IsSnapToTickEnabled="True"/>
+     <TextBlock x:Name="TbBgBlur" Text="0" FontSize="12" VerticalAlignment="Center"
+        Foreground="{DynamicResource SukiText}" Opacity="0.5" Width="32"/>
+     <Button x:Name="BtnResetBgBlur" Content="{l10n:Translate Personal_Reset}" Height="28" FontSize="13" Padding="12,0" Classes="TextPanelButton"/>
+    </StackPanel>
+   </StackPanel>
+  </Border>
+
+  <!-- 自定义耳机图案 -->
+  <Border Padding="18,16" HorizontalAlignment="Stretch"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="10">
+    <TextBlock Text="{l10n:Translate Personal_CustomEarphone}" FontSize="14"
+        Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+    <WrapPanel x:Name="EarphoneCustomContent" Orientation="Horizontal"/>
+   </StackPanel>
+  </Border>
+
+  <!-- 设备 -->
+  <Border Padding="18,16"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="10">
+    <TextBlock Text="{l10n:Translate Personal_Device}" FontSize="14"
+        Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+    <TextBlock Text="{l10n:Translate Personal_CustomDeviceName}" FontSize="13"
+        Foreground="{DynamicResource SukiText}" Opacity="0.6"/>
+    <TextBox x:Name="TbCustomName" Height="30" Padding="8,4"
+        HorizontalContentAlignment="Center"/>
+   </StackPanel>
+  </Border>
+
+  <!-- 高级自定义设置 (Beta) -->
+  <Border Padding="18,16" HorizontalAlignment="Stretch"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="8">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+     <TextBlock Text="{l10n:Translate Personal_AdvancedSettings}" FontSize="14"
+        Foreground="{DynamicResource SukiText}" Opacity="0.8" VerticalAlignment="Center"/>
+     <Border Padding="3,1" CornerRadius="4" Background="#4488FF">
+      <TextBlock Text="{l10n:Translate Personal_Beta}" FontSize="10" Foreground="White"/>
+     </Border>
+    </StackPanel>
+    <CheckBox x:Name="CbAdvancedRender" Content="{l10n:Translate Personal_AdvancedRenderDesc}"
+       Margin="0,2,0,0"/>
+    <CheckBox x:Name="CbAcrylicBlur" Content="{l10n:Translate Personal_AcrylicBlurDesc}"
+       Margin="0,6,0,0"/>
+    <TextBlock Text="{l10n:Translate Personal_LinuxBlurNote}"
+       FontSize="11" Opacity="0.45" Margin="0,2,0,0"
+       Foreground="{DynamicResource SukiText}"/>
+    <TextBlock Text="{l10n:Translate Personal_AcrylicTip}"
+       FontSize="11" Opacity="0.35" Margin="0,2,0,0"
+       Foreground="{DynamicResource SukiText}"/>
+   </StackPanel>
+  </Border>
+  <Border Height="24" Background="Transparent"/>
+ </StackPanel>
+</UserControl>
