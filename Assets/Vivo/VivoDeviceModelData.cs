@@ -10,12 +10,27 @@ public static class VivoDeviceModelData
 {
     private const string ResourceName = "OppoPodsManager.Assets.Vivo.Data.DeviceModels.json";
 
-    // 按 ModelId 的 per-model 噪声模式覆盖点。
-    // 当前所有已知 vivo 型号均使用 Canonical（APK 逆向证实全型号统一，无需覆盖）；
-    // 若将来实测到某型号 mode 字节或 reduceModel 档位不同，在此按 ModelId 加一行即可，发送逻辑无需改动。
+    // 按 ModelId 的 per-model 噪声模式 SET 后缀覆盖点（对齐官方 App / Windows 逆向参考 VivoProfiles）。
+    // SET 噪声模式帧(0x0130) 载荷固定为 [mode, ..NoiseSetSuffix]，NoiseSetSuffix 为按型号的固定后缀：
+    //   · 默认(Canonical) = [0x03, 0x01] → v4 家族（TWS 4 / TWS 4 Hi-Fi / TWS Air3 / iQOO TWS 2 等），与官方 App 抓包逐字节一致。
+    //   · TWS 3e (DPD2321A) = [0x03]      → v3，官方 App 逆向（Windows 参考 Tws3eV3.NoiseSetSuffix=[0x03]）。
+    //   · Air3 Pro 系 (DPD2431A/B/AC) = [0x04, 0x00] → v3，官方 App 逆向（Windows 参考 Air3ProV3.NoiseSetSuffix=[4,0]）。
+    // 仅当某型号与官方 App 后缀不同才需在此按 ModelId 登记；mode 字节(0=NC/1=Off/2=Trans)全型号统一，无需覆盖。
     private static readonly Dictionary<int, VivoNoiseModeMap> NoiseModeOverrides = new()
     {
-        // [113] = new VivoNoiseModeMap(0x00, 0x01, 0x02, 0x04, 0x04, 0x01), // vivo TWS 3e（示例：与 Canonical 一致）
+        // vivo TWS 3e（DPD2321A，ModelId 112/113）：v3 + [mode, 0x03]（官方 App 逆向，非旧工程臆测的 [mode, reduceModel]）。
+        [112] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [0x03]),
+        [113] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [0x03]),
+
+        // vivo / iQOO TWS Air3 Pro 系（DPD2431A/B/AC，ModelId 168~190）：v3 + [mode, 0x04, 0x00]。
+        [168] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [169] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [170] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [172] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [173] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [188] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [189] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
+        [190] = new VivoNoiseModeMap(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault, NoiseSetSuffix: [4, 0]),
     };
 
     public static VivoModelCatalog LoadCatalog()

@@ -16,12 +16,18 @@ namespace OppoPodsManager.Control.Vivo;
 
 // vivo / iQOO TWS 会话管理。
 //
-// ⚠ 协议命令码以 2026-08-09 官方 App HCI 抓包逐字节验证过的 vivo_gui.py 为准（控制变量法）。
-//   已验证并接入：电量(0x0207/0x8207)、噪声控制(0x0131/0x0231/0x8231，per-ear 多选 min-2-of-3)、
-//   佩戴(0x0203/0x8203)、音效/EQ(0x0118/0x0218/0x8118/0x8218)、双击手势(0x0102/0x0202/0x8202)、
-//   长按功能(0x0150/0x0250/0x8150/0x8250)、查找耳机(0x0120/0x8120)、双连(0x0249/0x8249)。
-//   查找耳机/游戏模式(低延迟 0x0151)/空间音效(0x0139)开关已实现；空间音频与游戏模式命令字未实测确认，
-//   默认由能力白名单隐藏，待真机确认。
+// ⚠ 协议命令码以官方 App 反编译注册表（EarbudSettingsFetcher.fetchEarbudsSettingsFromCommand）+ 真机抓包为权威真值源。
+//   已验证并接入：
+//     电量(0x0207/0x8207，恒 GAIA v4)、噪声控制(0x0130/0x0230/0x8130/0x8230，真正切出声模式，
+//       0x010C 仅改 ancModeConfig 不切模式)、佩戴(0x0103/0x0203/0x8203 + 实时佩戴 0x020D/0x820D)、
+//     音效/EQ(0x0118/0x0218/0x8118/0x8218)、双击手势(0x0102/0x0202/0x8202)、
+//     长按功能(0x0131/0x0231/0x8131/0x8231，APK set_long_press)、查找耳机(0x0120/0x8120，=set_audio_play_state)、
+//     双连(0x0249/0x8249/0x014A/0x014C/0x014D)、低延迟游戏(0x0151/0x0251/0x8151/0x8251)、
+//     空间音频(0x0139/0x0239/0x8139/0x8239)。
+//   ⚠ 官方 App 无独立"游戏模式"GAIA 命令：游戏模式即低延迟游戏(0x0151)，旧工程误用的 0x0220(=get_audio_play_state)已删除。
+//   连接建立后发送 0x0202~0x0206 注册通知握手，使耳机开始主动推送各 report 帧（与 OPPO 同源）。
+// 控件可见性由 VivoFeatureMatrix 按连接型号决定：已知型号仅显示其能力集合内功能，未知型号默认乐观显示，
+// 便于真机逐项验证命令实现，确认不支持的功能由白名单精确隐藏。
 //   连接建立后发送 0x0202~0x0206 注册通知握手，使耳机开始主动推送各 report 帧（与 OPPO 同源）。
 // 控件可见性由 VivoFeatureMatrix 按连接型号决定：已知型号仅显示其能力集合内功能，未知型号默认乐观显示，
 // 便于真机逐项验证命令实现，确认不支持的功能由白名单精确隐藏。
@@ -339,7 +345,10 @@ internal sealed class VivoManager : IBrandManager
         _profile = VivoModels.SelectProfile(deviceName);
         _noiseMap = _modelCatalog.Find(deviceName)?.NoiseMap ?? VivoNoiseModeMap.Canonical;
         _reduceModelByMode.Clear();
-        ApplicationLog.Current?.Debug("Vivo", $"选择协议画像：device={deviceName}，model={_vivoCapability.ModelName}，known={_vivoCapability.IsKnownModel}，gaiaVersion={_profile.GaiaVersion}，queryPayload={_profile.NoiseQueryPayload.Length} 字节，setSuffix={string.Join(",", _profile.NoiseSetSuffix)}。");
+        var setSuffixText = _noiseMap.NoiseSetSuffix is null
+            ? "reduceModel-style(2字节)"
+            : "[" + string.Join(",", _noiseMap.NoiseSetSuffix) + "]";
+        ApplicationLog.Current?.Debug("Vivo", $"选择协议画像：device={deviceName}，model={_vivoCapability.ModelName}，known={_vivoCapability.IsKnownModel}，gaiaVersion={_profile.GaiaVersion}，queryPayload={_profile.NoiseQueryPayload.Length} 字节，噪声SET载荷={setSuffixText}。");
         _link = link;
         // dszsu: 统一安装通知处理器
         InstallNotificationHandlers(link);
@@ -437,8 +446,9 @@ internal sealed class VivoManager : IBrandManager
         _noiseHighest = Math.Max(_noiseHighest, seq);
         try
         {
+            // 噪声查询帧载荷按型号画像（官方 App：v4 家族带 1 字节 [0x00]，TWS 3e/Air3Pro 为空），见 VivoProfile.NoiseQueryPayload。
             var response = await link.RequestAsync(
-                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, Array.Empty<byte>(), cancellationToken);
+                VivoConstants.QueryNoiseMode, VivoConstants.ReportNoiseMode, _profile.NoiseQueryPayload, cancellationToken);
             // 仅接受最新发出的查询响应；过期的在途旧查询（设值前发出）直接丢弃，防止 UI 闪回旧状态。
             if (seq < _noiseHighest)
             {
@@ -701,23 +711,35 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    // 噪声控制当前模式切换：payload = [mode, reduceModel]（官方 App set_noise_mode 0x0130 实测 / C7738b.java:m37736o）。
-    // reduceModel 按模式选档位（真机推送实锤）：通透(Transparency)→0x01；降噪(NC)与关闭(Off)均用降噪档位 0x04。
+    // 噪声控制当前模式切换：payload = [mode, 0x03, 0x01]（GAIA v4，官方 App HCI 抓包逐字节实锤）。
+    // 第二、三字节为固定后缀，非降噪档位；旧工程误用档位发 2 字节载荷，耳机忽略 → 软件内无法切模式。
     private async Task<bool> SetNoiseModeCoreAsync(NoiseMode mode, CancellationToken cancellationToken)
     {
         if (_link is null)
             return false;
 
-        // 当前生效降噪模式走 set_noise_mode（0x0130），payload 为 2 字节 [mode, reduceModel]
-        // （APK 帧构造器 304 走多参数分支 [mode, reduceModel]）。0x010C(set_anc_mode) 仅改 ancModeConfig、
-        // 不切出声模式——真机已验证 ACK 但不出声，故改走 0x0130。
-        // mode 字节取当前型号映射（_noiseMap）；reduceModel 优先用设备回读缓存（按模式），
-        // 未得知时回退型号默认档位（NC/Off→0x04，Trans→0x01，与设备自身推送一致）。
+        // 当前生效降噪模式走 set_noise_mode（0x0130），帧版本取型号画像 GAIA 版本（TWS 4 = v4 / TWS 3e = Air3 Pro = v3）。
+        // SET 载荷按型号覆盖点（VivoNoiseModeMap.NoiseSetSuffix）生成，对齐官方 App（Windows 逆向参考 [(byte)mode, ..NoiseSetSuffix]）：
+        //   · 非 null（当前全部型号）→ 固定后缀：payload = [mode, ..NoiseSetSuffix]
+        //       - TWS 4 系 / TWS Air3 / iQOO TWS 2：[mode, 0x03, 0x01]（官方 App 抓包逐字节实锤）
+        //       - TWS 3e：[mode, 0x03]；Air3 Pro 系：[mode, 0x04, 0x00]（Windows 参考 Tws3eV3 / Air3ProV3）
+        //   · null（保留的 legacy fallback，当前无型号使用）→ 按模式取降噪档位 [mode, ReduceForMode(mode)]
+        // 0x010C(set_anc_mode) 仅改 ancModeConfig、不切出声模式——真机已验证 ACK 但不出声，故改走 0x0130。
+        // mode 字节取当前型号映射（_noiseMap）。
         var vivoModeByte = _noiseMap.ModeByte(mode);
-        var reduceModel = _reduceModelByMode.TryGetValue(mode, out var cachedReduce)
-            ? cachedReduce
-            : _noiseMap.ReduceForMode(mode);
-        var payload = new byte[] { vivoModeByte, reduceModel };
+        byte[] payload;
+        if (_noiseMap.NoiseSetSuffix is null)
+        {
+            // TWS 3e 旧固件：2 字节 [mode, reduceModel]，reduceModel 随模式取档位。
+            payload = new byte[] { vivoModeByte, _noiseMap.ReduceForMode(mode) };
+        }
+        else
+        {
+            var suffix = _noiseMap.NoiseSetSuffix;
+            payload = new byte[suffix.Length + 1];
+            payload[0] = vivoModeByte;
+            suffix.CopyTo(payload, 1);
+        }
 
         try
         {
@@ -765,25 +787,6 @@ internal sealed class VivoManager : IBrandManager
         catch (Exception exception)
         {
             ApplicationLog.Current?.Error("Vivo", $"查找耳机命令失败：{exception.Message}", exception);
-            return false;
-        }
-    }
-
-    private async Task<bool> SetGameModeCoreAsync(bool enabled, CancellationToken cancellationToken)
-    {
-        if (_link is null)
-            return false;
-
-        try
-        {
-            await _link.RequestAsync(VivoConstants.SetGameMode, VivoConstants.AckGameMode,
-                new byte[] { enabled ? (byte)1 : (byte)0 }, cancellationToken);
-            await RefreshGameModeAsync(_link, cancellationToken);
-            return true;
-        }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Error("Vivo", $"设置游戏模式失败：{exception.Message}", exception);
             return false;
         }
     }
@@ -1052,9 +1055,9 @@ internal sealed class VivoManager : IBrandManager
     }
 
     // ---- 实时佩戴/在盒状态（REPORT 0x820D，随取放主动推送）----
-    // payload [status:0][flags]，flags 位域（真机实测修正：原"佩戴/入盒"语义左右对调，已校正）：
-    //   右耳占用低 2 位 [1:0]：0x01=入盒、0x02=佩戴；左耳占用高 2 位 [3:2]：0x04=入盒、0x08=佩戴；
-    //   某耳两位均 0 表示已摘除（Removed）。0x0C 不再是"入盒充电"，而是"右佩戴+左佩戴"的无效组合。
+    // payload [status:0][flags]，flags 位域（官方 AbstractC7500c 全 APK 唯一"在耳"判定，已逐位核对）：
+    //   bit0(0x01)=左耳在盒、bit1(0x02)=右耳在盒、bit2(0x04)=左耳佩戴、bit3(0x08)=右耳佩戴。
+    //   某耳两位皆 0 → 摘下(Removed)；每耳占用 2 位，不会同时在盒与佩戴。
     private void OnWearReport(ProtocolFrame frame)
         => ApplyWear(frame.Payload.Span);
 
@@ -1066,7 +1069,8 @@ internal sealed class VivoManager : IBrandManager
         if (p.Length < 2)
             return;
         var enabled = p[1] != 0;
-        ApplicationLog.Current?.Debug("Vivo", $"佩戴检测开关状态：{(enabled ? "开" : "关")}（payload={Convert.ToHexString(p.ToArray())}）。");
+        var stateStr = enabled ? "开" : "关";
+        ApplicationLog.Current?.Debug("Vivo", "佩戴检测开关状态：" + stateStr + "（payload=" + Convert.ToHexString(p.ToArray()) + "）。");
         _wearDetectionEnabled = enabled;
         _state.NotifyChanged();
     }
@@ -1077,14 +1081,19 @@ internal sealed class VivoManager : IBrandManager
             return;
 
         var flags = payload.Length >= 2 ? payload[1] : payload[0];
-        var rightInCase = (flags & 0x01) != 0;
-        var rightWorn = (flags & 0x02) != 0;
-        var leftInCase = (flags & 0x04) != 0;
-        var leftWorn = (flags & 0x08) != 0;
 
-        var right = rightInCase ? EarWearState.InCase : (rightWorn ? EarWearState.Worn : EarWearState.Removed);
-        var left = leftInCase ? EarWearState.InCase : (leftWorn ? EarWearState.Worn : EarWearState.Removed);
-        ApplicationLog.Current?.Debug("Vivo", $"佩戴状态更新：左={left}，右={right}（flags=0x{flags:X2}，右 入盒={rightInCase}/佩戴={rightWorn}，左 入盒={leftInCase}/佩戴={leftWorn}）。");
+        // 官方真值（AbstractC7500c 全 APK 唯一"在耳"判定，已逐位核对）：
+        //   bit0(0x01)=左在盒、bit1(0x02)=右在盒、bit2(0x04)=左佩戴、bit3(0x08)=右佩戴。
+        //   某耳两位皆 0 → 摘下(Removed)。
+        var leftInCase  = (flags & 0x01) != 0;
+        var rightInCase = (flags & 0x02) != 0;
+        var leftWorn    = (flags & 0x04) != 0;
+        var rightWorn   = (flags & 0x08) != 0;
+
+        var left  = leftWorn  ? EarWearState.Worn  : (leftInCase  ? EarWearState.InCase : EarWearState.Removed);
+        var right = rightWorn ? EarWearState.Worn  : (rightInCase ? EarWearState.InCase : EarWearState.Removed);
+
+        ApplicationLog.Current?.Debug("Vivo", $"佩戴状态更新：左={left}，右={right}（flags=0x{flags:X2}，左 在盒={leftInCase}/佩戴={leftWorn}，右 在盒={rightInCase}/佩戴={rightWorn}）。");
         _state.SetWear(new WearSnapshot(left, right));
     }
 
@@ -1291,7 +1300,7 @@ internal sealed class VivoManager : IBrandManager
             frame => ApplyBattery(frame.Payload.Span)));
         _notificationSubscriptions.Add(link.Router.Subscribe(
             VivoConstants.AckNoiseMode,
-            frame => ApplyNoise(frame.Payload.Span)));
+            frame => ApplyNoiseAck(frame.Payload.Span)));
         _notificationSubscriptions.Add(link.Router.Subscribe(
             VivoConstants.ReportNoiseMode,
             frame => ApplyNoise(frame.Payload.Span)));
@@ -1359,20 +1368,17 @@ internal sealed class VivoManager : IBrandManager
 
     private void ApplyNoise(ReadOnlySpan<byte> payload)
     {
-        // 官方回包格式（receiveNoiseModelState）：
-        //   · 长度==2（SET ack 回声）：mode=payload[0]，reduceModel=payload[1]
-        //   · 长度>=3（查询响应/主动上报）：mode=payload[1]，reduceModel=payload[2]
+        // 官方回包格式（receiveNoiseModelState，对应 0x8230 主动上报 / 查询响应）：
+        //   · 长度>=3：[状态][mode][reduceModel][transparent?] → mode=payload[1]，reduceModel=payload[2]
+        //   · 长度 1~2：防御性分支，mode=payload[0]（SET ack 已独立路由到 ApplyNoiseAck，不在此处理）
         byte mode;
         byte reduceModel;
-        if (payload.Length >= 3)
+        if (payload.Length >= 2)
         {
+            // 官方 App 回包（0x8230 主动上报 / 查询响应）：payload[0]=状态字节(0)，payload[1]=模式字节，
+            // payload[2]=降噪档位(reduceModel，长度>=3 时)。与 SET 的 ACK(0x8130, mode 在 payload[0]) 不同。
             mode = payload[1];
-            reduceModel = payload.Length >= 4 ? payload[2] : (byte)0;
-        }
-        else if (payload.Length == 2)
-        {
-            mode = payload[0];
-            reduceModel = payload[1];
+            reduceModel = payload.Length >= 3 ? payload[2] : (byte)0;
         }
         else if (payload.Length == 1)
         {
@@ -1394,6 +1400,24 @@ internal sealed class VivoManager : IBrandManager
             _reduceModelByMode[mapped] = reduceModel;
         ApplicationLog.Current?.Debug("Vivo",
             $"噪声控制更新：mode=0x{mode:X2}({mapped})，reduceModel=0x{reduceModel:X2}。");
+        _state.SetNoise(new NoiseSnapshot(mapped, null));
+    }
+
+    // SET 噪声模式帧(0x0130)的 ACK 回显：直接回显 SET 载荷（v4 格式下为 [mode, 0x03, 0x01]），mode 在首位。
+    // 与主动上报(0x8230，[状态][mode][reduceModel][transparent?]) 解析位置不同，故单独处理，避免 3 字节 ACK 被误解析为 mode=payload[1]。
+    private void ApplyNoiseAck(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length < 1)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"忽略非法噪声控制 ACK 回包：{FormatBytes(payload)}。");
+            return;
+        }
+
+        // ACK 回显 SET 帧，mode 在 payload[0]（v4 下 [mode, 0x03, 0x01]）。
+        var mode = payload[0];
+        var mapped = MapFromVivoMode(mode);
+        ApplicationLog.Current?.Debug("Vivo",
+            $"噪声控制 ACK：mode=0x{mode:X2}({mapped})，payload={FormatBytes(payload)}。");
         _state.SetNoise(new NoiseSnapshot(mapped, null));
     }
 

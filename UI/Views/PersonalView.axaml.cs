@@ -67,7 +67,13 @@ public partial class PersonalView : PageView
             Log?.Debug("UI", $"设置: 高级渲染 -> {on}");
             Host?.SetAdvancedRender(on);
         };
-        CbAcrylicBlur.IsCheckedChanged += (_, _) => Host?.SetAcrylicBlur(CbAcrylicBlur.IsChecked == true);
+        CbAcrylicBlur.IsCheckedChanged += (_, _) =>
+        {
+            // 启动期 Attach() 会显式调用 SetAcrylicBlurSilent（静默，不弹提示）；
+            // 此处仅响应**用户手动拨动开关**的操作。
+            if (_initializing) return;
+            Host?.SetAcrylicBlur(CbAcrylicBlur.IsChecked == true);
+        };
     }
 
     public override void Attach(
@@ -104,7 +110,9 @@ public partial class PersonalView : PageView
 
             CbAdvancedRender.IsChecked = UiSettings.GetBool("AdvancedRender", false);
             CbAcrylicBlur.IsChecked = UiSettings.GetBool("AcrylicBlur", false);
-            Host?.SetAcrylicBlur(CbAcrylicBlur.IsChecked == true);
+            // 启动期静默应用 Acrylic：窗口已在 AdaptToPlatform 按设置应用，这里只同步背景设置可用状态，
+            // 不弹提示（提示只在用户手动拨动 CbAcrylicBlur 开关时由 IsCheckedChanged 触发）。
+            Host?.SetAcrylicBlurSilent(CbAcrylicBlur.IsChecked == true);
         }
         finally
         {

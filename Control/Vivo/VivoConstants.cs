@@ -9,9 +9,15 @@ namespace OppoPodsManager.Control.Vivo;
 //    参考工程 OPPO-Pods-For-Windows 的旧 Vivo 常量未经验证，其噪声/查找/佩戴命令码均错，已据实测更正。
 //
 // 帧格式：FF [ver] [flags=00] [len] [vendor_hi] [vendor_lo] [cmd_hi] [cmd_lo] [payload...]
-//   - 握手 0x0300 用 GAIA 厂商(0x000A) + version 4
-//   - 注册通知链 0x0202~0x0206 用 VIVO 厂商(0x001B) + version 4
-//   - 其余所有控制帧（电量/降噪/查找/EQ/手势/长按）用 VIVO 厂商(0x001B) + version 3
+    // GAIA 版本是「按命令」而非「按型号」——真机抓包已实锤：
+    //   - 握手 0x0300：GAIA 厂商(0x000A) + version 4（版本协商帧，恒 v4）
+    //   - 电量 0x0207：VIVO 厂商(0x001B) + version 4（TWS4 与 Air3 Pro 真机抓包均为 v4；
+    //       旧实现按型号版本发会导致旧型号电量查询被耳机忽略）
+    //   - 其余命令（噪声 0x0130、低延迟 0x0151、空间音频 0x0139、EQ 0x0118、双击 0x0102、
+    //       长按 0x0131、查找 0x0120、双连 0x0249/0x014A…）：VIVO 厂商(0x001B) + 型号画像
+    //       GAIA 版本(_noiseVersion)，随代际 v4(TWS4 系) / v3(Air3 Pro、TWS3e)。
+    //   噪声模式切换 0x0130 用 v4（官方 App HCI 抓包逐字节实锤；用 v3 会被耳机忽略，
+    //   表现为「软件内无法切换降噪模式但耳机切软件能跟」）。
 //   report 帧 = query/set 帧 | 0x8000（与 GAIA 约定一致）。
 internal static class VivoConstants
 {
@@ -47,7 +53,8 @@ internal static class VivoConstants
     // ---- 噪声控制（APK 逆向实锤：set_noise_mode = 0x0130，真正切「当前出声模式」的命令）----
     // 证据链（EarbudSettingsFetcher.java 命令映射 / C7738b.java:m37736o 帧构造器 /
     //   C4258d.java:m20928W receiveNoiseModelState 回读 / 真机手动切换推送 0x8230）：
-    //   SET   0x0130 payload = [mode, reduceModel]（2 字节；reduceModel = 降噪/通透档位，无 0x05 前缀）
+    //   SET   0x0130 payload = [mode, 0x03, 0x01]（3 字节；第二、三字节为固定后缀，非降噪档位；
+    //         官方 App HCI 抓包逐字节实锤：降噪开 00 03 01 / 降噪关 01 03 01 / 通透 02 03 01；GAIA v4）
     //   QUERY 0x0230 payload = 空（GAIA 查询默认空载荷，m37736o 对 0x0230 无特例→空字节）
     //   REPORT/Ack 0x8230 / 0x8130 payload = [状态][mode][reduceModel][transparent?]
     //     · 长度==2（SET ack 回声）：mode=payload[0]，reduceModel=payload[1]
@@ -113,13 +120,18 @@ internal static class VivoConstants
     public const ushort ReportDoubleTapConfig = 0x8202;
 
     // ---- 长按手势功能（状态开关：无 / 切换噪声控制 / 来电拒接）----
-    // SET   0x0150 payload = [03][功能码]
-    // QUERY 0x0250 payload = 空
-    // ACK/Report 0x8150 / 0x8250 payload = [00][03][功能码]
-    public const ushort SetLongPressFunc = 0x0150;
-    public const ushort QueryLongPressFunc = 0x0250;
-    public const ushort AckLongPressFunc = 0x8150;
-    public const ushort ReportLongPressFunc = 0x8250;
+    // ⚠️ 命令字已据官方 App 反编译注册表（EarbudSettingsFetcher.fetchEarbudsSettingsFromCommand）更正：
+    //    set_long_press = 305 = 0x0131（旧工程误用 0x0150，那是 set_touch_operation_button）。
+    //    SET 0x0131 / QUERY 0x0231 / ACK 0x8131 / REPORT 0x8231。
+    //    同步更正查询/ACK/上报命令字（0x0250/0x8150/0x8250 → 0x0231/0x8131/0x8231）。
+    //    注：0x0231/0x8231 曾被 vivo-Protocol.txt 抓包误标为"查找"，实为长按查询/上报（注册表实锤）。
+    // SET   0x0131 payload = [05][功能码]（APK m37720W(5, a, b) 构造）
+    // QUERY 0x0231 payload = 空
+    // ACK/Report 0x8131 / 0x8231 payload 待 payload 级核对
+    public const ushort SetLongPressFunc = 0x0131;
+    public const ushort QueryLongPressFunc = 0x0231;
+    public const ushort AckLongPressFunc = 0x8131;
+    public const ushort ReportLongPressFunc = 0x8231;
 
     // ---- 查找耳机（两耳同时响铃）----
     // SET   0x0120 payload = [01] 启动 / [00] 关闭
@@ -131,11 +143,13 @@ internal static class VivoConstants
     // 注意：vivo 有两套完全不同的"佩戴"帧，早前把它们混为一谈导致佩戴状态不刷新：
     //  • 佩戴检测开关：SET 0x0103 / QUERY 0x0203 / REPORT 0x8203，payload [..][state]，state 0=关 1=开
     //    （即 APP 里"佩戴检测"功能的总开关，仅连接时/改设置时上报一次，不随取放变化）。
-    //  • 实时佩戴/在盒状态：QUERY 0x020D / REPORT 0x820D，payload [status:0][flags]。
-    //    flags 为每耳 2 位（真机实测修正，原先"0x01/0x02=左右佩戴、0x0C=在盒充电"的读法会让
-    //    佩戴与在盒完全颠倒）：右耳 [1:0] → 0x01=在盒、0x02=佩戴；左耳 [3:2] → 0x04=在盒、0x08=佩戴；
-    //    某耳两位皆 0 表示已摘下。故 0x0C 不是"在盒充电"，而是"左右两耳同时佩戴"。
-    //    耳机取放时主动推送，是 UI 佩戴状态真正的实时来源。
+    //  • 实时佩戴状态：QUERY 0x020D / REPORT 0x820D，payload [status:0][flags]。
+    //    flags 位域（官方 AbstractC7500c 全 APK 唯一"在耳"判定，已逐位核对）：
+    //      bit0(0x01)=左耳在盒、bit1(0x02)=右耳在盒、
+    //      bit2(0x04)=左耳佩戴(Worn)、bit3(0x08)=右耳佩戴(Worn)。
+    //    每耳占用 2 位，不会同时在盒与佩戴；两位皆 0 → 摘下(Removed)。
+    //    UpgradeActivity 亦用 bit0&bit1 判定"双耳都在盒"，与上方一致。
+    //    耳机取放时主动推送，是 UI 佩戴状态真正的实时来源（无需交叉电量充电位）。
     public const ushort SetWearDetection = 0x0103;
     public const ushort AckWearDetection = 0x8103;
     public const ushort QueryWearDetection = 0x0203;
@@ -156,11 +170,6 @@ internal static class VivoConstants
     public const ushort QueryLowLatencyGaming = 0x0251;
     public const ushort AckLowLatencyGaming = 0x8151;
     public const ushort ReportLowLatencyGaming = 0x8251;
-
-    // ---- 游戏模式旧路径占位（未实测确认；当前主路径走低延迟游戏 0x0151）----
-    public const ushort SetGameMode = 0x0220;
-    public const ushort AckGameMode = 0x8220;
-    public const ushort ReportGameMode = 0x8220;
 
     // ---- 空间音频（未实测确认；TWS 3e 大概率无此功能，能力白名单默认隐藏）----
     // 命令字源自反编译（set_spatial_audio），未经真机抓包确认。注意：旧工程的
@@ -231,7 +240,8 @@ internal static class VivoConstants
 
 }
 
-// 型号画像（保留兼容 VivoManagerFactory；当前所有控制帧统一用 VivoConstants.ControlVersion）。
+// 型号画像（驱动帧 GAIA 版本 / 噪声查询载荷 / 噪声 SET 后缀；对齐官方 App / Windows 逆向参考 VivoProfiles）。
+// 全部非握手命令统一用 GaiaVersion（v4 家族 / v3 旧系），由 VivoManagerFactory 注入 VivoFrameCodec。
 public sealed record VivoProfile(int GaiaVersion, byte[] NoiseQueryPayload, byte[] NoiseSetSuffix)
 {
     public static readonly VivoProfile Air3ProV3 = new(3, [], [4, 0]);
@@ -240,14 +250,20 @@ public sealed record VivoProfile(int GaiaVersion, byte[] NoiseQueryPayload, byte
 }
 
 // 噪声模式字节 + 降噪档位（reduceModel）映射，按型号可覆盖（见 VivoDeviceModelData.NoiseModeOverrides）。
-// 真值来自 APK 逆向 + TWS 3e 实测，全 vivo 型号统一（Canonical）：
-//   mode 字节：0=降噪(NC) / 1=关闭(Off) / 2=通透(Trans)
-//   reduceModel：降噪(NC)→0x04，关闭(Off)→0x04，通透(Trans)→0x01
+// mode 字节：0=降噪(NC) / 1=关闭(Off) / 2=通透(Trans)（APK 逆向 + 多型号真机一致，全型号统一）。
+// SET 噪声模式帧(0x0130) 第二字节起的载荷按 NoiseSetSuffix 生成（代际差异，故按型号覆盖，对齐官方 App）：
+//   · NoiseSetSuffix 非 null → 固定后缀：payload = [mode, ..NoiseSetSuffix]
+//     （TWS 4 系 = [mode, 0x03, 0x01] 官方 App 抓包逐字节实锤，GAIA v4；
+//      TWS 3e = [mode, 0x03]；Air3 Pro 系 = [mode, 0x04, 0x00]，均见 Windows 逆向参考 VivoProfiles）。
+//   · NoiseSetSuffix == null → legacy fallback：按模式取降噪档位 payload = [mode, ReduceForMode(mode)]
+//     （当前无型号使用；旧工程曾误用此格式发 2 字节载荷，被 TWS 4 固件忽略 → 软件内无法切模式）。
 public sealed record VivoNoiseModeMap(
-    byte NoiseCancellation, byte Off, byte Transparency, byte ReduceNc, byte ReduceOff, byte ReduceTransparency)
+    byte NoiseCancellation, byte Off, byte Transparency, byte ReduceNc, byte ReduceOff, byte ReduceTransparency,
+    byte[]? NoiseSetSuffix = null)
 {
     public static readonly VivoNoiseModeMap Canonical =
-        new(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault);
+        new(0x00, 0x01, 0x02, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceNcDefault, VivoConstants.NoiseReduceTransDefault,
+            NoiseSetSuffix: [0x03, 0x01]);
 
     public byte ModeByte(NoiseMode mode) => mode switch
     {

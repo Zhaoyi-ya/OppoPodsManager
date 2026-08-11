@@ -74,11 +74,23 @@ using OppoPodsManager.Assets.VisualAssets;namespace OppoPodsManager.UI.MainWindo
         SetSukiBackgroundStyle(SukiBackgroundStyle.Flat);
         var blur = Math.Clamp(ReadUiInt("BgBlur", 0), 0, 20);
         var cacheKey = _backgroundImages.BuildCacheKey(key, GetBackgroundTargetWidth(), blur);
-        SetBackgroundImageSource(
-            _backgroundImages.GetOrCreateBitmap(key, GetBackgroundTargetWidth(), blur, cacheKey),
-            cacheKey);
-        _backgroundImages.ClearBackgroundCache(keepKey: cacheKey);
-        BgFullImage.IsVisible = true;
+        try
+        {
+            // 背景图可能损坏或被外部改动导致解码失败；加载失败时回退默认背景，
+            // 避免异常冒泡到调用方（最小化到托盘恢复、切个性化页等路径）造成整窗无法加载。
+            SetBackgroundImageSource(
+                _backgroundImages.GetOrCreateBitmap(key, GetBackgroundTargetWidth(), blur, cacheKey),
+                cacheKey);
+            _backgroundImages.ClearBackgroundCache(keepKey: cacheKey);
+            BgFullImage.IsVisible = true;
+        }
+        catch (Exception exception)
+        {
+            _logManager?.Error("UI", $"背景图加载失败，回退默认背景：{key}", exception);
+            SetSukiBackgroundStyle(SukiBackgroundStyle.Bubble);
+            SetBackgroundImageSource(null, "");
+            BgFullImage.IsVisible = false;
+        }
     }
 
     private void SetBackgroundImageSource(IImage? source, string cacheKey)

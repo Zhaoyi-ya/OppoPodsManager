@@ -134,14 +134,17 @@ public partial class HomeView : PageView
             : unidentifiedText;
     }
 
-    private void RefreshDevices_Click(object? sender, RoutedEventArgs e)
+    private async void RefreshDevices_Click(object? sender, RoutedEventArgs e)
     {
         Log?.Debug("UI", "用户操作: 刷新多耳机列表");
         if (ControlManager is null)
             return;
 
-        var devices = ControlManager.RefreshAvailableDevicesAsync(CancellationToken.None);
-        ApplyNextDevices(devices.GetAwaiter().GetResult());
+        // 注意：绝不能在此用 .GetResult()/.Result 同步阻塞 UI 线程——
+        // 扫描链路(DiscoverAsync)跨线程执行，结束后续体需要回到 UI 线程才能跑完，
+        // 而 GetResult() 会把 UI 线程占死，造成永久卡死(界面无响应)。改为 await 并在 UI 线程回写。
+        var devices = await ControlManager.RefreshAvailableDevicesAsync(CancellationToken.None);
+        await Dispatcher.UIThread.InvokeAsync(() => ApplyNextDevices(devices));
     }
 
     internal void ApplyNextDevices(IReadOnlyList<DeviceConnectionOption> devices)

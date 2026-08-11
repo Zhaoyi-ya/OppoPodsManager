@@ -30,8 +30,10 @@ public interface IViewHost
     void AddBackgroundImage();
     /// <summary>背景模糊值已变更，触发窗口背景防抖重绘。</summary>
     void ApplyBackgroundBlur();
-    /// <summary>应用并持久化 Acrylic 模糊开关。</summary>
+    /// <summary>应用并持久化 Acrylic 模糊开关（用户手动切换时调用，会弹出提示）。</summary>
     void SetAcrylicBlur(bool on);
+    /// <summary>静默应用并持久化 Acrylic 模糊开关（启动期调用，避免每次开 APP 都弹提示）。</summary>
+    void SetAcrylicBlurSilent(bool on);
     /// <summary>应用并持久化高级渲染开关。</summary>
     void SetAdvancedRender(bool on);
     /// <summary>设备自定义名已变更，持久化并刷新窗口标题。</summary>

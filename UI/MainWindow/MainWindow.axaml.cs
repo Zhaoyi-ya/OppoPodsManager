@@ -368,6 +368,7 @@ public partial class MainWindow : SukiWindow, IViewHost
         timer.Start();
     }
     void IViewHost.SetAcrylicBlur(bool on) => ToggleAcrylicBlur(on);
+    void IViewHost.SetAcrylicBlurSilent(bool on) => ApplyAcrylicBlurSilently(on);
     void IViewHost.SetAdvancedRender(bool on)
     {
         if (on) EnableAdvancedRender();

@@ -29,6 +29,8 @@ Desktop.ini
 ## Backup / Temp
 *_backup*/
 *.orig
+temp_vivo_build*/
+temp_*/
 *.tmp.vscode/
 
 ## Local docs (excluded from GitHub sync)

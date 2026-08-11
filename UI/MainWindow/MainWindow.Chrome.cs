@@ -25,12 +25,7 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
     }
     private void ToggleAcrylicBlur(bool on)
     {
-        WriteUiBool("AcrylicBlur", on);
-        _logManager?.Debug("UI", $"设置: Acrylic 模糊 -> {on}");
-        if (on)
-            SelectBackground("default");
-        UpdateBackgroundSettingsAvailability(on);
-
+        ApplyAcrylicBlurSilently(on);
         ToastManager.CreateToast()
             .WithTitle(on
                 ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabled)
@@ -39,6 +34,16 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
                 ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabledMsg)
                 : LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicDisabledMsg))
             .Dismiss().After(TimeSpan.FromSeconds(3)).Queue();
+    }
+
+    // 启动期静默应用 Acrylic：只写设置、复位背景、同步背景设置可用状态，不弹提示。
+    internal void ApplyAcrylicBlurSilently(bool on)
+    {
+        WriteUiBool("AcrylicBlur", on);
+        _logManager?.Debug("UI", $"设置: Acrylic 模糊(静默) -> {on}");
+        if (on)
+            SelectBackground("default");
+        UpdateBackgroundSettingsAvailability(on);
     }
 
     private void UpdateBackgroundSettingsAvailability(bool acrylicBlurEnabled)
