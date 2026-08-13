@@ -13,6 +13,7 @@ using Avalonia.Interactivity;namespace OppoPodsManager.UI.MainWindow;public part
         EqPanel.IsVisible = page == "eq";
         if (page == "eq")
             _ = _commandDispatcher?.RunAsync("刷新自定义 EQ", manager => manager.RefreshCustomEqualizersAsync(CancellationToken.None));
+        GesturePanel.IsVisible = page == "gesture";
         DeviceInfoPanel.IsVisible = page == "deviceinfo";
         PersonalPanel.IsVisible = page == "personal";
         SettingsPanel.IsVisible = page == "settings";
@@ -21,11 +22,13 @@ using Avalonia.Interactivity;namespace OppoPodsManager.UI.MainWindow;public part
 
         NavHome.Classes.Remove("selected");
         NavEq.Classes.Remove("selected");
+        NavGesture.Classes.Remove("selected");
         NavPersonal.Classes.Remove("selected");
         NavSettings.Classes.Remove("selected");
 
         if (page == "home") NavHome.Classes.Add("selected");
         else if (page == "eq") NavEq.Classes.Add("selected");
+        else if (page == "gesture") NavGesture.Classes.Add("selected");
         else if (page == "personal") NavPersonal.Classes.Add("selected");
         else NavSettings.Classes.Add("selected");
 
@@ -43,6 +46,7 @@ using Avalonia.Interactivity;namespace OppoPodsManager.UI.MainWindow;public part
     }
     private void NavHome_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("home");
     private void NavEq_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("eq");
+    private void NavGesture_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("gesture");
     private void NavPersonal_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("personal");
     private void NavSettings_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("settings");
     private void About_Click(object? s, RoutedEventArgs e) => ShowPage("about");

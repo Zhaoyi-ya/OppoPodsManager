@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:OppoPodsManager"
+             xmlns:l10n="using:OppoPodsManager.Assets.Localization"
+             x:Class="OppoPodsManager.UI.Views.GestureView">
+ <StackPanel Spacing="14" Margin="0,0,0,40">
+  <!-- 触控手势：按设备能力动态生成（多品牌兼容），复用共享 GestureUi 渲染 -->
+  <Border x:Name="GestureCard" IsVisible="False" Padding="16,14"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="10">
+    <TextBlock Text="{l10n:Translate DeviceInfo_TouchControls}" FontSize="14"
+       HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+    <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+     <StackPanel Grid.Column="0" Spacing="6" HorizontalAlignment="Stretch">
+      <TextBlock Text="{l10n:Translate Battery_Left}" FontSize="12" Opacity="0.6"
+        HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+      <StackPanel x:Name="GestureLeftHost" Spacing="6"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1" Spacing="6" HorizontalAlignment="Stretch">
+      <TextBlock Text="{l10n:Translate Battery_Right}" FontSize="12" Opacity="0.6"
+        HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+      <StackPanel x:Name="GestureRightHost" Spacing="6"/>
+     </StackPanel>
+    </Grid>
+   </StackPanel>
+  </Border>
+
+  <!-- 未连接设备 / 当前设备无手势配置时的占位提示 -->
+  <Border x:Name="GestureEmpty" IsVisible="False" Padding="16,14"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <TextBlock Text="{l10n:Translate Gesture_Empty}" FontSize="13"
+      HorizontalAlignment="Center" Opacity="0.45" TextWrapping="Wrap"
+      Foreground="{DynamicResource SukiText}"/>
+  </Border>
+ </StackPanel>
+</UserControl>

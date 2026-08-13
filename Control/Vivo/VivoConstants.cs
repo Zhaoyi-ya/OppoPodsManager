@@ -117,9 +117,10 @@ internal static class VivoConstants
     // REPORT 0x8202 payload = [00][左动作码][右动作码]（改设置时上报，非触发事件）
     public const ushort SetDoubleTap = 0x0102;
     public const ushort QueryDoubleTap = 0x0202;
+    public const ushort AckDoubleTap = 0x8102;
     public const ushort ReportDoubleTapConfig = 0x8202;
 
-    // ---- 长按手势功能（状态开关：无 / 切换噪声控制 / 来电拒接）----
+    // ---- 长按手势功能（左右耳下拉仅 无 / 切换噪声控制）----
     // ⚠️ 命令字已据官方 App 反编译注册表（EarbudSettingsFetcher.fetchEarbudsSettingsFromCommand）更正：
     //    set_long_press = 305 = 0x0131（旧工程误用 0x0150，那是 set_touch_operation_button）。
     //    SET 0x0131 / QUERY 0x0231 / ACK 0x8131 / REPORT 0x8231。
@@ -154,8 +155,16 @@ internal static class VivoConstants
     public const ushort AckWearDetection = 0x8103;
     public const ushort QueryWearDetection = 0x0203;
     public const ushort ReportWearDetection = 0x8203;
-    public const ushort QueryWearState = 0x020D;
-    public const ushort ReportWearState = 0x820D;
+        public const ushort QueryWearState = 0x020D;
+        public const ushort ReportWearState = 0x820D;
+
+    // ---- 听力保护（set_hearing_protection_switch / get_hearing_protection_switch，APK 逆向实锤 logical 338/594 = 0x0152/0x0252）----
+    // SET 0x0152 payload = [enable:1]；QUERY 0x0252；ACK 0x8152；REPORT 0x8252 payload = [00][state]（state 0=关 1=开）。
+    // 与佩戴检测同属开关型基础功能，但能力由 DeviceModels.json 的 hearing_protection 精确声明（49 机型支持）。
+    public const ushort SetHearingProtection    = 0x0152;
+    public const ushort QueryHearingProtection  = 0x0252;
+    public const ushort AckHearingProtection    = 0x8152;
+    public const ushort ReportHearingProtection = 0x8252;
 
     // ---- 音效 / EQ 预设 ----
     // SET   0x0118 payload = [eq_type]；QUERY 0x0218；ACK 0x8118；REPORT 0x8218 payload = [00][eq_type]
@@ -189,9 +198,9 @@ internal static class VivoConstants
     public const ushort ReportMultiConnect      = 0x8249;
     public const ushort SetMultiConnect         = 0x014A;  // 全量设置设备列表（每条 MAC[6]+state[1]）
     public const ushort AckMultiConnect         = 0x814A;
-    public const ushort EnableMultiConnect      = 0x014C;  // [enable:1] 开关双连功能
+    public const ushort EnableMultiConnect      = 0x014C;  // [enable:1] 开关双连功能（RFCOMM/GAIA 通道 payload 不带本机 MAC；PROTOCOL.md 总表的本机 MAC 前缀为 GATT/BLE 通道格式，通道不同不矛盾）
     public const ushort AckEnableMultiConnect   = 0x814C;
-    public const ushort RemoveMultiConnect      = 0x014D;  // [目标MAC:6] 移除已记忆设备
+    public const ushort RemoveMultiConnect      = 0x014D;  // [目标MAC:6] 移除已记忆设备（RFCOMM/GAIA 通道不带本机 MAC；GATT 通道需追加本机 MAC 前缀，见 PROTOCOL.md）
     public const ushort AckRemoveMultiConnect   = 0x814D;
 
     // ---- 手机时间同步（耳机主动请求）----
@@ -211,7 +220,9 @@ internal static class VivoConstants
     public const ushort ReportModel            = 0x821B;
 
     // ---- 双击手势动作码（实测；左/右耳编号不同）----
-    // 0x00/0x05（左）、0x15（右）抓包未见，先列为待确认。
+    // 0x00~0x06（左）/0x10~0x16（右）为全区间；官方 App 双击选项仅用 0,1,2,3,5,6（部分机型+7 快捷指令），
+    // 0x04(左)/0x14(右) 为官方 App UI 未暴露的空档，固件支持、且 App 描述文案明确"双击接听/挂断通话"，
+    // 故 0x04/0x14 = 来电接听/结束通话（[推断]：仅由代码空档+文案推断，待真机抓包确认）。
     public static readonly IReadOnlyDictionary<byte, string> TapLeftCodes = new Dictionary<byte, string>
     {
         [0x00] = "语音助手",
@@ -231,11 +242,15 @@ internal static class VivoConstants
         [0x16] = "无",
     };
     // 长按功能码 → 名称
+    // 长按功能码 = 噪声模式码（权威：TWS-Pods-PC/vivo/vivo_protocol.py）。0xFF=无；
+    // 0x0B=全场景(切换噪声控制出厂基线)、0x0A=排除关闭、0x08=排除通透、0x09=排除降噪。
     public static readonly IReadOnlyDictionary<byte, string> LongPressFuncCodes = new Dictionary<byte, string>
     {
-        [0x01] = "无",
-        [0x02] = "切换噪声控制",
-        [0x03] = "来电拒接",
+        [0xFF] = "无",
+        [0x0B] = "切换噪声控制",
+        [0x0A] = "排除关闭",
+        [0x08] = "排除通透",
+        [0x09] = "排除降噪",
     };
 
 }

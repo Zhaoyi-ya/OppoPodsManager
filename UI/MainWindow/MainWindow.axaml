@@ -144,6 +144,8 @@
        Click="NavHome_Click" Classes="SidebarNav"/>
      <Button x:Name="NavEq" Content="{l10n:Translate Sidebar_NavEq}" Height="38" FontSize="13"
        Click="NavEq_Click" Classes="SidebarNav"/>
+     <Button x:Name="NavGesture" Content="{l10n:Translate Sidebar_NavGesture}" Height="38" FontSize="13"
+       Click="NavGesture_Click" Classes="SidebarNav"/>
      <Button x:Name="NavPersonal" Content="{l10n:Translate Sidebar_NavPersonal}" Height="38" FontSize="13"
        Click="NavPersonal_Click" Classes="SidebarNav"/>
     </StackPanel>
@@ -179,6 +181,11 @@
    <ScrollViewer x:Name="EqPanel" Padding="16,12,16,16"
        VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsVisible="False">
     <views:EqView x:Name="EqView"/>
+   </ScrollViewer>
+
+   <ScrollViewer x:Name="GesturePanel" Padding="16,12,16,16"
+       VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsVisible="False">
+    <views:GestureView x:Name="GestureView"/>
    </ScrollViewer>
 
    <ScrollViewer x:Name="PersonalPanel" Padding="16,12,16,16"

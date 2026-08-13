@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using OppoPodsManager.Communication.Abstractions;
 using OppoPodsManager.Control;
 using OppoPodsManager.Control.Oppo.Commands;
@@ -11,6 +12,7 @@ using OppoPodsManager.Control.Oppo.Managers;
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Control.Vivo.Models;
+using OppoPodsManager.Control.Gestures;
 
 namespace OppoPodsManager.Control.Vivo;
 
@@ -52,6 +54,7 @@ internal sealed class VivoManager : IBrandManager
     private bool? _gameModeEnabled;
     private bool? _spatialSoundEnabled;
     private bool? _wearDetectionEnabled;
+    private bool? _hearingProtectionEnabled;
     private bool? _dualDeviceEnabled;
     // 运行期探测到的"不支持"功能（查询超时），本会话内停止轮询并隐藏对应控件。
     private readonly HashSet<int> _runtimeUnsupported = new();
@@ -66,10 +69,12 @@ internal sealed class VivoManager : IBrandManager
     private int _spatialSeq, _spatialHighest;
     // 设值后设备约 1~2s 才真正落定：此窗口内丢弃降噪回读，避免轮询读到切换前的旧模式覆盖乐观值（UI 回闪）。
     private DateTime _noiseApplyDeadline = DateTime.MinValue;
-    // 双击手势 / 长按功能 最近一次从耳机收到的配置（仅供日志/调试，未接入单档 UI）。
+    // 双击手势 / 长按功能 最近一次从耳机收到的配置（左右耳分别存储：长按功能码左右独立）。
     private byte? _doubleTapLeft;
     private byte? _doubleTapRight;
-    private byte? _longPressFunc;
+    private byte? _longPressLeftFunc;
+    private byte? _longPressRightFunc;
+    private readonly VivoGestureProfile _gestureProfile = new();
     // 噪声控制当前模式与降噪档位（SET/REPORT 后维护，便于 UI 回显）。
     private byte _noiseMode = 0xFF;   // 0xFF = 尚未得知
     private byte _reduceModel;        // 降噪档位（reduceNoiseModelConfig），随回读更新
@@ -155,15 +160,17 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
-    // ---- OPPO 专属功能 / 尚未完成 vivo 协议验证的功能 ----
-    public Task<bool> SetWearDetectionAsync(bool enabled, CancellationToken cancellationToken)
-        => _link is null ? Task.FromResult(false) : SetWearDetectionCoreAsync(enabled, cancellationToken);
+    // ---- OPPO 专属功能（vivo 不支持，保持 stub）----
     public Task<bool> SetVoiceEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetHearingEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetDualDeviceAsync(bool enabled, CancellationToken cancellationToken)
-        => SetDualDeviceCoreAsync(enabled, cancellationToken);
     public Task<bool> SetLongBatteryAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetBassEngineAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
+    // ---- vivo 已接通 ----
+    public Task<bool> SetWearDetectionAsync(bool enabled, CancellationToken cancellationToken)
+        => _link is null ? Task.FromResult(false) : SetWearDetectionCoreAsync(enabled, cancellationToken);
+    public Task<bool> SetHearingEnhancementAsync(bool enabled, CancellationToken cancellationToken)
+        => _link is null ? Task.FromResult(false) : SetHearingProtectionCoreAsync(enabled, cancellationToken);
+    public Task<bool> SetDualDeviceAsync(bool enabled, CancellationToken cancellationToken)
+        => SetDualDeviceCoreAsync(enabled, cancellationToken);
     // ---- dszsu: 完整实现（带 capability 检查 + 错误处理）----
     public Task<bool> SetSpatialSoundAsync(bool enabled, CancellationToken cancellationToken) => SetSpatialSoundCoreAsync(enabled, cancellationToken);
 
@@ -270,6 +277,99 @@ internal sealed class VivoManager : IBrandManager
     public Task<bool> DeleteCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> RefreshGameSoundAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
+
+    // ---- 触控手势：品牌无关展示与下发 ----
+    public IReadOnlyList<GestureEntry> GestureEntries
+    {
+        get
+        {
+            var list = new List<GestureEntry>();
+            foreach (var kind in _gestureProfile.SupportedGestures)
+            {
+                foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                {
+                    var options = _gestureProfile.GetActionOptions(kind, ear);
+                    var current = ResolveCurrentGesture(kind, ear);
+                    list.Add(new GestureEntry(kind, ear, _gestureProfile.IsGestureConfigurable(kind),
+                        LongPressRenderMode.CycleSet, options, current));
+                }
+            }
+            return list;
+        }
+    }
+
+    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
+        => SetTouchGestureCoreAsync(ear, kind, action, cancellationToken);
+
+    private GestureActionKind ResolveCurrentGesture(TapKind kind, EarSide ear)
+    {
+        if (kind == TapKind.LongPress)
+        {
+            var func = ear == EarSide.Left ? _longPressLeftFunc : _longPressRightFunc;
+            return func.HasValue
+                ? (_gestureProfile.DecodeLongPress(func.Value) ?? GestureActionKind.None)
+                : GestureActionKind.None;
+        }
+        var raw = ear == EarSide.Left ? _doubleTapLeft : _doubleTapRight;
+        return raw.HasValue
+            ? (_gestureProfile.DecodeTap(ear, raw.Value) ?? GestureActionKind.None)
+            : GestureActionKind.None;
+    }
+
+    private async Task<bool> SetTouchGestureCoreAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
+    {
+        if (_link is null)
+            return false;
+        try
+        {
+            if (kind == TapKind.LongPress)
+            {
+                // 长按 SET 0x0131 需左右耳功能码一同下发：[type, leftCode, rightCode]。
+                var otherRaw = ear == EarSide.Left ? _longPressRightFunc : _longPressLeftFunc;
+                var payload = _gestureProfile.EncodeSet(ear, kind, action, otherRaw);
+                if (payload is null)
+                    return false;
+                await _link.RequestAsync(VivoConstants.SetLongPressFunc, VivoConstants.AckLongPressFunc, payload, cancellationToken);
+                if (payload.Length >= 3)
+                {
+                    _longPressLeftFunc = payload[1];
+                    _longPressRightFunc = payload[2];
+                }
+            }
+            else
+            {
+                var payload = _gestureProfile.EncodeSet(ear, kind, action);
+                if (payload is null)
+                    return false;
+                await _link.RequestAsync(VivoConstants.SetDoubleTap, VivoConstants.AckDoubleTap, payload, cancellationToken);
+                if (ear == EarSide.Left) _doubleTapLeft = payload[0]; else _doubleTapRight = payload[0];
+            }
+            _state.NotifyChanged();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置触控手势失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    // ---- 触控手势配置查询（连接建立后后台补偿，与游戏/空间音效同模式）----
+    // 双击 QUERY 0x0202 → Report 0x8202；长按 QUERY 0x0231 → Report 0x8231（均已订阅）。
+    // 任一查询超时（可能为不支持的型号）仅记录调试日志，不标记"运行期不支持"、不阻塞流程。
+    private async Task RefreshGestureConfigAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await link.RequestAsync(VivoConstants.QueryDoubleTap, VivoConstants.ReportDoubleTapConfig, Array.Empty<byte>(), cancellationToken);
+            await link.RequestAsync(VivoConstants.QueryLongPressFunc, VivoConstants.ReportLongPressFunc, Array.Empty<byte>(), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"手势配置查询失败（可能为不支持的型号）：{exception.Message}");
+        }
+    }
+
     public Task<bool> SetSpineHealthAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
 
     // ---- 接口：自定义 EQ（vivo 不支持）----
@@ -283,12 +383,14 @@ internal sealed class VivoManager : IBrandManager
     public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry) => [];
 
     // ---- 接口：多设备显示状态 ----
+    // 与 OPPO 侧 OppoManager.GetMultiDeviceDisplayState 完全一致：复用 MultiDevicePolicy 过滤本地隐藏设备，
+    // 并从可显示设备中筛出 ConnectionState==2 的已连接设备，作为设置页"优先级设备"下拉的可选项。
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
     {
-        var visible = _state.Snapshot().MultiDevice?.Devices
-            .Where(d => !hiddenAddresses.Contains(d.Address))
-            .ToList() ?? [];
-        return new MultiDeviceDisplayState(visible, []);
+        var snapshot = _state.Snapshot().MultiDevice;
+        return snapshot is null
+            ? new MultiDeviceDisplayState([], [])
+            : MultiDevicePolicy.BuildDisplayState(snapshot, hiddenAddresses);
     }
 
     // ---- 接口：降噪 key/protocol 委托 ----
@@ -359,6 +461,8 @@ internal sealed class VivoManager : IBrandManager
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearState, OnWearReport));
         // 佩戴检测开关设置（0x8203，仅连接/改设置时上报一次，state 0=关 1=开；不反映实时佩戴）
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportWearDetection, OnWearDetectionReport));
+        // 听力保护开关（0x8252，连接/改设置时上报一次，state 0=关 1=开）
+        _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportHearingProtection, OnHearingProtectionReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportSpatialSound, OnSpatialReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportDoubleTapConfig, OnDoubleTapConfigReport));
         _subscriptions.Add(link.Router.Subscribe(VivoConstants.ReportLongPressFunc, OnLongPressFuncReport));
@@ -398,6 +502,10 @@ internal sealed class VivoManager : IBrandManager
         await RefreshWearStatusAsync(link, cancellationToken);
         // 佩戴检测开关：查询 0x0203 → 0x8203 上报，回填功能开关勾选态（state 0=关 1=开）
         await RefreshWearDetectionAsync(link, cancellationToken);
+        // 听力保护：仅对声明支持该功能（DeviceModels.json hearing_protection=1）的型号查询，
+        // 避免对不支持的型号浪费一次命令超时（虽被 catch 吞掉不阻塞，但会拖慢连接建立）。
+        if (_vivoCapability.Model?.HasFeature("hearing_protection") == true)
+            await RefreshHearingProtectionAsync(link, cancellationToken);
         // dszsu: 按 capability 条件查询游戏/空间/音效
         if (_vivoCapability.SupportsLowLatencyGaming)
             await RefreshGameModeAsync(link, cancellationToken);
@@ -419,9 +527,15 @@ internal sealed class VivoManager : IBrandManager
             _ = RefreshGameModeAsync(link, cancellationToken);
         if (IsFeatureLive(VivoFeatureMatrix.SpatialAudio))
             _ = RefreshSpatialAudioAsync(link, cancellationToken);
-        // 双连列表：同样在后台补偿拉取，避免阻塞"已连接"上报；不支持的机型由运行期超时探测隐藏面板。
-        if (IsFeatureLive(VivoFeatureMatrix.DualConnection))
+        // 双连列表：对声明支持双连的型号（含 TWS 3e 等 KnownForced 型号）均尝试后台拉取设备列表。
+        // 超时则静默忽略，不标记"运行期不支持"（避免误杀后续轮询）。
+        // 注意：管理操作（开关/增删/优先级）仍由 CanManageMultiDevice(=IsFeatureLive) 控制，KnownForced 型号的 UI 开关保持隐藏。
+        if (VivoFeatureMatrix.IsFeatureSupported(_deviceName, VivoFeatureMatrix.DualConnection)
+            && !_runtimeUnsupported.Contains(VivoFeatureMatrix.DualConnection))
             _ = RefreshMultiDeviceCoreAsync(link, cancellationToken);
+        // 触控手势配置：查询双击(0x0202)/长按(0x0231)，由已订阅的 0x8202/0x8231 上报回填。
+        // 长按上报帧格式待真机核对，失败静默忽略，不影响连接建立。
+        _ = RefreshGestureConfigAsync(link, cancellationToken);
     }
 
     // ---- 内部读取/轻量轮询 ----
@@ -827,7 +941,8 @@ internal sealed class VivoManager : IBrandManager
                 await RefreshGameModeAsync(link, cancellationToken);
             if (IsFeatureLive(VivoFeatureMatrix.SpatialAudio))
                 await RefreshSpatialAudioAsync(link, cancellationToken);
-            if (IsFeatureLive(VivoFeatureMatrix.DualConnection))
+            if (VivoFeatureMatrix.IsFeatureSupported(_deviceName, VivoFeatureMatrix.DualConnection)
+                && !_runtimeUnsupported.Contains(VivoFeatureMatrix.DualConnection))
                 await RefreshMultiDeviceCoreAsync(link, cancellationToken);
         }
     }
@@ -854,10 +969,10 @@ internal sealed class VivoManager : IBrandManager
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Vivo", $"多设备列表查询失败：{exception.Message}");
-            // 部分未收录/未知型号若不支持双连列表查询会超时：运行期标记本会话不支持，隐藏面板并停止轮询。
-            // 注意：TWS 3e 等"强制开启"型号已由 VivoFeatureMatrix.KnownForced 直接隐藏（IsFeatureLive=false），不会走到此分支。
-            if (exception is TimeoutException && _runtimeUnsupported.Add(VivoFeatureMatrix.DualConnection))
-                _state.NotifyChanged();
+            // 注意：此处不再将 TimeoutException 标记为"运行期不支持"。
+            // 原因：多设备列表查询现在对所有声明支持双连的型号（含 KnownForced 的 TWS 3e）都尝试，
+            // 超时可能只是当前无其他配对设备，不应永久禁用后续轮询。
+            // 真正需要隐藏管理 UI 的由 CanManageMultiDevice(=IsFeatureLive) 控制。
             return false;
         }
     }
@@ -1146,6 +1261,52 @@ internal sealed class VivoManager : IBrandManager
         }
     }
 
+    // ---- 听力保护（SET 0x0152 / QUERY 0x0252 / REPORT 0x8252，APK 逆向实锤；开关型，payload [enable]）----
+    // 能力由 DeviceModels.json 的 hearing_protection 精确声明（49 机型支持）；DeviceModels 无独立 WearDetection 键，故佩戴检测走另一路径。
+    private void OnHearingProtectionReport(ProtocolFrame frame)
+    {
+        var p = frame.Payload.Span;
+        if (p.Length < 2)
+            return;
+        var enabled = p[1] != 0;
+        ApplicationLog.Current?.Debug("Vivo", "听力保护开关状态：" + (enabled ? "开" : "关") + "（payload=" + Convert.ToHexString(p.ToArray()) + "）。");
+        _hearingProtectionEnabled = enabled;
+        _state.NotifyChanged();
+    }
+
+    private async Task<bool> SetHearingProtectionCoreAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (_link is null)
+            return false;
+
+        try
+        {
+            await _link.RequestAsync(VivoConstants.SetHearingProtection, VivoConstants.AckHearingProtection,
+                new byte[] { enabled ? (byte)1 : (byte)0 }, cancellationToken);
+            ApplicationLog.Current?.Info("Vivo", $"听力保护开关已发送：enabled={enabled}。");
+            await RefreshHearingProtectionAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置听力保护失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    private async Task RefreshHearingProtectionAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await link.RequestAsync(
+                VivoConstants.QueryHearingProtection, VivoConstants.ReportHearingProtection, Array.Empty<byte>(), cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Vivo", $"听力保护查询失败：{exception.Message}");
+        }
+    }
+
     // ---- 电量/降噪/空间/音效/播放：订阅耳机主动上报 ----
     private void OnBatteryReport(ProtocolFrame frame)
         => ApplyBattery(frame.Payload.Span);
@@ -1181,22 +1342,66 @@ internal sealed class VivoManager : IBrandManager
         var rName = VivoConstants.TapRightCodes.TryGetValue(right, out var rn) ? rn : $"0x{right:X2}";
         ApplicationLog.Current?.Info("Vivo",
             $"双击手势配置同步：左={lName}(0x{left:X2}) 右={rName}(0x{right:X2})。");
+        _state.NotifyChanged();
     }
 
-    // ---- 长按手势功能（状态开关：无/切换噪声控制/来电拒接）----
-    // 0x8250 / 0x8150 payload = [00][03][功能码]
+    // ---- 长按手势功能（左右耳下拉仅 无/切换噪声控制；来电拒接=0xFF 之外，为官方 App 长按区下的独立开关，非左右耳选项，电脑端不实现）----
+    // 上报 0x8231 帧：SET/回显为 [type, leftFunc, rightFunc]（type=5 长按），设备主动推送常带引导 0x00
+    // （[00][05][left][right]，与双击上报 0x8202=[00][left][right] 对称）；查询 0x0231 对此类机型仅回 2 字节
+    // （据 SET 推断为 [left, right]，无 type 前缀；若首字节恰为 0x05 则按 [type, 全局func] 处理）。
+    // 长按功能码 = 噪声模式码（0xFF=无、0x0B/0x0A/0x08/0x09=切换噪声控制各循环集合），非 0x01~0x03。
     private void OnLongPressFuncReport(ProtocolFrame frame)
         => ApplyLongPressFunc(frame.Payload.Span);
 
     private void ApplyLongPressFunc(ReadOnlySpan<byte> payload)
     {
-        if (payload.Length < 3 || payload[1] != 0x03)
+        byte leftFunc;
+        byte rightFunc;
+        if (payload.Length >= 4 && payload[0] == 0x00 && payload[1] == 0x05)
+        {
+            // 主动上报/SET 回显：[pad, type, left, right]（与双击上报 0x8202=[00][left][right] 对称）
+            leftFunc = payload[2];
+            rightFunc = payload[3];
+        }
+        else if (payload.Length >= 3 && payload[0] == 0x05)
+        {
+            // SET 下发/回显：[type, left, right]
+            leftFunc = payload[1];
+            rightFunc = payload[2];
+        }
+        else if (payload.Length == 2)
+        {
+            // 查询 0x0231 对此类机型（如 Tws3eV3 / DPD2321A）仅回 2 字节。
+            // 据 SET([type,left,right]) 推断为 [left, right]（无 type 前缀）；
+            // 若首字节恰为 0x05 则按 [type, 全局func] 处理（左右耳共用）。
+            if (payload[0] == 0x05)
+            {
+                leftFunc = rightFunc = payload[1];
+                ApplicationLog.Current?.Debug("Vivo",
+                    $"长按查询返回 2 字节 [type,func]={payload[0]:X2}{payload[1]:X2}，按全局功能解析。");
+            }
+            else
+            {
+                leftFunc = payload[0];
+                rightFunc = payload[1];
+                ApplicationLog.Current?.Debug("Vivo",
+                    $"长按查询返回 2 字节 [左,右]={payload[0]:X2}{payload[1]:X2}。");
+            }
+        }
+        else
+        {
+            ApplicationLog.Current?.Debug("Vivo",
+                $"长按上报形态未识别（len={payload.Length}），忽略。");
             return;
+        }
 
-        var func = payload[2];
-        _longPressFunc = func;
-        var name = VivoConstants.LongPressFuncCodes.TryGetValue(func, out var n) ? n : $"0x{func:X2}";
-        ApplicationLog.Current?.Info("Vivo", $"长按手势功能：{name}(0x{func:X2})。");
+        _longPressLeftFunc = leftFunc;
+        _longPressRightFunc = rightFunc;
+        var lName = VivoConstants.LongPressFuncCodes.TryGetValue(leftFunc, out var ln) ? ln : $"0x{leftFunc:X2}";
+        var rName = VivoConstants.LongPressFuncCodes.TryGetValue(rightFunc, out var rn) ? rn : $"0x{rightFunc:X2}";
+        ApplicationLog.Current?.Info("Vivo",
+            $"长按手势功能：左={lName}(0x{leftFunc:X2}) 右={rName}(0x{rightFunc:X2})。");
+        _state.NotifyChanged();
     }
 
     // ---- 遥测/设备信息上报（0x8224，耳机主动推送）----
@@ -1609,6 +1814,19 @@ internal sealed class VivoManager : IBrandManager
             visibleControls.Add("equalizer");
             controlEnabledStates["equalizer"] = true;
         }
+        // 听力保护：基于 DeviceModels.json 的 hearing_protection 能力精确显隐（49 机型支持），
+        // 不再依赖 VivoFeatureMatrix 的手维护数字白名单（该矩阵未覆盖此功能）。
+        if (_vivoCapability.Model?.HasFeature("hearing_protection") == true)
+        {
+            visibleControls.Add("hearing-enhancement");
+            controlEnabledStates["hearing-enhancement"] = true;
+            if (_hearingProtectionEnabled is { } hpOn)
+                controlStates["hearing-enhancement"] = hpOn;
+        }
+        // 佩戴检测：命令已实现且为 TWS 通用基础功能，DeviceModels.json 无独立声明键；
+        // 对所有型号乐观显示，设备不支持时由运行期超时探测（_runtimeUnsupported）隐藏对应控件。
+        visibleControls.Add("wear-detection");
+        controlEnabledStates["wear-detection"] = true;
 
         var currentNoiseKey = _state.Snapshot().Noise.Mode switch
         {

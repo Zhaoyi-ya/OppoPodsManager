@@ -291,6 +291,7 @@ public partial class MainWindow : SukiWindow, IViewHost
         // 主页（状态/电量/ANC/功能/空间音频）经 HomeView 路由快照。
         UpdateTitle();
         HomeView?.ApplySnapshot(snapshot);
+        GestureView?.ApplySnapshot(snapshot);
         SettingsView?.ApplySnapshot(snapshot);
         DeviceInfoView?.ApplySnapshot(snapshot);
         EqView?.ApplySnapshot(snapshot);
@@ -340,6 +341,8 @@ public partial class MainWindow : SukiWindow, IViewHost
         DeviceInfoView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
         HomeView.Host = this;
         HomeView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
+        GestureView.Host = this;
+        GestureView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
     }
 
     void IViewHost.RequestNavigate(string page) => ShowPage(page);

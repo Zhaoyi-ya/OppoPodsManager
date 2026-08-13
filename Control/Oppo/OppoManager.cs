@@ -5,6 +5,8 @@ using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Control;
 using OppoPodsManager.Control.Oppo.Commands;
 using OppoPodsManager.Assets.Oplus;
+using System.Collections.Generic;
+using OppoPodsManager.Control.Gestures;
 
 namespace OppoPodsManager.Control.Oppo;
 
@@ -31,6 +33,7 @@ public sealed class OppoManager : IBrandManager
     private CustomEqualizer? _customEqualizer;
     private GameSound? _gameSound;
     private BassEngineState? _bassEngineState;
+    private readonly OppoGestureProfile _gestureProfile = new();
     // 控制通知缺失时的轻量回读循环。
     private CancellationTokenSource? _pollCancellation;
     private Task? _pollTask;
@@ -542,6 +545,28 @@ public sealed class OppoManager : IBrandManager
             : (byte)0;
         return SetGameSoundEnabledCoreAsync(type, enabled, cancellationToken);
     }
+
+    // ---- 触控手势：品牌无关展示与下发（OPPO 触控命令字待逆向，EncodeSet 暂返回 null）----
+    public IReadOnlyList<GestureEntry> GestureEntries
+    {
+        get
+        {
+            var list = new List<GestureEntry>();
+            foreach (var kind in _gestureProfile.SupportedGestures)
+            {
+                foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                {
+                    var options = _gestureProfile.GetActionOptions(kind, ear);
+                    list.Add(new GestureEntry(kind, ear, _gestureProfile.IsGestureConfigurable(kind),
+                        LongPressRenderMode.CycleSet, options, GestureActionKind.None));
+                }
+            }
+            return list;
+        }
+    }
+
+    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
+        => Task.FromResult(false);
 
     // 根据当前设备快照和本地隐藏策略生成多设备显示数据。
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)

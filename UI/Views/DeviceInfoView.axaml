@@ -6,7 +6,7 @@
  <StackPanel Spacing="14" Margin="0,0,0,40">
   <TextBlock Text="{l10n:Translate DeviceInfo_Title}" FontSize="16"
      HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-  <!-- 耳机操控 -->
+  <!-- 耳机操控（按设备能力动态生成手势行，多品牌兼容） -->
   <Border x:Name="DiTouchCard" Padding="18,16"
     CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
    <StackPanel Spacing="12">
@@ -24,49 +24,7 @@
         HorizontalAlignment="Center"/>
       <TextBlock Text="{l10n:Translate Battery_Left}" FontSize="13" Opacity="0.7"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_SingleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchLeftClick" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_PlayPause}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_DoubleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchLeftDouble" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_PlayPause}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_Prev}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_Next}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VoiceAssistant}"/><ComboBoxItem Content="{l10n:Translate Feature_GameMode}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_TripleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchLeftTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_Prev}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_Next}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VoiceAssistant}"/><ComboBoxItem Content="{l10n:Translate Feature_GameMode}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_Slide}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchLeftSlide" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VolumeControl}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_SongSwitch}"/>
-       </ComboBox>
-      </Grid>
-      <StackPanel Spacing="3" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_LongPress}" FontSize="12" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <TextBlock Text="{l10n:Translate DeviceInfo_LongPressHint}" FontSize="10" Opacity="0.45"
-          Foreground="{DynamicResource SukiText}" Margin="0,0,0,2"/>
-       <CheckBox x:Name="CbTouchLeftLongAnc" Content="{l10n:Translate Anc_ModeNoiseCancellation}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchLeftLongAdaptive" Content="{l10n:Translate Anc_ModeAdaptive}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchLeftLongTransparent" Content="{l10n:Translate Anc_ModeTransparency}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchLeftLongOff" Content="{l10n:Translate Anc_ModeOff}" Margin="0,1"/>
-      </StackPanel>
+      <StackPanel x:Name="GestureLeftHost" Spacing="8"/>
      </StackPanel>
 
      <!-- ===== 右耳 ===== -->
@@ -75,49 +33,7 @@
         HorizontalAlignment="Center"/>
       <TextBlock Text="{l10n:Translate Battery_Right}" FontSize="13" Opacity="0.7"
         HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_SingleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchRightClick" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_PlayPause}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_DoubleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchRightDouble" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_PlayPause}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_Prev}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_Next}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VoiceAssistant}"/><ComboBoxItem Content="{l10n:Translate Feature_GameMode}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_TripleTap}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchRightTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_Prev}"/><ComboBoxItem Content="{l10n:Translate DeviceInfo_Next}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VoiceAssistant}"/><ComboBoxItem Content="{l10n:Translate Feature_GameMode}"/>
-       </ComboBox>
-      </Grid>
-      <Grid ColumnDefinitions="38,*" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_Slide}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <ComboBox x:Name="CbTouchRightSlide" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_None}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_VolumeControl}"/>
-        <ComboBoxItem Content="{l10n:Translate DeviceInfo_SongSwitch}"/>
-       </ComboBox>
-      </Grid>
-      <StackPanel Spacing="3" Margin="0,2">
-       <TextBlock Text="{l10n:Translate DeviceInfo_LongPress}" FontSize="12" Opacity="0.6"
-          Foreground="{DynamicResource SukiText}"/>
-       <TextBlock Text="{l10n:Translate DeviceInfo_LongPressHint}" FontSize="10" Opacity="0.45"
-          Foreground="{DynamicResource SukiText}" Margin="0,0,0,2"/>
-       <CheckBox x:Name="CbTouchRightLongAnc" Content="{l10n:Translate Anc_ModeNoiseCancellation}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchRightLongAdaptive" Content="{l10n:Translate Anc_ModeAdaptive}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchRightLongTransparent" Content="{l10n:Translate Anc_ModeTransparency}" Margin="0,1"/>
-       <CheckBox x:Name="CbTouchRightLongOff" Content="{l10n:Translate Anc_ModeOff}" Margin="0,1"/>
-      </StackPanel>
+      <StackPanel x:Name="GestureRightHost" Spacing="8"/>
      </StackPanel>
     </Grid>
    </StackPanel>

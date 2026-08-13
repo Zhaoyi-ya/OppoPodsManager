@@ -1,4 +1,5 @@
 using Avalonia.Controls.Shapes;
+using OppoPodsManager.Control.Gestures;
 using OppoPodsManager.Control.Oppo.Features;
 using OppoPodsManager.UI.MainWindow;
 using AvaloniaControl = Avalonia.Controls.Control;
@@ -722,6 +723,7 @@ public partial class HomeView : PageView
             button.IsCheckedChanged += SpatialAudio_Changed;
         }
     }
+
 
     private static void SetNextBattery(TextBlock label, AvaloniaControl bolt, ProgressBar progress, BatteryLevel? battery)
     {

@@ -1,5 +1,6 @@
 using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Oppo.Features;
+using OppoPodsManager.Control.Gestures;
 
 namespace OppoPodsManager.Control;
 
@@ -55,4 +56,8 @@ public interface IBrandManager : IAsyncDisposable
     MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses);
     Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken);
     Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken);
+
+    // 触控手势：品牌无关的展示与下发入口。UI 通过 GestureEntries 动态渲染，不感知品牌差异。
+    IReadOnlyList<GestureEntry> GestureEntries { get; }
+    Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken);
 }
