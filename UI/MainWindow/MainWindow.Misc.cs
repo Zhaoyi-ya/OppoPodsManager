@@ -61,8 +61,6 @@ using BatteryLevel = OppoPodsManager.Control.Oppo.Models.BatteryLevel;namespace 
             ReplaceEarphoneImage(HomeView.BatteryRightImage, EarphoneSlot.HomeRight);
             ReplaceEarphoneImage(HomeView.BatteryCaseImage, EarphoneSlot.Case);
         }
-        ReplaceEarphoneImage(DeviceInfoView.TouchLeftImage, EarphoneSlot.HomeLeft);
-        ReplaceEarphoneImage(DeviceInfoView.TouchRightImage, EarphoneSlot.HomeRight);
     }
     private static void ReplaceEarphoneImage(Image image, EarphoneSlot slot)
     {
@@ -133,8 +131,6 @@ using BatteryLevel = OppoPodsManager.Control.Oppo.Models.BatteryLevel;namespace 
             DisposeEarphoneImage(HomeView.BatteryRightImage);
             DisposeEarphoneImage(HomeView.BatteryCaseImage);
         }
-        DisposeEarphoneImage(DeviceInfoView.TouchLeftImage);
-        DisposeEarphoneImage(DeviceInfoView.TouchRightImage);
         foreach (var preview in _earphonePreviews.Values)
             DisposeEarphoneImage(preview);
         _earphonePreviews.Clear();
