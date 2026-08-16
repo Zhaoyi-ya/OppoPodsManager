@@ -7,6 +7,7 @@ using OppoPodsManager.Control.Oppo.Commands;
 using OppoPodsManager.Assets.Oplus;
 using System.Collections.Generic;
 using OppoPodsManager.Control.Gestures;
+using OppoPodsManager.Control.Equalizers;
 
 namespace OppoPodsManager.Control.Oppo;
 
@@ -26,14 +27,18 @@ public sealed class OppoManager : IBrandManager
     private WearStatus? _wearStatus;
     private NoiseCancellation? _noiseCancellation;
     private GameMode? _gameMode;
-    private Equalizer? _equalizer;
     private SpatialAudio? _spatialAudio;
     private FeatureSwitches? _featureSwitches;
     private MultiDevice? _multiDevice;
-    private CustomEqualizer? _customEqualizer;
     private GameSound? _gameSound;
+    private IEqualizerProfile _equalizerProfile = NullEqualizerProfile.Instance;
     private BassEngineState? _bassEngineState;
     private readonly OppoGestureProfile _gestureProfile = new();
+    // OPPO 触控（KeyFunction）当前值：每次成功 SET 后回填，供 GestureEntries 显示；GET 回读亦写入此处。
+    // 键含控制源(Source)，使主触控区与柄的同一 (耳,手势) 互不覆盖。
+    private readonly Dictionary<(GestureSource Source, EarSide Ear, TapKind Kind), GestureActionKind> _currentGestures = new();
+    // GET 0x0108 返回的当前触控整表（帧列表）；null 表示尚未读取。
+    private List<OppoGestureProfile.KeyFunctionFrame>? _keyFunctionFrames;
     // 控制通知缺失时的轻量回读循环。
     private CancellationTokenSource? _pollCancellation;
     private Task? _pollTask;
@@ -80,9 +85,9 @@ public sealed class OppoManager : IBrandManager
                 Capability.SupportsCustomEqualizer,
                 Capability.SupportsNoiseCancellation,
                 CanManageMultiDevice,
-                Capability.CustomEqFrequencies
-                    .Select(value => (ushort)Math.Clamp(value, 0, ushort.MaxValue))
-                    .ToArray(),
+                // 与 main 分支 ResolveCustomEqFreqs 对齐：JSON 声明了 customEqualizer 但未提供
+                // customEqFrequency 的型号（如 Enco Free4）回退到标准 6 频段。
+                ResolveCustomEqFrequencies(),
                 CustomEqualizerMinimumGain,
                 CustomEqualizerMaximumGain,
                 Capability.EqualizerPresets,
@@ -104,40 +109,29 @@ public sealed class OppoManager : IBrandManager
 
     public sbyte CustomEqualizerMaximumGain => CustomEqualizer.DefaultMaximumGain;
 
+    // 与 main 分支 ResolveCustomEqFreqs 对齐：JSON 声明了 customEqualizer 但未提供
+    // customEqFrequency 的型号（如 Enco Free4）回退到标准 6 频段。
+    private IReadOnlyList<ushort> ResolveCustomEqFrequencies()
+        => Capability.ResolvedCustomEqFrequencies
+            .Select(value => (ushort)Math.Clamp(value, 0, ushort.MaxValue))
+            .ToArray();
+
+    // 暴露 OPPO EQ 协议档案，供 UI 通过统一接口消费，不感知具体命令字与负载格式。
+    public IEqualizerProfile EqualizerProfile => _equalizerProfile;
+
     // 由控制层校验自定义 EQ 名称，界面只负责收集文本。
-    public bool IsValidCustomEqualizerName(string name) => CustomEqualizer.IsValidName(name);
+    public bool IsValidCustomEqualizerName(string name) => _equalizerProfile.IsValidCustomEqualizerName(name);
 
     // 由控制层按当前型号白名单构造自定义 EQ 条目。
     public EqualizerEntrySnapshot CreateCustomEqualizerEntry(
         byte id,
         string name,
         IReadOnlyList<double> gains)
-    {
-        var frequencies = Capability.CustomEqFrequencies
-            .Select(value => (ushort)Math.Clamp(value, 0, ushort.MaxValue))
-            .ToArray();
-        var existing = _state.Snapshot().EqualizerEntries.FirstOrDefault(entry =>
-            id > 0 && entry.Id == id
-            || string.Equals(entry.Name, name, StringComparison.Ordinal));
-        var minimumGain = existing?.MinimumGain ?? CustomEqualizerMinimumGain;
-        var maximumGain = existing?.MaximumGain ?? CustomEqualizerMaximumGain;
-        return CustomEqualizer.CreateEntry(
-            id,
-            name,
-            frequencies,
-            gains,
-            minimumGain,
-            maximumGain);
-    }
+        => _equalizerProfile.CreateCustomEqualizerEntry(id, name, gains);
 
     // 由控制层把设备条目的协议频段对齐到当前型号白名单。
     public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry)
-    {
-        var frequencies = Capability.CustomEqFrequencies
-            .Select(value => (ushort)Math.Clamp(value, 0, ushort.MaxValue))
-            .ToArray();
-        return CustomEqualizer.AlignGains(frequencies, entry);
-    }
+        => _equalizerProfile.AlignCustomEqualizerGains(entry);
 
     // 以用户指定型号重新解析本机会话能力，不重新连接也不改变设备实际产品标识。
     public void SetManualModel(string? modelName)
@@ -205,12 +199,12 @@ public sealed class OppoManager : IBrandManager
             return false;
 
         var link = RequireLink();
-        if (!await WriteAsync(link, CommandId.SetEqualizer, CommandId.SetEqualizerResponse, new byte[] { presetId }, cancellationToken))
+        if (!await WriteAsync(link, CommandId.SetEqualizer, CommandId.SetEqualizerResponse, _equalizerProfile.EncodeSetPreset(presetId), cancellationToken))
             return false;
 
         var response = await TryRequestAsync(link, CommandId.CurrentEqualizer, CommandId.CurrentEqualizerResponse, Array.Empty<byte>(), cancellationToken);
         if (response is not null)
-            _equalizer?.ApplyCurrentPreset(response.Payload.Span);
+            _equalizerProfile.ApplyCurrentPreset(response.Payload.Span);
 
         var success = _state.Snapshot().Equalizer.PresetId == presetId;
         ApplicationLog.Current?.Info("Equalizer.Protocol", $"内置 EQ 完成：id={presetId}，success={success}。");
@@ -421,7 +415,7 @@ public sealed class OppoManager : IBrandManager
                 CommandId.EqualizerEntriesResponse,
                 new byte[] { 1, 5 },
                 cancellationToken);
-            var success = response is not null && _customEqualizer?.Apply(response.Payload.Span) == true;
+            var success = response is not null && _equalizerProfile.ApplyCustomEqualizerEntries(response.Payload.Span);
             ApplicationLog.Current?.Debug("Equalizer.Protocol", $"刷新自定义 EQ 列表完成：success={success}。");
             return success;
         }
@@ -455,7 +449,7 @@ public sealed class OppoManager : IBrandManager
         ApplicationLog.Current?.Info("Equalizer.Protocol", $"写入自定义 EQ：action={action}，id={entry.Id}，name={entry.Name}。");
         if (!CanUseCommand(CommandId.SetEqualizerEntry, CommandId.EqualizerEntries)
             || !HasWhitelistedCustomEqFrequencies(entry)
-            || !CustomEqualizer.TryBuildPayload(action, entry, out var payload))
+            || !_equalizerProfile.TryEncodeCustomEqualizerEntry(action, entry, out var payload))
             return false;
 
         await _customEqualizerOperationGate.WaitAsync(cancellationToken);
@@ -475,7 +469,7 @@ public sealed class OppoManager : IBrandManager
                 CommandId.EqualizerEntriesResponse,
                 new byte[] { 1, 5 },
                 cancellationToken);
-            var success = response is not null && _customEqualizer?.Apply(response.Payload.Span) == true;
+            var success = response is not null && _equalizerProfile.ApplyCustomEqualizerEntries(response.Payload.Span);
             if (success && action is 1 or 2)
             {
                 // 保存后使用设备回读出的实际 ID 激活该 EQ，避免前端参与协议状态判断。
@@ -502,10 +496,10 @@ public sealed class OppoManager : IBrandManager
     // 只有官方白名单声明的频段数量和顺序才允许写入设备。
     private bool HasWhitelistedCustomEqFrequencies(EqualizerEntrySnapshot entry)
     {
-        var frequencies = Capability.CustomEqFrequencies;
+        var frequencies = ResolveCustomEqFrequencies();
         return frequencies.Count > 0
             && entry.Frequencies.Count == frequencies.Count
-            && entry.Frequencies.Select(value => (int)value).SequenceEqual(frequencies);
+            && entry.Frequencies.SequenceEqual(frequencies);
     }
 
     public async Task<bool> RefreshGameSoundAsync(CancellationToken cancellationToken)
@@ -546,27 +540,91 @@ public sealed class OppoManager : IBrandManager
         return SetGameSoundEnabledCoreAsync(type, enabled, cancellationToken);
     }
 
-    // ---- 触控手势：品牌无关展示与下发（OPPO 触控命令字待逆向，EncodeSet 暂返回 null）----
+    // ---- 触控手势：品牌无关展示与下发（OPPO 触控表 GET 0x0108 / SET 0x0408，真机抓包确认）----
     public IReadOnlyList<GestureEntry> GestureEntries
     {
         get
         {
             var list = new List<GestureEntry>();
-            foreach (var kind in _gestureProfile.SupportedGestures)
+            foreach (var source in _gestureProfile.SupportedSources)
             {
-                foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                foreach (var kind in _gestureProfile.GetSupportedGestures(source))
                 {
-                    var options = _gestureProfile.GetActionOptions(kind, ear);
-                    list.Add(new GestureEntry(kind, ear, _gestureProfile.IsGestureConfigurable(kind),
-                        LongPressRenderMode.CycleSet, options, GestureActionKind.None));
+                    foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                    {
+                        var options = _gestureProfile.GetActionOptions(kind, ear, source);
+                        GestureActionKind current = GestureActionKind.None;
+                        if (_keyFunctionFrames is not null
+                            && OppoGestureProfile.TryFindSlot(_keyFunctionFrames, ear, source, kind, out var idx))
+                        {
+                            var fn = _keyFunctionFrames[idx].Function;
+                            if (OppoGestureProfile.TryResolveFunction(fn, out var resolved))
+                                current = resolved;
+                        }
+                        _currentGestures[(source, ear, kind)] = current;
+                        list.Add(new GestureEntry(source, kind, ear, _gestureProfile.IsGestureConfigurable(kind, source),
+                            LongPressRenderMode.CycleSet, options, current));
+                    }
                 }
             }
             return list;
         }
     }
 
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
-        => Task.FromResult(false);
+    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
+        => SetTouchGestureCoreAsync(ear, kind, action, source, cancellationToken);
+
+    // OPPO 触控下发：OPPO 以「整表」写入（GET 0x0108 读取当前 → 改一帧 → SET 0x0408 回写整表）。
+    // 命令不可用或槽位未定位（映射待核对）时安全跳过，不下发错误命令。
+    private async Task<bool> SetTouchGestureCoreAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
+    {
+        if (!CanUseCommand(CommandId.SetKeyFunction, CommandId.KeyFunction))
+        {
+            ApplicationLog.Current?.Debug("Gesture.OPPO", "OPPO 触控命令不可用（命令未配置或设备不支持），跳过下发。");
+            return false;
+        }
+        try
+        {
+            var link = RequireLink();
+
+            // 1. 读取当前整表（本地无缓存时先 GET）
+            if (_keyFunctionFrames is null)
+            {
+                var get = await TryRequestAsync(link, CommandId.KeyFunction, CommandId.KeyFunctionResponse, Array.Empty<byte>(), cancellationToken);
+                if (get is null || !OppoGestureProfile.DecodeTable(get.Payload.ToArray(), out var init))
+                    return false;
+                _keyFunctionFrames = init;
+            }
+
+            // 2. 定位 (耳, 控制源, 手势) 槽位；找不到说明推断映射需核对，安全跳过。
+            if (!OppoGestureProfile.TryFindSlot(_keyFunctionFrames, ear, source, kind, out var index))
+            {
+                ApplicationLog.Current?.Debug("Gesture.OPPO",
+                    $"未找到槽位 (ear={ear}, source={source}, kind={kind})，(控制源,手势)→(button,action) 映射待核对，跳过下发。");
+                return false;
+            }
+            if (!OppoGestureProfile.TryEncodeFunction(action, out var function))
+                return false;
+
+            // 3. 修改目标帧并整表回写
+            var frames = _keyFunctionFrames.ToList();
+            var f = frames[index];
+            frames[index] = new OppoGestureProfile.KeyFunctionFrame(f.DeviceType, f.Button, f.ButtonAction, function);
+            var payload = OppoGestureProfile.EncodeTable(frames);
+            if (!await WriteAsync(link, CommandId.SetKeyFunction, CommandId.SetKeyFunctionResponse, payload, cancellationToken))
+                return false;
+
+            _keyFunctionFrames = frames;
+            _currentGestures[(source, ear, kind)] = action;
+            _state.NotifyChanged();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Gesture.OPPO", $"设置 OPPO 触控手势失败：{exception.Message}", exception);
+            return false;
+        }
+    }
 
     // 根据当前设备快照和本地隐藏策略生成多设备显示数据。
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
@@ -667,11 +725,10 @@ public sealed class OppoManager : IBrandManager
             var wearStatus = new WearStatus(_state, notifier);
             var noiseCancellation = new NoiseCancellation(_state, Capability, notifier);
             var gameMode = new GameMode(_state, notifier);
-            var equalizer = new Equalizer(_state, Capability);
+            var equalizer = new OppoEqualizerProfile(_state, () => Capability);
             var spatialAudio = new SpatialAudio(_state);
             var featureSwitches = new FeatureSwitches(_state);
             var multiDevice = new MultiDevice(_state);
-            var customEqualizer = new CustomEqualizer(_state);
             var gameSound = new GameSound(_state);
             _link = link;
             _notifier = notifier;
@@ -679,11 +736,10 @@ public sealed class OppoManager : IBrandManager
             _wearStatus = wearStatus;
             _noiseCancellation = noiseCancellation;
             _gameMode = gameMode;
-            _equalizer = equalizer;
+            _equalizerProfile = equalizer;
             _spatialAudio = spatialAudio;
             _featureSwitches = featureSwitches;
             _multiDevice = multiDevice;
-            _customEqualizer = customEqualizer;
             _gameSound = gameSound;
             link.Disconnected += OnLinkDisconnected;
             _state.SetConnected(deviceName);
@@ -733,12 +789,11 @@ public sealed class OppoManager : IBrandManager
         _wearStatus = null;
         _noiseCancellation = null;
         _gameMode = null;
-        _equalizer = null;
         _spatialAudio = null;
         _featureSwitches = null;
         _multiDevice = null;
-        _customEqualizer = null;
         _gameSound = null;
+        _equalizerProfile = NullEqualizerProfile.Instance;
         _bassEngineState = null;
         _notifier = null;
         _link = null;
@@ -797,10 +852,10 @@ public sealed class OppoManager : IBrandManager
         ApplicationLog.Current?.Info(
             "Equalizer.Protocol",
             $"处理 EQ 变化通知：bytes={notification.Payload.Length}。");
-        if (_link is null || _equalizer is null)
+        if (_link is null)
             return;
 
-        _equalizer.ApplyCurrentPreset(notification.Payload.Span);
+        _equalizerProfile.ApplyCurrentPreset(notification.Payload.Span);
         var sessionVersion = Volatile.Read(ref _sessionVersion);
         _ = RefreshEqualizerFromNotificationAsync(sessionVersion);
     }
@@ -844,7 +899,7 @@ public sealed class OppoManager : IBrandManager
         Battery battery,
         WearStatus wearStatus,
         NoiseCancellation noiseCancellation,
-        Equalizer equalizer,
+        IEqualizerProfile equalizer,
         SpatialAudio spatialAudio,
         FeatureSwitches featureSwitches,
         CancellationToken cancellationToken)
@@ -938,6 +993,74 @@ public sealed class OppoManager : IBrandManager
                 Capability = FeatureSwitches.RefineCapability(_baseCapability, _state.Snapshot().FeatureStates);
             }
         }
+
+        // 触控表（KeyFunction）初始回读：GET 0x0108，解析为整表供 GestureEntries 显示与后续 SET 使用。
+        if (Capability.SupportsCommand(CommandId.KeyFunction))
+        {
+            var gestureResp = await TryRequestAsync(link, CommandId.KeyFunction, CommandId.KeyFunctionResponse, Array.Empty<byte>(), cancellationToken);
+            if (gestureResp is not null && OppoGestureProfile.DecodeTable(gestureResp.Payload.ToArray(), out var gestureFrames))
+            {
+                _keyFunctionFrames = gestureFrames;
+                ApplicationLog.Current?.Debug("Gesture.OPPO", $"初始触控表读取完成：frames={gestureFrames.Count}。");
+            }
+        }
+
+#if DEBUG
+        // 真机命令面探测：遍历设备支持但项目尚未命名的 0x01xx GET 命令，
+        // 打印响应十六进制，用于在不借助外部抓包的情况下定位 OPPO 触控(KeyFunction)命令字。
+        // 全部为只读 GET，不会向设备写入任何状态；仅 Debug 构建生效，Release 自动剔除。
+        try
+        {
+            var knownGet = new HashSet<ushort>
+            {
+                0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0109, 0x010B, 0x010C,
+                0x010D, 0x010F, 0x0112, 0x0114, 0x0115, 0x0122, 0x0124, 0x012A, 0x012B, 0x0132
+            };
+            var candidates = new List<ushort>();
+            foreach (var c in Capability.SupportedCommands)
+            {
+                if (c >= 0x0100 && c <= 0x01FF && !knownGet.Contains(c))
+                    candidates.Add(c);
+            }
+            ApplicationLog.Current?.Info("Probe", $"开始探测未命名 GET 命令：count={candidates.Count}。");
+            foreach (var cmd in candidates)
+            {
+                var respCmd = (ushort)(cmd | 0x8000);
+                var resp = await TryRequestAsync(link, cmd, respCmd, Array.Empty<byte>(), cancellationToken);
+                if (resp is null)
+                {
+                    ApplicationLog.Current?.Debug("Probe", $"  0x{cmd:X4} -> 无响应/超时。");
+                    continue;
+                }
+                var bytes = resp.Payload.ToArray();
+                if (cmd == CommandId.KeyFunction && OppoGestureProfile.DecodeTable(bytes, out var gFrames))
+                {
+                    ApplicationLog.Current?.Info("Probe", $"  0x{cmd:X4} (KeyFunction) -> frames={gFrames.Count}");
+                    for (int i = 0; i < gFrames.Count; i++)
+                    {
+                        var fr = gFrames[i];
+                        OppoGestureProfile.DecodeFrame(fr, out var ear, out var source, out var kind, out var act);
+                        ApplicationLog.Current?.Debug("Probe",
+                            $"    [{i}] dt=0x{fr.DeviceType:X2} btn=0x{fr.Button:X2} act=0x{fr.ButtonAction:X2} fn=0x{fr.Function:X2}" +
+                            $" => {(ear?.ToString() ?? "?")}/{(source?.ToString() ?? "?")}/{(kind?.ToString() ?? "?")}/{(act?.ToString() ?? "?")}");
+                    }
+                }
+                else
+                {
+                    var hex = Convert.ToHexString(bytes);
+                    var looksGesture = bytes.Length >= 4 && bytes.Length % 4 == 0;
+                    var tag = looksGesture ? " [疑似手势表 len%4==0]" : "";
+                    ApplicationLog.Current?.Debug("Probe", $"  0x{cmd:X4} -> len={bytes.Length}, payload={hex}{tag}");
+                }
+            }
+            ApplicationLog.Current?.Info("Probe", "未命名 GET 命令探测完成。");
+        }
+        catch (Exception probeEx)
+        {
+            ApplicationLog.Current?.Error("Probe", $"探测过程异常（已忽略）：{probeEx.Message}");
+        }
+#endif
+
         ApplicationLog.Current?.Info("Session", "设备初始状态读取完成。");
     }
 
@@ -971,7 +1094,7 @@ public sealed class OppoManager : IBrandManager
         Battery battery,
         WearStatus wearStatus,
         NoiseCancellation noiseCancellation,
-        Equalizer equalizer,
+        IEqualizerProfile equalizer,
         SpatialAudio spatialAudio)
     {
         ApplicationLog.Current?.Info("Polling", $"启动轻量轮询：interactive={_interactivePolling}，interval=2s。");
@@ -1028,7 +1151,7 @@ public sealed class OppoManager : IBrandManager
         Battery battery,
         WearStatus wearStatus,
         NoiseCancellation noiseCancellation,
-        Equalizer equalizer,
+        IEqualizerProfile equalizer,
         SpatialAudio spatialAudio,
         CancellationToken cancellationToken)
     {
@@ -1115,7 +1238,7 @@ public sealed class OppoManager : IBrandManager
         Notifier notifier,
         WearStatus wearStatus,
         NoiseCancellation noiseCancellation,
-        Equalizer equalizer,
+        IEqualizerProfile equalizer,
         SpatialAudio spatialAudio,
         DateTimeOffset now,
         CancellationToken cancellationToken)

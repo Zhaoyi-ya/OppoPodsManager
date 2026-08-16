@@ -46,11 +46,11 @@ public partial class GestureView : PageView
         GestureCard.IsVisible = true;
     }
 
-    private void OnGestureSet(EarSide ear, TapKind kind, GestureActionKind action)
+    private void OnGestureSet(EarSide ear, GestureSource source, TapKind kind, GestureActionKind action)
     {
         if (_suppressGestureSelection)
             return;
         _ = CommandDispatcher?.RunAsync("触控手势",
-            m => m.SetTouchGestureAsync(ear, kind, action, CancellationToken.None));
+            m => m.SetTouchGestureAsync(ear, kind, action, source, CancellationToken.None));
     }
 }

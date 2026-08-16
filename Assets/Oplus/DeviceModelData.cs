@@ -87,6 +87,8 @@ public static class DeviceModelData
     }
 
     // 从官方白名单读取自定义 EQ 的频率、预设数量和界面版本。
+    // 与 main 分支对齐：customEqualizer 标志即代表支持（不要求 customEqFrequency 非空）。
+    // 频段为空时由 DeviceCapability.CustomEqFrequencies 回退到默认 6 频段。
     private static void AddCustomEqualizer(
         JsonElement function,
         List<int> frequencies,
@@ -94,6 +96,8 @@ public static class DeviceModelData
         ref int uiVersion,
         ISet<string> features)
     {
+        var hasCustomEq = IsEnabled(function, "customEqualizer");
+
         if (function.TryGetProperty("customEqFrequency", out var values)
             && values.ValueKind == JsonValueKind.Array)
         {
@@ -113,7 +117,10 @@ public static class DeviceModelData
             && version.TryGetInt32(out var parsedVersion))
             uiVersion = Math.Max(0, parsedVersion);
 
-        if (frequencies.Count > 0)
+        // main 分支仅检查 customEqualizer 布尔标志，不依赖频段数据存在性。
+        // Enco Free4 等型号声明了 customEqualizer=1 但未提供 customEqFrequency，
+        // 此时仍应视为支持自定义 EQ，频段在消费侧回退默认值。
+        if (hasCustomEq)
             features.Add("custom-equalizer");
     }
 
@@ -208,9 +215,11 @@ public static class DeviceModelData
         if (namedPresets.Count == 0)
             return;
 
-        var maximum = namedPresets.Keys.Max();
-        for (var index = 0; index <= maximum; index++)
-            presets.Add(namedPresets.TryGetValue((byte)index, out var name) ? name : $"M{index}");
+        // 与 main 分支 LoadEqNames 对齐：只添加 JSON 明确定义的预设，不做 0-max 的 gap-fill。
+        // 填充会在空洞索引处生成 "M3" 等回退名，随后被 GetDisplayName 二次解析为不存在的中文显示名（如"明快清亮"），
+        // 导致用户看到设备实际不支持的多余预设。
+        foreach (var name in namedPresets.Values)
+            presets.Add(name);
     }
 
     // 合并原项目兼容的三种 EQ 配置格式，并保留协议索引顺序。

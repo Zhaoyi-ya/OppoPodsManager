@@ -21,12 +21,22 @@ public sealed record DeviceCapability(
 
     public bool SupportsFeature(string feature) => SupportedFeatures.Contains(feature);
 
-    // 判断型号是否同时具备白名单、自定义 EQ 频段和完整读写命令。
+    // 判断型号是否具备自定义 EQ 能力。与 main 分支 HasCustomEq 对齐：
+    // 仅检查 JSON 白名单声明（custom-equalizer feature），不强制要求 0x0122/0x0418 在能力位图中。
+    // 实际读写时的命令可用性由调用点 CanUseCommand() 保底。
     public bool SupportsCustomEqualizer
-        => SupportsFeature("custom-equalizer")
-            && CustomEqFrequencies.Count > 0
-            && SupportsCommand(CommandId.EqualizerEntries)
-            && SupportsCommand(CommandId.SetEqualizerEntry);
+        => SupportsFeature("custom-equalizer");
+
+    // 与 main 分支 ResolveCustomEqFreqs 对齐：JSON 声明了 customEqualizer 但未提供
+    // customEqFrequency 的型号（如 Enco Free4）回退到标准 6 频段。
+    public static IReadOnlyList<int> DefaultFrequencies { get; } = [62, 250, 1000, 4000, 8000, 16000];
+
+    /// <summary>
+    /// 获取用于自定义 EQ 编辑的有效频段列表。
+    /// 当 JSON 未提供频段数据但声明了 custom-equalizer 特性时，返回默认 6 频段。
+    /// </summary>
+    public IReadOnlyList<int> ResolvedCustomEqFrequencies
+        => CustomEqFrequencies.Count > 0 ? CustomEqFrequencies : DefaultFrequencies;
 
     // 判断三模式空间音频是否具备完整的查询和设置能力。
     public bool SupportsSpatialAudio

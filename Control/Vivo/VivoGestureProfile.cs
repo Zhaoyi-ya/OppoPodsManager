@@ -5,7 +5,7 @@ namespace OppoPodsManager.Control.Gestures;
 
 /// <summary>
 /// vivo 触控能力档案。vivo 协议层面只有「双击」(0x0102) 与「长按/三击」(0x0131) 两种可配置手势，
-/// 单击与滑动无对应命令字，故 SupportedGestures 仅含 Double / LongPress（三击复用 0x0131 type6，后续可拆出）。
+/// 单击与滑动无对应命令字，故 GetSupportedGestures(Touch) 仅含 Double / LongPress（三击复用 0x0131 type6，后续可拆出）。
 /// 动作码体系：左耳 0x00~0x06、右耳 0x10~0x16（来自 VivoConstants.TapLeftCodes/RightCodes）；
 /// 长按功能码 = 噪声模式码（来自 TWS-Pods-PC/vivo/vivo_protocol.py：NOISE_ALL=0x0B、EXCLUDE_OFF=0x0A、
 /// EXCLUDE_TRANS=0x08、EXCLUDE_ANC=0x09、NONE=0xFF）。**绝非** 0x01/0x02/0x03（那是旧工程误写，
@@ -66,11 +66,14 @@ public sealed class VivoGestureProfile : IGestureProfile
         return d;
     }
 
-    public IReadOnlyList<TapKind> SupportedGestures { get; } = new[] { TapKind.Double, TapKind.LongPress };
+    public IReadOnlyList<GestureSource> SupportedSources { get; } = new[] { GestureSource.Touch };
 
-    public bool IsGestureConfigurable(TapKind kind) => true;
+    public IReadOnlyList<TapKind> GetSupportedGestures(GestureSource source)
+        => source == GestureSource.Touch ? new[] { TapKind.Double, TapKind.LongPress } : [];
 
-    public IReadOnlyList<GestureActionOption> GetActionOptions(TapKind kind, EarSide ear)
+    public bool IsGestureConfigurable(TapKind kind, GestureSource source) => true;
+
+    public IReadOnlyList<GestureActionOption> GetActionOptions(TapKind kind, EarSide ear, GestureSource source)
     {
         IReadOnlyDictionary<byte, GestureActionKind> map = kind == TapKind.LongPress
             ? LongPressMap
@@ -82,7 +85,7 @@ public sealed class VivoGestureProfile : IGestureProfile
             .ToList();
     }
 
-    public byte[]? EncodeSet(EarSide ear, TapKind kind, GestureActionKind action, byte? otherEarRaw = null)
+    public byte[]? EncodeSet(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, byte? otherEarRaw = null)
     {
         if (kind == TapKind.LongPress)
         {

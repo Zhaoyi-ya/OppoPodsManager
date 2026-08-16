@@ -13,6 +13,7 @@ using OppoPodsManager.Control.Oppo.Models;
 using OppoPodsManager.Control.Logging;
 using OppoPodsManager.Control.Vivo.Models;
 using OppoPodsManager.Control.Gestures;
+using OppoPodsManager.Control.Equalizers;
 
 namespace OppoPodsManager.Control.Vivo;
 
@@ -284,22 +285,29 @@ internal sealed class VivoManager : IBrandManager
         get
         {
             var list = new List<GestureEntry>();
-            foreach (var kind in _gestureProfile.SupportedGestures)
+            foreach (var source in _gestureProfile.SupportedSources)
             {
-                foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                foreach (var kind in _gestureProfile.GetSupportedGestures(source))
                 {
-                    var options = _gestureProfile.GetActionOptions(kind, ear);
-                    var current = ResolveCurrentGesture(kind, ear);
-                    list.Add(new GestureEntry(kind, ear, _gestureProfile.IsGestureConfigurable(kind),
-                        LongPressRenderMode.CycleSet, options, current));
+                    foreach (var ear in new[] { EarSide.Left, EarSide.Right })
+                    {
+                        var options = _gestureProfile.GetActionOptions(kind, ear, source);
+                        var current = ResolveCurrentGesture(kind, ear);
+                        list.Add(new GestureEntry(source, kind, ear, _gestureProfile.IsGestureConfigurable(kind, source),
+                            LongPressRenderMode.CycleSet, options, current));
+                    }
                 }
             }
             return list;
         }
     }
 
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
-        => SetTouchGestureCoreAsync(ear, kind, action, cancellationToken);
+    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
+        => SetTouchGestureCoreAsync(ear, kind, action, source, cancellationToken);
+
+    // vivo 的自定义 EQ 走独立音频效果协议（VivoAudioEffectCatalog），本档案暂用空实现占位；
+    // 后续若需把预设名解析/增益对齐统一收口，可提供 VivoEqualizerProfile 实现本接口。
+    public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
 
     private GestureActionKind ResolveCurrentGesture(TapKind kind, EarSide ear)
     {
@@ -316,7 +324,7 @@ internal sealed class VivoManager : IBrandManager
             : GestureActionKind.None;
     }
 
-    private async Task<bool> SetTouchGestureCoreAsync(EarSide ear, TapKind kind, GestureActionKind action, CancellationToken cancellationToken)
+    private async Task<bool> SetTouchGestureCoreAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
     {
         if (_link is null)
             return false;
@@ -326,7 +334,7 @@ internal sealed class VivoManager : IBrandManager
             {
                 // 长按 SET 0x0131 需左右耳功能码一同下发：[type, leftCode, rightCode]。
                 var otherRaw = ear == EarSide.Left ? _longPressRightFunc : _longPressLeftFunc;
-                var payload = _gestureProfile.EncodeSet(ear, kind, action, otherRaw);
+                var payload = _gestureProfile.EncodeSet(ear, kind, action, source, otherRaw);
                 if (payload is null)
                     return false;
                 await _link.RequestAsync(VivoConstants.SetLongPressFunc, VivoConstants.AckLongPressFunc, payload, cancellationToken);
@@ -338,7 +346,7 @@ internal sealed class VivoManager : IBrandManager
             }
             else
             {
-                var payload = _gestureProfile.EncodeSet(ear, kind, action);
+                var payload = _gestureProfile.EncodeSet(ear, kind, action, source);
                 if (payload is null)
                     return false;
                 await _link.RequestAsync(VivoConstants.SetDoubleTap, VivoConstants.AckDoubleTap, payload, cancellationToken);

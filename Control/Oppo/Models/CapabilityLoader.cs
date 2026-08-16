@@ -75,7 +75,10 @@ public sealed class CapabilityLoader
             {
                 "noise-cancellation" => HasAny(commands, CommandId.NoiseCancellation, CommandId.SetNoiseCancellation),
                 "equalizer" => HasAny(commands, CommandId.CurrentEqualizer, CommandId.SetEqualizer),
-                "custom-equalizer" => HasAny(commands, CommandId.EqualizerEntries, CommandId.SetEqualizerEntry),
+                // 自定义 EQ：与 main 分支对齐——仅依据 JSON 白名单声明（customEqualizer 标志 + customEqFrequency 非空），
+                // 不强制要求 0x0122/0x0418 出现在设备能力位图中。许多 OPPO 设备支持自定义 EQ 却不在位图声明这些命令。
+                // 命令可用性在调用点由 CanUseCommand() 保底校验。
+                "custom-equalizer" => true,
                 "find-device" => commands.Contains(CommandId.SetFindDevice),
                 "game-sound" => HasAny(commands, CommandId.GameSound, CommandId.SetGameSound),
                 "spatial-configured" => HasAny(commands, CommandId.SpatialAudio, CommandId.SetSpatialAudio, CommandId.SetFeature),

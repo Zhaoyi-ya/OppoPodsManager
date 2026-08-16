@@ -22,6 +22,11 @@ public static class CommandId
     public const ushort EqualizerEntries = 0x0122;
     public const ushort GameSound = 0x012B;
 
+    // 触控手势（KeyFunction）：Enco Free4 真机抓包确认。
+    // GET=0x0108 / SET=0x0408，负载 = [count_hi,count_lo] + count×[deviceType,button,buttonAction,function]，
+    // 与官方 KeyFunctionInfo.convertToData 字节序一致。
+    public static readonly ushort KeyFunction = 0x0108; // GET 触控表
+
     public const ushort SetFeature = 0x0403;
     public const ushort SetNoiseCancellation = 0x0404;
     public const ushort SetEqualizer = 0x0406;
@@ -32,6 +37,7 @@ public static class CommandId
     public const ushort OperateMultiDevice = 0x0429;
     public const ushort SetEqualizerEntry = 0x0418;
     public const ushort SetGameSound = 0x0423;
+    public static readonly ushort SetKeyFunction = 0x0408; // SET 触控表
 
     public const ushort CapabilitiesResponse = 0x8100;
     public const ushort ProductIdResponse = 0x8103;
@@ -49,6 +55,7 @@ public static class CommandId
     public const ushort MultiDevicePriorityResponse = 0x8132;
     public const ushort EqualizerEntriesResponse = 0x8122;
     public const ushort GameSoundResponse = 0x812B;
+    public static readonly ushort KeyFunctionResponse = 0x8108; // GET 0x0108 响应
 
     public const ushort SetFeatureResponse = 0x8403;
     public const ushort SetNoiseCancellationResponse = 0x8404;
@@ -60,6 +67,7 @@ public static class CommandId
     public const ushort OperateMultiDeviceResponse = 0x8429;
     public const ushort SetEqualizerEntryResponse = 0x8418;
     public const ushort SetGameSoundResponse = 0x8423;
+    public static readonly ushort SetKeyFunctionResponse = 0x8408; // SET 0x0408 响应
 
     public const ushort NotificationCapabilities = 0x0200;
     public const ushort RegisterNotification = 0x0201;
@@ -88,4 +96,72 @@ public static class CommandId
         0x0F03,
         Battery
     };
+
+    // ===== 官方存在但尚未实现/命名的命令（欢律 APK 全量逆向，2026-08-16）=====
+    // 权威命令空间在 HeadsetCoreService（统一发包 u0()）；响应 = 请求 | 0x8000。
+    // 这些 opcode 已在官方 App 确认存在，本项目尚未接入对应功能。
+    // 命名 Unknown<Hex> 表示功能语义待后续逆向/真机确认，接入功能时请改名。
+
+    // GET（0x01xx）官方存在、项目未实现
+    public const ushort Unknown0107 = 0x0107;
+    public const ushort Unknown0116 = 0x0116;
+    public const ushort Unknown0118 = 0x0118;
+    public const ushort Unknown0119 = 0x0119;
+    public const ushort Unknown011A = 0x011A;
+    public const ushort Unknown011C = 0x011C;
+    public const ushort Unknown011D = 0x011D;
+    public const ushort Unknown011E = 0x011E;
+    public const ushort Unknown011F = 0x011F;
+    public const ushort Unknown0121 = 0x0121;
+    public const ushort Unknown0123 = 0x0123;
+    public const ushort Unknown0125 = 0x0125;
+    public const ushort Unknown0126 = 0x0126;
+    public const ushort Unknown0127 = 0x0127;
+    public const ushort Unknown0129 = 0x0129;
+    public const ushort Unknown012E = 0x012E;
+    public const ushort KeyFunctionSubGet = 0x012F;   // 官方 KeyFunction 子命令（响应 0x812F）
+    public const ushort Unknown0130 = 0x0130;
+    public const ushort Unknown0131 = 0x0131;
+    public const ushort Unknown0133 = 0x0133;
+    public const ushort Unknown0134 = 0x0134;
+    public const ushort Unknown0180 = 0x0180;
+
+    // SET（0x04xx）官方存在、项目未实现（响应 = opcode | 0x8000）
+    public const ushort Unknown0402 = 0x0402;
+    public const ushort Unknown0405 = 0x0405;
+    public const ushort Unknown040E = 0x040E;
+    public const ushort Unknown040F = 0x040F;
+    public const ushort Unknown0410 = 0x0410;
+    public const ushort Unknown0411 = 0x0411;
+    public const ushort Unknown0412 = 0x0412;
+    public const ushort Unknown0413 = 0x0413;
+    public const ushort KeyFunctionSubSet = 0x0414;   // 官方 KeyFunction 子命令（响应 0x8414）
+    public const ushort Unknown0415 = 0x0415;
+    public const ushort Unknown0417 = 0x0417;
+    public const ushort Unknown041A = 0x041A;
+    public const ushort Unknown041C = 0x041C;         // 与 0x0408 同族，疑另一键功能 SET
+    public const ushort Unknown041D = 0x041D;
+    public const ushort Unknown041E = 0x041E;
+    public const ushort Unknown041F = 0x041F;         // payload=String.getBytes → 疑 SetDeviceName
+    public const ushort Unknown0420 = 0x0420;
+    public const ushort Unknown0421 = 0x0421;
+    public const ushort Unknown0424 = 0x0424;
+    public const ushort Unknown0425 = 0x0425;
+    public const ushort Unknown0426 = 0x0426;
+    public const ushort Unknown0427 = 0x0427;
+    public const ushort Unknown0428 = 0x0428;
+    public const ushort Unknown042B = 0x042B;
+    public const ushort Unknown042C = 0x042C;
+    public const ushort Unknown042D = 0x042D;
+    public const ushort Unknown042E = 0x042E;
+    public const ushort Unknown0430 = 0x0430;
+    public const ushort Unknown0431 = 0x0431;
+
+    // 0x08 家族（control/indication 类，未全映射）
+    public const ushort Control0810 = 0x0810;         // HeadsetCoreService$e
+    public const ushort Control0814 = 0x0814;         // commands/l（KeyFunction 相关）
+    public const ushort Control0810Response = 0x8810;
+    public const ushort Control0814Response = 0x8814;
+    public const ushort KeyFunctionSubGetResponse = 0x812F;
+    public const ushort KeyFunctionSubSetResponse = 0x8414;
 }

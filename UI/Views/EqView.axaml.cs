@@ -31,6 +31,13 @@ public partial class EqView : PageView
     private sbyte _nextEqMaximumGain = BrandPresentation.DefaultCustomEqMaximumGain;
     private readonly List<DynamicEqBand> _dynamicEqBands = [];
     private DispatcherTimer? _eqDebounceTimer;
+    // 编辑/拖拽期间抑制快照驱动的重渲染，避免滑块被设备回显值反复拉回。
+    private bool _eqUserInteracting;
+    private DispatcherTimer? _eqInteractionTimer;
+    // 渲染期间置位，区分程序化滑块赋值与用户交互。
+    private bool _eqRendering;
+    // 上次渲染的 EQ 相关快照签名；未变化时跳过整页重建，消除无关状态刷新导致的闪烁。
+    private string? _eqRenderedSignature;
 
     // 保存动态 EQ 频段对应的滑块和数值标签。
     private sealed record DynamicEqBand(int Frequency, Slider Slider, TextBlock DbLabel);
@@ -53,8 +60,18 @@ public partial class EqView : PageView
         if (_nextEqEditing)
             return;
 
+        // 无关状态变化（电量/降噪/佩戴等）也会发布新快照；EQ 相关数据未变时跳过整页重渲染。
+        var signature = ComputeEqSignature(snapshot);
+        if (_eqUserInteracting || _eqRenderedSignature == signature)
+        {
+            _eqRenderedSignature = signature;
+            return;
+        }
+        _eqRenderedSignature = signature;
+
         var manager = ControlManager?.ActiveManager;
         _eqSuppressListEvent = true;
+        _eqRendering = true;
         try
         {
             LbEqBuiltinPresets.Items.Clear();
@@ -96,7 +113,7 @@ public partial class EqView : PageView
 
             foreach (var presetName in presentation.EqualizerPresets)
             {
-                var displayName = DeviceProfileLoader.LocalizedEqName(presetName);
+                var displayName = manager.EqualizerProfile.ResolvePresetDisplayName(presetName);
                 LbEqBuiltinPresets.Items.Add(new EqPresetItem
                 {
                     Name = presetName,
@@ -164,7 +181,35 @@ public partial class EqView : PageView
         finally
         {
             _eqSuppressListEvent = false;
+            _eqRendering = false;
         }
+    }
+
+    // 计算当前快照中 EQ 相关数据的稳定签名，用于判断是否需要重建界面。
+    private string ComputeEqSignature(BusinessSnapshot snapshot)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append(snapshot.IsConnected ? '1' : '0').Append('|');
+        sb.Append(snapshot.DeviceName ?? "").Append('|');
+        if (ControlManager?.ActiveManager is { } manager)
+        {
+            var presentation = manager.Presentation;
+            sb.Append(presentation.SupportsCustomEqualizer ? '1' : '0').Append('|');
+            sb.Append(string.Join(',', presentation.CustomEqFrequencies)).Append('|');
+            sb.Append(presentation.CustomEqMinimumGain).Append('|').Append(presentation.CustomEqMaximumGain).Append('|');
+            sb.Append(string.Join(',', presentation.EqualizerPresets)).Append('|');
+        }
+        var selectedName = snapshot.Equalizer?.PresetName
+            ?? snapshot.EqualizerEntries.FirstOrDefault(entry => entry.IsSelected)?.Name
+            ?? "";
+        sb.Append(selectedName).Append('|');
+        foreach (var entry in snapshot.EqualizerEntries.OrderBy(entry => entry.Id))
+        {
+            sb.Append(entry.Id).Append(':').Append(entry.Name).Append(':')
+              .Append(string.Join(',', entry.Gains)).Append(':')
+              .Append(string.Join(',', entry.Frequencies)).Append(';');
+        }
+        return sb.ToString();
     }
 
     internal void StopDebounceTimer() => _eqDebounceTimer?.Stop();
@@ -180,6 +225,22 @@ public partial class EqView : PageView
             SendCurrentCustomEq();
         });
         return _eqDebounceTimer;
+    }
+
+    private DispatcherTimer EnsureEqInteractionTimer()
+    {
+        if (_eqInteractionTimer != null)
+            return _eqInteractionTimer;
+
+        _eqInteractionTimer = new DispatcherTimer(
+            TimeSpan.FromMilliseconds(300),
+            DispatcherPriority.Background,
+            (_, _) =>
+            {
+                _eqInteractionTimer?.Stop();
+                _eqUserInteracting = false;
+            });
+        return _eqInteractionTimer;
     }
 
     private void EqSlider_Changed(object? s, AvaloniaPropertyChangedEventArgs e)
@@ -204,8 +265,14 @@ public partial class EqView : PageView
                 dynamicBand.DbLabel.Text = text;
         }
 
-        if (_synchronizingNextEq)
+        if (_synchronizingNextEq || _eqRendering)
             return;
+
+        // 用户正在拖动滑块：标记交互中并抑制快照重渲染，直到停止拖动 300ms 后自动解除。
+        _eqUserInteracting = true;
+        var interactionTimer = EnsureEqInteractionTimer();
+        interactionTimer.Stop();
+        interactionTimer.Start();
 
         // 防抖 150ms 后下发自定义 EQ（实时预览）。复用同一个 DispatcherTimer，避免拖动滑块时反复创建 Timer/闭包。
         var timer = EnsureEqDebounceTimer();
