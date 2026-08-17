@@ -18,6 +18,7 @@ Supports **137 devices** across all three brands, with capabilities auto-detecte
 - [Getting Started](#getting-started)
 - [Interface Guide](#interface-guide)
 - [Supported Devices](#supported-devices)
+- [Network Connection](#network-connection)
 - [FAQ](#faq)
 - [Maintainers](#maintainers)
 - [Font Notice](#font-notice)
@@ -111,6 +112,18 @@ Main window, top to bottom:
 | realme | Buds Air / Buds T / Buds Wireless / DIZO |
 
 Features vary by model (ANC sub-levels, spatial audio, dual-device, Master EQ, etc.). The app **shows only what your model supports** — unsupported features never appear. If auto-detection is wrong, search and pick your model under **Settings → Device Model**.
+
+---
+
+## Network Connection
+
+The only network activity in this app is **update checking**: it queries the update server for the latest version number to see if a new release is available.
+
+- **No data is uploaded**: it does not collect or upload any device info, earbud data, usage habits, or any personal information.
+- It only makes a single read-only version query when you check for updates (manually or via auto-check) — no other network communication occurs.
+- No analytics, tracking, or telemetry code is built in.
+
+If the network is unavailable, or you disable auto-check, the app runs fully offline — every local feature keeps working.
 
 ---
 
