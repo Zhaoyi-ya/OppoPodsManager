@@ -9,6 +9,8 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>OppoPodsManager</AssemblyName>
+    <!-- next 分支内测版：版本号刻意高于正式版（当前 1.1.10），使更新检查永远判定为已最新、不弹更新提示。 -->
+    <Version>2.0.0</Version>
     <ApplicationIcon>Assets\VisualAssets\tuopan.ico</ApplicationIcon>
     <TargetFramework Condition="'$(EnableWindowsBackend)' == 'true'">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="'$(EnableWindowsBackend)' != 'true'">net10.0</TargetFramework>

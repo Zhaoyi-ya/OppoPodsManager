@@ -8,7 +8,7 @@ public partial class AboutView : PageView
     public AboutView()
     {
         InitializeComponent();
-        VersionText.Text = AppInfo.VersionLabel;
+        VersionText.Text = AppInfo.VersionLabel + " 内测版";
     }
 
     private void AboutBack_Click(object? s, RoutedEventArgs e) => Host?.RequestNavigate("settings");
