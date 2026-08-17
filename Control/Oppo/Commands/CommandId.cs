@@ -68,6 +68,7 @@ public static class CommandId
     public const ushort SetEqualizerEntryResponse = 0x8418;
     public const ushort SetGameSoundResponse = 0x8423;
     public static readonly ushort SetKeyFunctionResponse = 0x8408; // SET 0x0408 响应
+    public static readonly ushort Unknown041CResponse = 0x841C; // SET 0x041C 响应（与 0x0408 同族的另一个键功能 SET 候选写入入口）
 
     public const ushort NotificationCapabilities = 0x0200;
     public const ushort RegisterNotification = 0x0201;

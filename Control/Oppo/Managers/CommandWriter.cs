@@ -19,6 +19,8 @@ public sealed class CommandWriter
         ApplicationLog.Current?.Debug("Protocol", $"发送写命令：command=0x{command:X4}，response=0x{responseCommand:X4}，bytes={payload.Length}。");
         var response = await _channel.RequestAsync(command, responseCommand, payload, cancellationToken);
         var success = response.Payload.IsEmpty || response.Payload.Span[0] == 0;
+        if (!success && response.Payload.Length > 0)
+            ApplicationLog.Current?.Debug("Protocol", $"写命令被设备拒绝：command=0x{command:X4}，status=0x{response.Payload.Span[0]:X2}，responseBytes={response.Payload.Length}。");
         ApplicationLog.Current?.Debug("Protocol", $"写命令完成：command=0x{command:X4}，success={success}，responseBytes={response.Payload.Length}。");
         return success;
     }

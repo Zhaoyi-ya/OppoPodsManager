@@ -287,6 +287,21 @@ public sealed class ControlManager : IAsyncDisposable
                         ApplicationLog.Current?.Debug("Discovery", $"确认设备协议：device={plan.Candidate.DisplayName}，brand={factory.Brand}，service={factory.ServiceId}。");
                         connection = await scanner.OpenAsync(candidatePlan, cancellationToken);
                         manager = await factory.CreateAsync(candidatePlan, connection, cancellationToken);
+
+                        // 确认阶段已经完整初始化会话（身份/能力/通知/初始读取），若当前尚无活动会话，
+                        // 直接将其提升为活动会话，省去随后自动连接对同一设备再开一条重复会话的代价。
+                        // 依据真机日志：OPPO/vivo 在“设备被发现”后会先确认协议再自动连接，导致同设备
+                        // 被完整连接两次（OPPO 因此多耗约 7 秒，vivo 则因确认会话被提前 Dispose 出现
+                        // ObjectDisposedException）。复用后自动连接循环看到 ActiveManager 非空会直接返回。
+                        if (_activeManager is null && _activeDeviceId is null)
+                        {
+                            _activeDeviceId = candidatePlan.Candidate.StableId;
+                            MarkConfirmed(candidatePlan);
+                            await SelectManagerAsync(manager);
+                            ApplicationLog.Current?.Info("Discovery", $"已确认并直接接入设备会话：device={plan.Candidate.DisplayName}，brand={factory.Brand}。");
+                            return;
+                        }
+
                         await manager.DisposeAsync();
                         manager = null;
                         MarkConfirmed(candidatePlan);
@@ -590,7 +605,7 @@ public sealed class ControlManager : IAsyncDisposable
                         else if (connection is not null)
                             await connection.DisposeAsync();
                         allowBare = false;
-                        await Task.Delay(TimeSpan.FromSeconds(1.2), cancellationToken);
+                        await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken);
                         continue;
                     }
                     catch (BluetoothConnectException ex)

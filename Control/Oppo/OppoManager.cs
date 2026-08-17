@@ -612,7 +612,15 @@ public sealed class OppoManager : IBrandManager
             frames[index] = new OppoGestureProfile.KeyFunctionFrame(f.DeviceType, f.Button, f.ButtonAction, function);
             var payload = OppoGestureProfile.EncodeTable(frames);
             if (!await WriteAsync(link, CommandId.SetKeyFunction, CommandId.SetKeyFunctionResponse, payload, cancellationToken))
-                return false;
+            {
+                // 回退：逆向发现 0x041C 与 0x0408 同族、疑为另一个键功能 SET。
+                // 部分固件把真实写入入口放在 0x041C，0x0408 虽被识别但拒绝写入。
+                // 仅当 0x0408 被设备拒绝时尝试，不影响原本成功的路径。
+                ApplicationLog.Current?.Debug("Gesture.OPPO",
+                    "SET 0x0408 被设备拒绝，尝试回退写入入口 0x041C。");
+                if (!await WriteAsync(link, CommandId.Unknown041C, CommandId.Unknown041CResponse, payload, cancellationToken))
+                    return false;
+            }
 
             _keyFunctionFrames = frames;
             _currentGestures[(source, ear, kind)] = action;
@@ -1006,15 +1014,33 @@ public sealed class OppoManager : IBrandManager
         }
 
 #if DEBUG
-        // 真机命令面探测：遍历设备支持但项目尚未命名的 0x01xx GET 命令，
-        // 打印响应十六进制，用于在不借助外部抓包的情况下定位 OPPO 触控(KeyFunction)命令字。
-        // 全部为只读 GET，不会向设备写入任何状态；仅 Debug 构建生效，Release 自动剔除。
+        // 真机命令面探测改为后台执行，避免阻塞“已连接”状态发布与初始信息回读。
+        // 依据 OPPO Enco Free4 真机日志：未命名 GET 多数 50ms 内响应，但 0x011E/0x011F
+        // 等设备通过推送帧（0x1E00/0x1F00）而非请求-响应通道返回，在连接关键路径上层层
+        // 等待 3 秒超时（每轮 Probe 因此多耗约 6 秒，且连接期间执行两轮）。改为后台 + 短超时
+        // 后，连接不再被拖慢；探测结果仍在 DEBUG 日志中产出。仅 Debug 构建生效。
+        _ = RunFeatureProbeAsync(link, cancellationToken);
+#endif
+
+        ApplicationLog.Current?.Info("Session", "设备初始状态读取完成。");
+    }
+
+#if DEBUG
+    // 后台探测未命名 GET 命令，与 RefreshInitialStateAsync 解耦，确保连接不上报延迟。
+    // 使用较短超时（800ms）：根据 OPPO Enco Free4 真机日志，未命名命令绝大多数在 50ms 内
+    // 响应；少数（如 0x011E/0x011F）通过推送帧 0x1E00/0x1F00 返回，在请求-响应通道永远等不到，
+    // 用短超时即可快速跳过，避免 3 秒×N 的浪费。全部为只读 GET，不写入任何设备状态。
+    private async Task RunFeatureProbeAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
         try
         {
             var knownGet = new HashSet<ushort>
             {
                 0x0100, 0x0101, 0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0109, 0x010B, 0x010C,
-                0x010D, 0x010F, 0x0112, 0x0114, 0x0115, 0x0122, 0x0124, 0x012A, 0x012B, 0x0132
+                0x010D, 0x010F, 0x0112, 0x0114, 0x0115, 0x0122, 0x0124, 0x012A, 0x012B, 0x0132,
+                // 以下命令通过推送帧（0x1E00/0x1F00）而非请求-响应通道返回，真机日志证实在请求-响应
+                // 通道永远等不到响应；探测它们只会白白等待，故直接跳过。
+                0x011E, 0x011F
             };
             var candidates = new List<ushort>();
             foreach (var c in Capability.SupportedCommands)
@@ -1022,11 +1048,11 @@ public sealed class OppoManager : IBrandManager
                 if (c >= 0x0100 && c <= 0x01FF && !knownGet.Contains(c))
                     candidates.Add(c);
             }
-            ApplicationLog.Current?.Info("Probe", $"开始探测未命名 GET 命令：count={candidates.Count}。");
+            ApplicationLog.Current?.Info("Probe", $"开始后台探测未命名 GET 命令：count={candidates.Count}。");
             foreach (var cmd in candidates)
             {
                 var respCmd = (ushort)(cmd | 0x8000);
-                var resp = await TryRequestAsync(link, cmd, respCmd, Array.Empty<byte>(), cancellationToken);
+                var resp = await TryRequestAsync(link, cmd, respCmd, Array.Empty<byte>(), cancellationToken, TimeSpan.FromMilliseconds(800));
                 if (resp is null)
                 {
                     ApplicationLog.Current?.Debug("Probe", $"  0x{cmd:X4} -> 无响应/超时。");
@@ -1059,10 +1085,8 @@ public sealed class OppoManager : IBrandManager
         {
             ApplicationLog.Current?.Error("Probe", $"探测过程异常（已忽略）：{probeEx.Message}");
         }
-#endif
-
-        ApplicationLog.Current?.Info("Session", "设备初始状态读取完成。");
     }
+#endif
 
     // 通知注册失败不阻断连接，后续由轻量回读保证基本状态可用。
     private static async Task InitializeNotificationsAsync(Notifier notifier, CancellationToken cancellationToken)
@@ -1414,19 +1438,21 @@ public sealed class OppoManager : IBrandManager
         return bytes;
     }
 
-    // 为读取命令统一附加三秒超时，避免单个设备响应拖住会话。
+    // 为读取命令统一附加两秒超时，避免单个设备响应拖住会话。
+    // 真机日志显示所有初始读取均在 50ms 内响应，2 秒仍有充足余量；无响应命令最坏等待从 3 秒降至 2 秒。
     private static async Task<ProtocolFrame?> TryRequestAsync(
         ConnectionLink link,
         ushort command,
         ushort responseCommand,
         ReadOnlyMemory<byte> payload,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? timeout = null)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(3));
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout ?? TimeSpan.FromSeconds(2));
         try
         {
-            return await link.RequestAsync(command, responseCommand, payload, timeout.Token);
+            return await link.RequestAsync(command, responseCommand, payload, timeoutCts.Token);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
