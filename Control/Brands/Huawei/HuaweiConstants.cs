@@ -33,6 +33,8 @@ public static class HuaweiConstants
     // 电量查询：S01 C08，响应同命令（TLV 0x02=电量[左,右,盒]，0x03=充电位，0x05=佩戴状态）。
     public const ushort QueryBattery = 0x0108;
     public const ushort ReportBattery = 0x0108;
+    // 备用电量报告：参考 BATTERY_COMMANDS={0x08,0x27}，部分型号经此主动推送电量。
+    public const ushort ReportBatteryAlt = 0x0127;
 
     // 设备信息查询：S01 C07（响应用于确认身份，首版未订阅）。
     public const ushort QueryDeviceInfo = 0x0107;

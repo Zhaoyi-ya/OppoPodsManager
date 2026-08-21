@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using OppoPodsManager.Control.Abstractions;
@@ -32,6 +33,13 @@ internal sealed class HuaweiManager : IBrandManager
     private string? _deviceName;
     private HuaweiRoute _route = HuaweiRoute.Unsupported;
     private HuaweiCapabilities _capabilities = HuaweiCapabilities.Unknown;
+
+    // 连接级订阅句柄，断开时统一释放。
+    private readonly List<IDisposable> _subscriptions = new();
+    // 运行期熔断：某查询连续超时则标记为“运行期不支持”，之后停止轮询，避免链路被无用查询占满。
+    private readonly HashSet<ushort> _runtimeUnsupported = new();
+    private readonly Dictionary<ushort, int> _pollFailures = new();
+    private const int PollFailureThreshold = 3;
 
     // 手势内存状态（协议字节，写入后乐观更新；回读确认时覆写）。
     private byte? _doubleTapLeft;
@@ -73,6 +81,11 @@ internal sealed class HuaweiManager : IBrandManager
         _pollCancellation?.Dispose();
         _pollCancellation = null;
         _pollTask = null;
+        foreach (var subscription in _subscriptions)
+            subscription.Dispose();
+        _subscriptions.Clear();
+        _runtimeUnsupported.Clear();
+        _pollFailures.Clear();
         if (_link is not null)
         {
             var link = _link;
@@ -295,6 +308,7 @@ internal sealed class HuaweiManager : IBrandManager
         _route = HuaweiModels.DetectRoute(deviceName);
         _capabilities = HuaweiModels.GetCapabilities(_route);
         _link = link;
+        RegisterSubscriptions(link);
         if (_capabilities.SupportsRfcommBattery)
             await RefreshBatteryAsync(link, cancellationToken);
         if (_capabilities.SupportsAnc && _capabilities.SupportsAncStateReadback)
@@ -308,24 +322,86 @@ internal sealed class HuaweiManager : IBrandManager
         _pollTask = RunPollingAsync(link, _pollCancellation.Token);
     }
 
+    // ---- 订阅与运行期熔断 ----
+    // 注册报告帧的常驻订阅：设备主动推送的状态（电量/降噪/佩戴/手势）直接更新内存，
+    // 不再依赖轮询，减少链路占用；也覆盖 0x0127 备用电量报告。
+    private void RegisterSubscriptions(ConnectionLink link)
+    {
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportBattery, OnBatteryReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportBatteryAlt, OnBatteryReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportAncState, OnAncReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportWearDetection, OnWearReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportDoubleTapState, f => ApplyGestureState(HuaweiConstants.QueryDoubleTapState, f.Payload.Span)));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportTripleTapState, f => ApplyGestureState(HuaweiConstants.QueryTripleTapState, f.Payload.Span)));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportLongPressState, f => ApplyGestureState(HuaweiConstants.QueryLongPressState, f.Payload.Span)));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportSwipeState, f => ApplyGestureState(HuaweiConstants.QuerySwipeState, f.Payload.Span)));
+    }
+
+    private void OnBatteryReport(ProtocolFrame frame) => ApplyBattery(frame.Payload.Span);
+    private void OnAncReport(ProtocolFrame frame) => ApplyAncState(frame.Payload.Span);
+    private void OnWearReport(ProtocolFrame frame)
+    {
+        if (ParseWearDetection(frame.Payload.Span) is { } enabled)
+        {
+            _wearDetectionEnabled = enabled;
+            _state.NotifyChanged();
+        }
+    }
+
+    // 运行期能力是否“实际可用”：静态能力声明 AND 未被运行期超时熔断。
+    private bool RuntimeBatterySupported => _capabilities.SupportsRfcommBattery && !_runtimeUnsupported.Contains(HuaweiConstants.QueryBattery);
+    private bool RuntimeAncSupported => _capabilities.SupportsAnc && !_runtimeUnsupported.Contains(HuaweiConstants.QueryAncState);
+    private bool RuntimeWearSupported => _capabilities.SupportsWearDetection && !_runtimeUnsupported.Contains(HuaweiConstants.QueryWearDetection);
+
+    private void RecordPollSuccess(ushort queryCommand)
+    {
+        if (_pollFailures.TryGetValue(queryCommand, out var n) && n > 0)
+            _pollFailures[queryCommand] = 0;
+    }
+
+    // 记录一次查询失败；连续达到阈值则熔断并通知 UI 重建展示。返回是否刚刚被标记不支持。
+    private bool RecordPollFailure(ushort queryCommand)
+    {
+        var count = (_pollFailures.TryGetValue(queryCommand, out var n) ? n : 0) + 1;
+        _pollFailures[queryCommand] = count;
+        if (count >= PollFailureThreshold && _runtimeUnsupported.Add(queryCommand))
+        {
+            ApplicationLog.Current?.Info("Huawei", $"运行期探测：命令 0x{queryCommand:X4} 连续 {count} 次失败，标记为不支持并停止轮询。");
+            _state.NotifyChanged();
+            return true;
+        }
+        return false;
+    }
+
     // ---- 内部读取/轮询 ----
     private async Task RefreshBatteryAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
+        if (_runtimeUnsupported.Contains(HuaweiConstants.QueryBattery))
+            return;
         try
         {
+            // 电量查询请求体不可为空：TLV [01 00][02 00][03 00] 请求左耳/右耳/充电盒电平，
+            // 与华为参考项目 HuaweiAncPackets.huaweiBatteryQuery 抓包（5A0009000108010002000300→FBB9）一致。
             var response = await link.RequestAsync(
-                HuaweiConstants.QueryBattery, HuaweiConstants.ReportBattery, Array.Empty<byte>(), cancellationToken);
+                HuaweiConstants.QueryBattery, HuaweiConstants.ReportBattery,
+                new byte[] { 0x01, 0x00, 0x02, 0x00, 0x03, 0x00 }, cancellationToken);
             if (response is not null)
+            {
                 ApplyBattery(response.Payload.Span);
+                RecordPollSuccess(HuaweiConstants.QueryBattery);
+            }
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Huawei", $"电量查询失败：{exception.Message}");
+            RecordPollFailure(HuaweiConstants.QueryBattery);
         }
     }
 
     private async Task RefreshAncStateAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
+        if (_runtimeUnsupported.Contains(HuaweiConstants.QueryAncState))
+            return;
         try
         {
             // 查询帧 TLV 为 [01 00]（type=0x01 空值），等价抓包 5A0005002B2A0100。
@@ -333,11 +409,15 @@ internal sealed class HuaweiManager : IBrandManager
                 HuaweiConstants.QueryAncState, HuaweiConstants.ReportAncState,
                 new byte[] { 0x01, 0x00 }, cancellationToken);
             if (response is not null)
+            {
                 ApplyAncState(response.Payload.Span);
+                RecordPollSuccess(HuaweiConstants.QueryAncState);
+            }
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Huawei", $"降噪状态查询失败：{exception.Message}");
+            RecordPollFailure(HuaweiConstants.QueryAncState);
         }
     }
 
@@ -360,6 +440,8 @@ internal sealed class HuaweiManager : IBrandManager
 
     private async Task RefreshWearDetectionAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
+        if (_runtimeUnsupported.Contains(HuaweiConstants.QueryWearDetection))
+            return;
         try
         {
             var response = await link.RequestAsync(
@@ -373,10 +455,13 @@ internal sealed class HuaweiManager : IBrandManager
                 _wearDetectionEnabled = enabled;
                 _state.NotifyChanged();
             }
+            else
+                RecordPollSuccess(HuaweiConstants.QueryWearDetection);
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Huawei", $"佩戴检测查询失败：{exception.Message}");
+            RecordPollFailure(HuaweiConstants.QueryWearDetection);
         }
     }
 
@@ -414,11 +499,11 @@ internal sealed class HuaweiManager : IBrandManager
         {
             if (_link is null)
                 break;
-            if (_capabilities.SupportsRfcommBattery)
+            if (RuntimeBatterySupported)
                 await RefreshBatteryAsync(link, cancellationToken);
-            if (_capabilities.SupportsAnc && _capabilities.SupportsAncStateReadback)
+            if (RuntimeAncSupported && _capabilities.SupportsAncStateReadback)
                 await RefreshAncStateAsync(link, cancellationToken);
-            if (_capabilities.SupportsWearDetection)
+            if (RuntimeWearSupported)
                 await RefreshWearDetectionAsync(link, cancellationToken);
         }
     }
@@ -839,7 +924,7 @@ internal sealed class HuaweiManager : IBrandManager
         var visibleControls = new HashSet<string>(StringComparer.Ordinal);
         var controlStates = new Dictionary<string, bool>(StringComparer.Ordinal);
         var controlEnabledStates = new Dictionary<string, bool>(StringComparer.Ordinal);
-        if (_capabilities.SupportsWearDetection)
+        if (RuntimeWearSupported)
         {
             visibleControls.Add("wear-detection");
             controlEnabledStates["wear-detection"] = true;
@@ -854,7 +939,7 @@ internal sealed class HuaweiManager : IBrandManager
             HuaweiModels.IsKnown(_route),
             false,                                  // SupportsSpatialAudio
             false,                                  // SupportsCustomEqualizer
-            _capabilities.SupportsAnc,              // SupportsNoiseCancellation
+            RuntimeAncSupported,                    // SupportsNoiseCancellation
             false,                                  // CanManageMultiDevice
             [],                                     // CustomEqFrequencies
             BrandPresentation.DefaultCustomEqMinimumGain,
@@ -875,7 +960,7 @@ internal sealed class HuaweiManager : IBrandManager
         {
             new("Off", NoiseMode.Off, HuaweiConstants.AncModeOff, []),
         };
-        if (!_capabilities.SupportsAnc)
+        if (!RuntimeAncSupported)
             return options;
         var children = new List<NoiseOptionModel>();
         if (_capabilities.SupportsDiscreteAncLevels)

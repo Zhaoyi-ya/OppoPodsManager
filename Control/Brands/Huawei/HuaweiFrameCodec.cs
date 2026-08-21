@@ -23,16 +23,18 @@ internal sealed class HuaweiFrameCodec : IFrameCodec
     {
         var service = (byte)(command >> 8);
         var cmd = (byte)(command & 0xFF);
-        var length = payload.Length + 3; // command + TLV + CRC
-        var frame = new byte[HuaweiConstants.HeaderSize + payload.Length + HuaweiConstants.CrcSize];
+        var length = payload.Length + 3; // command(1) + TLV + CRC(2)
+        // 帧布局：魔数(2) + len(2) + service(1) + command(1) + TLV + CRC(2)。
+        // 数组需多留 1 字节给 command（被 length 计入 body，但不属于固定头）。
+        var frame = new byte[HuaweiConstants.HeaderSize + 1 + payload.Length + HuaweiConstants.CrcSize];
         frame[0] = HuaweiConstants.MagicHigh;
         frame[1] = HuaweiConstants.MagicLow;
         frame[2] = (byte)(length & 0xFF);
         frame[3] = (byte)(length >> 8);
-        frame[4] = service;
-        frame[5] = cmd;
-        payload.CopyTo(frame.AsSpan(HuaweiConstants.HeaderSize));
-        var crc = Crc16Xmodem(frame.AsSpan(0, HuaweiConstants.HeaderSize + payload.Length));
+        frame[4] = service;             // 固定头末字节（魔数+len+service）
+        frame[5] = cmd;                 // command 是 length 所计 body 的首字节
+        payload.CopyTo(frame.AsSpan(HuaweiConstants.HeaderSize + 1)); // TLV 紧跟 command 之后
+        var crc = Crc16Xmodem(frame.AsSpan(0, HuaweiConstants.HeaderSize + 1 + payload.Length));
         frame[^2] = (byte)(crc >> 8);
         frame[^1] = (byte)(crc & 0xFF);
         return frame;
@@ -75,7 +77,8 @@ internal sealed class HuaweiFrameCodec : IFrameCodec
             }
             var command = (ushort)((_buffer[4] << 8) | _buffer[5]); // service << 8 | command
             var tlvLength = payloadLength - 3; // 扣除 command 与 CRC 2 字节
-            var payload = _buffer.GetRange(HuaweiConstants.HeaderSize, tlvLength).ToArray();
+            // TLV 从 HeaderSize+1（跳过 command 字节）开始，与 Encode 布局一致。
+            var payload = _buffer.GetRange(HuaweiConstants.HeaderSize + 1, tlvLength).ToArray();
             frames.Add(new ProtocolFrame(command, payload));
             _buffer.RemoveRange(0, frameSize);
         }
