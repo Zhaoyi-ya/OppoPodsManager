@@ -101,6 +101,8 @@
   "Personal_LinuxBlurNote": "不支持 Linux，启用后将会禁用自定义背景",
   "Personal_AcrylicTip": "提示：模糊启用时推荐切换为深色模式，效果更佳。",
   "About_Acknowledgments": "致谢",
+  "About_ProtocolReverseEngineering": "协议逆向",
+  "About_OpenSourceLibraries": "开源框架",
   "About_FontNotice": "本软件界面字体使用 MiSans，版权及授权信息以小米官方说明为准。",
   "Personal_ToastDurationDefault": "5s（默认）",
   "Toast_NewVersion": "发现新版本",

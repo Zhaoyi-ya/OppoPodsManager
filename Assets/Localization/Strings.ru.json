@@ -101,6 +101,8 @@
   "Personal_LinuxBlurNote": "Не поддерживается в Linux. Отключает пользовательские фоны.",
   "Personal_AcrylicTip": "Совет: при включённом размытии рекомендуется тёмная тема.",
   "About_Acknowledgments": "Благодарности",
+  "About_ProtocolReverseEngineering": "Реверс-инжиниринг протоколов",
+  "About_OpenSourceLibraries": "Библиотеки с открытым кодом",
   "About_FontNotice": "В интерфейсе используется шрифт MiSans. Авторские права и лицензирование регулируются официальными условиями Xiaomi.",
   "Personal_ToastDurationDefault": "5с (по умолчанию)",
   "Eq_Title": "Эквалайзер",

@@ -26,12 +26,30 @@
           Click="OpenUrl_Click" Tag="https://github.com/Zhaoyi-ya/OppoPodsManager">GitHub</Button>
         <TextBlock Text="{l10n:Translate About_Acknowledgments}" FontSize="19" HorizontalAlignment="Center" Margin="0,0,0,10"
           Foreground="{DynamicResource SukiText}"/>
+        <TextBlock Text="{l10n:Translate About_ProtocolReverseEngineering}" FontSize="14" FontWeight="SemiBold"
+          HorizontalAlignment="Center" Margin="0,0,0,4" Opacity="0.7"
+          Foreground="{DynamicResource SukiText}"/>
         <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
           Background="Transparent" BorderThickness="0" Opacity="0.72"
           Click="OpenUrl_Click" Tag="https://github.com/Leaf-lsgtky/OppoPods">Leaf-lsgtky/OppoPods</Button>
         <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
           Background="Transparent" BorderThickness="0" Opacity="0.72"
           Click="OpenUrl_Click" Tag="https://github.com/1812z/OppoPods">1812z/OppoPods</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/Nshpiter/HuaweiPods">Nshpiter/HuaweiPods</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/wh201906/mEDIFIER">wh201906/mEDIFIER</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/silverpoetry/HyperEars">silverpoetry/HyperEars</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/Star-ZER0/Pods-Protocol-Reverse-Engineering">Star-ZER0/Pods-Protocol-Reverse-Engineering</Button>
+        <TextBlock Text="{l10n:Translate About_OpenSourceLibraries}" FontSize="14" FontWeight="SemiBold"
+          HorizontalAlignment="Center" Margin="0,12,0,4" Opacity="0.7"
+          Foreground="{DynamicResource SukiText}"/>
         <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
           Background="Transparent" BorderThickness="0" Opacity="0.72"
           Click="OpenUrl_Click" Tag="https://github.com/AvaloniaUI/Avalonia">AvaloniaUI/Avalonia</Button>

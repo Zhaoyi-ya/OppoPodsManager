@@ -101,6 +101,8 @@
   "Personal_LinuxBlurNote": "Unter Linux nicht unterstützt. Aktivierung deaktiviert benutzerdefinierte Hintergründe.",
   "Personal_AcrylicTip": "Tipp: Bei aktivierter Unschärfe wird der Dunkelmodus empfohlen.",
   "About_Acknowledgments": "Danksagungen",
+  "About_ProtocolReverseEngineering": "Protokoll-Reverse-Engineering",
+  "About_OpenSourceLibraries": "Open-Source-Bibliotheken",
   "About_FontNotice": "Diese Software verwendet die Schriftart MiSans. Urheberrechte und Lizenzbedingungen richten sich nach den offiziellen Angaben von Xiaomi.",
   "Personal_ToastDurationDefault": "5 s (Standard)",
   "Toast_NewVersion": "Neue Version verfügbar",

@@ -101,6 +101,8 @@
   "Personal_LinuxBlurNote": "Not supported on Linux. Disables custom backgrounds.",
   "Personal_AcrylicTip": "Tip: Dark mode is recommended when blur is enabled.",
   "About_Acknowledgments": "Acknowledgments",
+  "About_ProtocolReverseEngineering": "Protocol Reverse Engineering",
+  "About_OpenSourceLibraries": "Open Source Frameworks",
   "About_FontNotice": "This software uses the MiSans font. Copyright and licensing information is subject to Xiaomi's official terms.",
   "Personal_ToastDurationDefault": "5s (Default)",
   "Eq_Title": "Sound Effects",

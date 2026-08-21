@@ -2,7 +2,8 @@ namespace OppoPodsManager.Control.Brands.Huawei;
 
 // 华为（Huawei）TWS / 耳机的私有协议常量。
 //
-// 协议来源：HuaweiPods（开源，https://github.com/chenxiaoyi/HuaweiPods，Kotlin Xposed 模块）
+// 协议来源：HuaweiPods（开源，https://github.com/Nshpiter/HuaweiPods，Kotlin Xposed 模块；
+//           注：Xposed 模块 ID 为 moe.chenxy.huaweipods，勿与 GitHub 用户名混淆）
 // 与 TWS-Pods-PC（Python 逆向工具）中已实机抓包确认的华为 RFCOMM 指令。
 //
 // 帧格式（无分包，单帧收发）：
