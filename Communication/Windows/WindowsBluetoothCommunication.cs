@@ -1,4 +1,4 @@
-using System.Runtime.Versioning;
+﻿using System.Runtime.Versioning;
 using OppoPodsManager.Communication.Abstractions;
 
 namespace OppoPodsManager.Communication.Windows;
@@ -121,7 +121,7 @@ public sealed class WindowsBluetoothDiscovery : IDeviceDiscoveryMonitor
         }
         catch (Exception exception)
         {
-            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "Windows 蓝牙设备变化刷新失败。", exception);
+            global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Error("Bluetooth", "Windows 蓝牙设备变化刷新失败。", exception);
         }
     }
 }

@@ -13,7 +13,7 @@
 
  <suki:SukiWindow.Styles>
  <Style Selector="suki|SukiWindow /template/ Button#PART_CloseButton:pointerover">
-  <Setter Property="Background" Value="#E81123"/>
+  <Setter Property="Background" Value="Transparent"/>
  </Style>
  <Style Selector="Button.CustomCloseButton">
   <Setter Property="Width" Value="24"/>
@@ -27,7 +27,7 @@
   <Setter Property="VerticalContentAlignment" Value="Center"/>
  </Style>
  <Style Selector="Button.CustomCloseButton:pointerover">
-  <Setter Property="Background" Value="#E81123"/>
+  <Setter Property="Background" Value="Transparent"/>
  </Style>
  <Style Selector="Button.CustomCloseButton:pressed">
   <Setter Property="Background" Value="#C50F1F"/>
@@ -56,52 +56,72 @@
   <Border x:Name="BatteryCard" Padding="16,14"
    Classes="glassCard"
    >
-   <StackPanel Orientation="Vertical" Spacing="14" HorizontalAlignment="Center">
-    <!-- 双耳机图 + 充电盒图，左右排布，间隔加大 -->
-    <StackPanel Orientation="Horizontal" Spacing="40" HorizontalAlignment="Center" VerticalAlignment="Center">
-     <Image x:Name="SmallDualImage" Height="72" Stretch="Uniform"
+   <StackPanel Orientation="Vertical" Spacing="8" HorizontalAlignment="Center">
+    <!-- 左耳机 / 充电盒 / 右耳机 三图独立，与下方电量三列对齐 -->
+    <Grid ColumnDefinitions="*,*,*" Width="240" ColumnSpacing="12" HorizontalAlignment="Center">
+     <Image x:Name="LeftImage" Grid.Column="0" Height="54" Stretch="Uniform"
       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-     <Image x:Name="SmallCaseImage" Height="72" Stretch="Uniform"
+     <Image x:Name="CaseImage" Grid.Column="1" Height="50" Stretch="Uniform"
       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-    </StackPanel>
-    <!-- 电量：左耳 / 右耳 / 耳机仓，图片下方横向排布 -->
-    <StackPanel Orientation="Horizontal" Spacing="20" HorizontalAlignment="Center">
+     <Image x:Name="RightImage" Grid.Column="2" Height="54" Stretch="Uniform"
+      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Grid>
+    <!-- 电量：左耳 / 耳机仓 / 右耳，大数字 + 图标 + 标签 三列 -->
+    <Grid ColumnDefinitions="*,*,*" Width="240" ColumnSpacing="12" HorizontalAlignment="Center">
      <!-- 左耳 -->
-     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-      <Grid Width="12" Height="12">
-       <Path x:Name="IconLeftCircle" Width="12" Height="12"
-        Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
-       <Path x:Name="IconLeftLetter" Width="12" Height="12"
-        Fill="{DynamicResource SukiText}"/>
-      </Grid>
-      <TextBlock x:Name="LeftLabel" Text="-%" FontSize="13"
-       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-      <Path x:Name="LeftChargeBolt" Width="9" Height="9" Stretch="Uniform"
-       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
-     </StackPanel>
-     <!-- 右耳 -->
-     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-      <Grid Width="12" Height="12">
-       <Path x:Name="IconRightCircle" Width="12" Height="12"
-        Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
-       <Path x:Name="IconRightLetter" Width="12" Height="12"
-        Fill="{DynamicResource SukiText}"/>
-      </Grid>
-      <TextBlock x:Name="RightLabel" Text="-%" FontSize="13"
-       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-      <Path x:Name="RightChargeBolt" Width="9" Height="9" Stretch="Uniform"
-       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+     <StackPanel Grid.Column="0" Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <TextBlock x:Name="LeftLabel" Text="–%" FontSize="26" FontWeight="SemiBold"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+       <Path x:Name="LeftChargeBolt" Width="12" Height="12" Stretch="Uniform"
+        Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <Grid Width="11" Height="11">
+        <Path x:Name="IconLeftCircle" Width="11" Height="11"
+         Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+        <Path x:Name="IconLeftLetter" Width="11" Height="11"
+         Fill="{DynamicResource SukiText}"/>
+       </Grid>
+       <TextBlock Text="{l10n:Translate Toast_LeftLabel}" FontSize="12" Opacity="0.55"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      </StackPanel>
      </StackPanel>
      <!-- 耳机仓 -->
-     <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-      <Path x:Name="IconCase" Width="12" Height="12" Stretch="Uniform"
-       Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-      <TextBlock x:Name="CaseLabel" Text="-%" FontSize="13"
-       Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
-      <Path x:Name="CaseChargeBolt" Width="9" Height="9" Stretch="Uniform"
-       Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+     <StackPanel Grid.Column="1" Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <TextBlock x:Name="CaseLabel" Text="–%" FontSize="26" FontWeight="SemiBold"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+       <Path x:Name="CaseChargeBolt" Width="12" Height="12" Stretch="Uniform"
+        Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <Path x:Name="IconCase" Width="11" Height="11" Stretch="Uniform"
+        Fill="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+       <TextBlock Text="{l10n:Translate Toast_CaseLabel}" FontSize="12" Opacity="0.55"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      </StackPanel>
      </StackPanel>
-    </StackPanel>
+     <!-- 右耳 -->
+     <StackPanel Grid.Column="2" Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <TextBlock x:Name="RightLabel" Text="–%" FontSize="26" FontWeight="SemiBold"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+       <Path x:Name="RightChargeBolt" Width="12" Height="12" Stretch="Uniform"
+        Fill="#4CD964" VerticalAlignment="Center" IsVisible="False"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center">
+       <Grid Width="11" Height="11">
+        <Path x:Name="IconRightCircle" Width="11" Height="11"
+         Fill="Transparent" Stroke="{DynamicResource SukiText}" StrokeThickness="1.2"/>
+        <Path x:Name="IconRightLetter" Width="11" Height="11"
+         Fill="{DynamicResource SukiText}"/>
+       </Grid>
+       <TextBlock Text="{l10n:Translate Toast_RightLabel}" FontSize="12" Opacity="0.55"
+        Foreground="{DynamicResource SukiText}" VerticalAlignment="Center"/>
+      </StackPanel>
+     </StackPanel>
+    </Grid>
    </StackPanel>
   </Border>
 
@@ -117,6 +137,42 @@
    <TextBlock x:Name="AncRealtimeHint" FontSize="13" Opacity="0.5" IsVisible="False"
     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
   </StackPanel>
+  </Border>
+
+  <!-- 功能开关（复用主页 Feature 面板，驱动同一批 IBrandManager 命令） -->
+  <Border x:Name="FeatureCard" Padding="14,14"
+   Classes="glassCard"
+   IsVisible="False">
+   <StackPanel Spacing="8">
+    <TextBlock Text="{l10n:Translate Feature_Title}" FontSize="14"
+     HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+    <TextBlock x:Name="FeaturePlaceholderText" Text="{l10n:Translate Feature_Placeholder}" FontSize="13"
+     HorizontalAlignment="Center" Opacity="0.45" Foreground="{DynamicResource SukiText}"/>
+    <StackPanel x:Name="FeatureContentPanel" IsVisible="False" Spacing="4">
+     <UniformGrid Columns="2" HorizontalAlignment="Stretch">
+      <CheckBox x:Name="CbDualDevice" Tag="dual-device" Content="{l10n:Translate Feature_DualDevice}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbGame" Tag="game-mode" Content="{l10n:Translate Feature_GameMode}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbLongPower" Tag="long-battery" Content="{l10n:Translate Feature_LongPowerMode}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbWearDetection" Tag="wear-detection" Content="{l10n:Translate Feature_WearDetection}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbSpineHealth" Tag="spine-health" Content="{l10n:Translate Feature_SpineHealth}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbSpatial" Tag="spatial-sound" Content="{l10n:Translate Feature_SpatialSound}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbGameSound" Tag="game-sound" Content="{l10n:Translate Feature_GameSound}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbBassEngine" Tag="bass-engine" Content="{l10n:Translate Feature_BassEngine}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbVocalEnhance" Tag="voice-enhancement" Content="{l10n:Translate Feature_VocalEnhance}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+      <CheckBox x:Name="CbHearingEnhance" Tag="hearing-enhancement" Content="{l10n:Translate Feature_HearingEnhance}"
+       Margin="2,2" FontSize="12" IsCheckedChanged="FeatureCheck_Changed"/>
+     </UniformGrid>
+    </StackPanel>
+   </StackPanel>
   </Border>
 
  </StackPanel>

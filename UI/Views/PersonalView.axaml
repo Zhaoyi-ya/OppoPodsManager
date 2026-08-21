@@ -26,14 +26,6 @@
      </ComboBox>
     </StackPanel>
     <StackPanel Orientation="Horizontal" Spacing="12">
-     <TextBlock Text="{l10n:Translate Personal_TransparencyPreset}" FontSize="13" VerticalAlignment="Center"
-        Foreground="{DynamicResource SukiText}"/>
-     <ComboBox x:Name="CbTransparencyPreset" Height="28" Padding="8,0" Width="140" HorizontalAlignment="Left">
-      <ComboBoxItem Content="{l10n:Translate Personal_Custom}"/><ComboBoxItem Content="{l10n:Translate Personal_Clear}"/>
-      <ComboBoxItem Content="{l10n:Translate Personal_Balanced}"/><ComboBoxItem Content="{l10n:Translate Personal_Transparent}"/>
-     </ComboBox>
-    </StackPanel>
-    <StackPanel Orientation="Horizontal" Spacing="12">
      <TextBlock Text="{l10n:Translate Personal_CardOpacity}" FontSize="13" VerticalAlignment="Center"
         Foreground="{DynamicResource SukiText}"/>
      <Slider x:Name="SlOpacity" Minimum="0" Maximum="90" Value="50" Width="160"

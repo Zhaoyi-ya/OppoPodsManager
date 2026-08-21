@@ -1,6 +1,6 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 using System.Diagnostics;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Subsystems.Logging;
 
 namespace OppoPodsManager.Assets.UserSettings;
 

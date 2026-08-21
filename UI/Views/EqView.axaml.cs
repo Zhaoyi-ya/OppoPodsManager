@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -8,7 +8,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 using EqPresetItem = OppoPodsManager.EqPresetItem;
 
 namespace OppoPodsManager.UI.Views;

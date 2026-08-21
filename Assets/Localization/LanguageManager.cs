@@ -180,7 +180,6 @@ public sealed class LanguageManager
     public IObservable<string?> MultiDevice_Unpair => Text(nameof(MultiDevice_Unpair));
     public IObservable<string?> Personal_Custom => Text(nameof(Personal_Custom));
     public IObservable<string?> Personal_EarphoneCase => Text(nameof(Personal_EarphoneCase));
-    public IObservable<string?> Personal_EarphoneDual => Text(nameof(Personal_EarphoneDual));
     public IObservable<string?> Personal_EarphoneLeft => Text(nameof(Personal_EarphoneLeft));
     public IObservable<string?> Personal_EarphoneRight => Text(nameof(Personal_EarphoneRight));
     public IObservable<string?> Personal_LanguageAuto => Text(nameof(Personal_LanguageAuto));

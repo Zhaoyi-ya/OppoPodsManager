@@ -1,15 +1,17 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Oppo.Features;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Brands.Oppo.Features;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
+using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Assets.Localization;
 using OppoPodsManager.Assets.UserSettings;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Subsystems.Logging;
 using StatusWindow = OppoPodsManager.UI.MiniWindow.Status.SmallWindow;
 
 namespace OppoPodsManager.UI.Tray;

@@ -1,13 +1,14 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Logging;
-using OppoPodsManager.Control.Notifications;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Control.Subsystems.Notifications;
 using OppoPodsManager.Assets.UserSettings;
 using OppoPodsManager.Assets.Localization;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 
 namespace OppoPodsManager.UI.Toast;
 

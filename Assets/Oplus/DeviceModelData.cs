@@ -1,6 +1,7 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 
 namespace OppoPodsManager.Assets.Oplus;
 
@@ -50,6 +51,10 @@ public static class DeviceModelData
         if (entry.TryGetProperty("function", out var function) && function.ValueKind == JsonValueKind.Object)
         {
             AddEnabledFeature(function, "wearDetection", "wear-detection", features);
+            // 官方白名单 supportPinch：仅 Enco X2/X3、OnePlus Buds Pro 系列等旗舰声明，
+            // 表示支持「柄」（按压/按捏，button=06）。其余 OPPO 型号（Enco Free4 等）无此字段，
+            // 不声明 "stem" 能力 → 手势页据此不渲染「柄」分组。
+            AddEnabledFeature(function, "supportPinch", "stem", features);
             if (SupportsGameMode(function))
                 features.Add("game-mode");
             AddEnabledFeature(function, "bassEngineSupport", "bass-engine", features);

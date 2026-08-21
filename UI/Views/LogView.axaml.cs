@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Subsystems.Logging;
 
 namespace OppoPodsManager.UI.Views;
 

@@ -1,12 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Assets.Localization;
 
 namespace OppoPodsManager.UI.Views;

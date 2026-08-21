@@ -9,8 +9,7 @@ public enum EarphoneSlot
 {
     HomeLeft,
     HomeRight,
-    Case,
-    SmallDual
+    Case
 }
 
 public static class EarphoneImageProvider
@@ -21,8 +20,7 @@ public static class EarphoneImageProvider
         {
             [EarphoneSlot.HomeLeft] = "avares://OppoPodsManager/Assets/Oplus/Images/official_left.png",
             [EarphoneSlot.HomeRight] = "avares://OppoPodsManager/Assets/Oplus/Images/official_right.png",
-            [EarphoneSlot.Case] = "avares://OppoPodsManager/Assets/Oplus/Images/official_case.png",
-            [EarphoneSlot.SmallDual] = "avares://OppoPodsManager/Assets/Oplus/Images/official_dual.png"
+            [EarphoneSlot.Case] = "avares://OppoPodsManager/Assets/Oplus/Images/official_case.png"
         };
 
     // 保留原应用的文件名，用户迁移后无需重新选择图片。
@@ -31,8 +29,7 @@ public static class EarphoneImageProvider
         {
             [EarphoneSlot.HomeLeft] = ["earphone_home_left.png"],
             [EarphoneSlot.HomeRight] = ["earphone_home_right.png"],
-            [EarphoneSlot.Case] = ["earphone_case.png", "earphone_home_case.png", "earphone_small_case.png"],
-            [EarphoneSlot.SmallDual] = ["earphone_small_dual.png"]
+            [EarphoneSlot.Case] = ["earphone_case.png", "earphone_home_case.png", "earphone_small_case.png"]
         };
 
     // Next 项目将自定义图片保存在独立目录，避免依赖旧项目设置路径。

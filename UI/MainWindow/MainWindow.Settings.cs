@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
@@ -6,7 +6,8 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Assets.Localization;
 using OppoPodsManager.Assets.UserSettings;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    /// <summary>
     /// 切换界面语言并刷新所有本地化敏感的控件与状态（由 PersonalView 经 IViewHost 调用）。

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.InteropServices;
 using OppoPodsManager.Communication.Abstractions;
 
@@ -79,7 +79,7 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
             }
             catch (Exception exception)
             {
-                global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "Linux 设备监听失败。", exception);
+                global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Error("Bluetooth", "Linux 设备监听失败。", exception);
             }
 
             try { await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken); }

@@ -1,7 +1,7 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
-using OppoPodsManager.Control.Vivo;
-using OppoPodsManager.Control.Vivo.Models;
+using OppoPodsManager.Control.Brands.Vivo;
+using OppoPodsManager.Control.Brands.Vivo.Models;
 
 namespace OppoPodsManager.Assets.Vivo;
 

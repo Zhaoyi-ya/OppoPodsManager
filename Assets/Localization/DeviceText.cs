@@ -1,4 +1,5 @@
-using OppoPodsManager.Control.Oppo.Models;
+﻿using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 
 namespace OppoPodsManager.Assets.Localization;
 

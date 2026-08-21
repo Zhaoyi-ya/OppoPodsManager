@@ -1,4 +1,4 @@
-using System.Runtime.CompilerServices;
+﻿using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
@@ -28,7 +28,7 @@ internal static class WindowsBluetoothDiscoveryCore
         }
         catch (Exception exception)
         {
-            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "Win32 设备发现失败。", exception);
+            global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Error("Bluetooth", "Win32 设备发现失败。", exception);
         }
 
         try
@@ -47,7 +47,7 @@ internal static class WindowsBluetoothDiscoveryCore
         }
         catch (Exception exception)
         {
-            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Bluetooth", "WinRT 设备发现失败。", exception);
+            global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Error("Bluetooth", "WinRT 设备发现失败。", exception);
         }
 
         return merged
@@ -118,7 +118,7 @@ internal static class WindowsBluetoothDiscoveryCore
                 $@"SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Services\{address:X12}");
             if (key is null)
             {
-                global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Debug(
+                global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Debug(
                     "Discovery",
                     $"已连接设备未发现服务 UUID 缓存：address={address:X12}，将由控制层按名称推断协议。");
                 return [];
@@ -130,7 +130,7 @@ internal static class WindowsBluetoothDiscoveryCore
                     serviceIds.Add(serviceId);
             if (serviceIds.Count == 0)
             {
-                global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Debug(
+                global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Debug(
                     "Discovery",
                     $"已连接设备没有可解析的服务 UUID：address={address:X12}，将由控制层按名称推断协议。");
             }

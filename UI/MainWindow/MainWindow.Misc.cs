@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -6,10 +6,11 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Assets.VisualAssets;
 using EarphoneSlot = OppoPodsManager.Assets.VisualAssets.EarphoneSlot;
-using BatteryLevel = OppoPodsManager.Control.Oppo.Models.BatteryLevel;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private void UpdateTitle()
+using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private void UpdateTitle()
     {
         var name = GetNextWindowTitle();
         Title = name;
@@ -76,7 +77,7 @@ using BatteryLevel = OppoPodsManager.Control.Oppo.Models.BatteryLevel;namespace 
 
         PersonalView.EarphoneCustomContent.Children.Clear();
         _earphonePreviews.Clear();
-        foreach (var slot in new[] { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight, EarphoneSlot.SmallDual })
+        foreach (var slot in new[] { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight })
         {
             var preview = new Image
             {
@@ -107,7 +108,6 @@ using BatteryLevel = OppoPodsManager.Control.Oppo.Models.BatteryLevel;namespace 
                         {
                             EarphoneSlot.HomeLeft => LanguageManager.Instance.Personal_EarphoneLeft,
                             EarphoneSlot.HomeRight => LanguageManager.Instance.Personal_EarphoneRight,
-                            EarphoneSlot.SmallDual => LanguageManager.Instance.Personal_EarphoneDual,
                             _ => LanguageManager.Instance.Personal_EarphoneCase
                         }),
                         HorizontalAlignment = HorizontalAlignment.Center,

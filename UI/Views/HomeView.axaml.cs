@@ -1,9 +1,10 @@
-using Avalonia.Controls.Shapes;
-using OppoPodsManager.Control.Gestures;
-using OppoPodsManager.Control.Oppo.Features;
+﻿using Avalonia.Controls.Shapes;
+using OppoPodsManager.Control.Subsystems.Gestures;
+using OppoPodsManager.Control.Brands.Oppo.Features;
 using OppoPodsManager.UI.MainWindow;
 using AvaloniaControl = Avalonia.Controls.Control;
 using Path = Avalonia.Controls.Shapes.Path;
+using OppoPodsManager.Control.Core.Features;
 
 namespace OppoPodsManager.UI.Views;
 

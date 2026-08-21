@@ -1,4 +1,4 @@
-{
+﻿{
   "Sidebar_MultiDevice": "Geräteliste",
   "Sidebar_ConnectionStrategy": "Verbindungsstrategie",
   "Sidebar_PriorityDevice": "Bevorzugtes Gerät",
@@ -85,13 +85,9 @@
   "Personal_ThemeFollowSystem": "System folgen",
   "Personal_ThemeDark": "Dunkel",
   "Personal_ThemeLight": "Hell",
-  "Personal_TransparencyPreset": "Transparenz-Voreinstellung",
   "Personal_CardOpacity": "Karten-Transparenz",
   "Personal_ToastDuration": "Hinweisdauer",
   "Personal_Custom": "Benutzerdefiniert",
-  "Personal_Clear": "Klar",
-  "Personal_Balanced": "Ausgewogen",
-  "Personal_Transparent": "Transparent",
   "Personal_Background": "Hintergrund",
   "Personal_AddNewBackground": "Hintergrund hinzufügen",
   "Personal_BackgroundBlur": "Hintergrundunschärfe",
@@ -327,7 +323,6 @@
   "Personal_EarphoneLeft": "Links",
   "Personal_EarphoneRight": "Rechts",
   "Personal_EarphoneCase": "Etui",
-  "Personal_EarphoneDual": "Beide Ohrhörer",
   "Personal_EarphoneSelect": "Auswählen",
   "Personal_EarphoneReset": "Zurücksetzen",
   "Battery_Unavailable": "-",

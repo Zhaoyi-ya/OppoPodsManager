@@ -37,6 +37,9 @@ public static class AppPalette
     private static readonly SolidColorBrush _brushCircleGrayLight = new(Color.FromArgb(0x15, 0x00, 0x00, 0x00));
     private static readonly SolidColorBrush _brushCircleGrayDark = new(Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF));
     private static readonly SolidColorBrush _brushAccentLight = new(Color.FromRgb(0x25, 0x63, 0xEB));
+    // 浮层卡片背景（手势多选 Popup 等自包含配色用）：浅色=近白，深色=近黑，主题自适应。
+    private static readonly SolidColorBrush _brushCardLight = new(Color.FromArgb(0xF5, 0xFF, 0xFF, 0xFF));
+    private static readonly SolidColorBrush _brushCardDark = new(Color.FromArgb(0xF5, 0x22, 0x22, 0x22));
 
     // 主题相关访问器
     public static SolidColorBrush BrushGray => IsLightTheme ? _brushGrayLight : _brushGrayDark;
@@ -46,6 +49,8 @@ public static class AppPalette
     public static SolidColorBrush BrushCircleStroke => IsLightTheme ? _brushCircleStrokeLight : _brushCircleStrokeDark;
     public static SolidColorBrush BrushCircleStrokeInactive =>
         IsLightTheme ? _brushCircleStrokeInactiveLight : _brushCircleStrokeInactiveDark;
+    /// <summary>浮层卡片背景（Popup 菜单等脱离 Window 资源链的浮层用，避免依赖 MainWindow.Resources 资源查找）。</summary>
+    public static SolidColorBrush BrushCard => IsLightTheme ? _brushCardLight : _brushCardDark;
     public static SolidColorBrush CircleGray => IsLightTheme ? _brushCircleGrayLight : _brushCircleGrayDark;
     public static SolidColorBrush Accent => IsLightTheme ? _brushAccentLight : BrushAccent;
 }

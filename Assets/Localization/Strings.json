@@ -1,4 +1,4 @@
-{
+﻿{
   "Sidebar_MultiDevice": "设备列表",
   "Sidebar_ConnectionStrategy": "连接策略",
   "Sidebar_PriorityDevice": "优先连接设备",
@@ -85,13 +85,9 @@
   "Personal_ThemeFollowSystem": "跟随系统",
   "Personal_ThemeDark": "深色",
   "Personal_ThemeLight": "浅色",
-  "Personal_TransparencyPreset": "透明预设",
   "Personal_CardOpacity": "卡片透明",
   "Personal_ToastDuration": "弹窗时长",
   "Personal_Custom": "自定义",
-  "Personal_Clear": "清晰",
-  "Personal_Balanced": "平衡",
-  "Personal_Transparent": "通透",
   "Personal_Background": "背景",
   "Personal_AddNewBackground": "添加新背景",
   "Personal_BackgroundBlur": "背景模糊",
@@ -327,7 +323,6 @@
   "Personal_EarphoneLeft": "左耳",
   "Personal_EarphoneRight": "右耳",
   "Personal_EarphoneCase": "充电盒",
-  "Personal_EarphoneDual": "双耳机",
   "Personal_EarphoneSelect": "选择",
   "Personal_EarphoneReset": "恢复默认",
   "Battery_Unavailable": "-",

@@ -1,4 +1,5 @@
-using OppoPodsManager.Control.Gestures;
+﻿using OppoPodsManager.Control.Core.Models;
+using OppoPodsManager.Control.Subsystems.Gestures;
 
 namespace OppoPodsManager.UI.Views;
 
@@ -36,7 +37,7 @@ public partial class GestureView : PageView
         _suppressGestureSelection = true;
         try
         {
-            GestureUi.Rebuild(GestureLeftHost, GestureRightHost, entries, OnGestureSet);
+            GestureUi.Rebuild(GestureLeftHost, GestureRightHost, entries, OnGestureSet, OnLongPressCycleSet);
         }
         finally
         {
@@ -52,5 +53,14 @@ public partial class GestureView : PageView
             return;
         _ = CommandDispatcher?.RunAsync("触控手势",
             m => m.SetTouchGestureAsync(ear, kind, action, source, CancellationToken.None));
+    }
+
+    // 长按多选面板确认：转发循环模式集合。OPPO 后端编码未实现时仅保存内存态，UI 回显勾选。
+    private void OnLongPressCycleSet(EarSide ear, GestureSource source, TapKind kind, IReadOnlyList<NoiseMode> modes)
+    {
+        if (_suppressGestureSelection)
+            return;
+        _ = CommandDispatcher?.RunAsync("触控手势",
+            m => m.SetLongPressCycleAsync(ear, source, modes, CancellationToken.None));
     }
 }

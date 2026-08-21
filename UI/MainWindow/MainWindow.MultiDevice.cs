@@ -8,10 +8,10 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Avalonia;
-using MultiDeviceOperation = OppoPodsManager.Control.Oppo.Features.MultiDeviceOperation;
-using MultiDeviceDisplayState = OppoPodsManager.Control.Oppo.Features.MultiDeviceDisplayState;
-using BusinessSnapshot = OppoPodsManager.Control.Oppo.Models.BusinessSnapshot;
-using ConnectedDeviceSnapshot = OppoPodsManager.Control.Oppo.Models.ConnectedDeviceSnapshot;
+using MultiDeviceOperation = OppoPodsManager.Control.Core.Features.MultiDeviceOperation;
+using MultiDeviceDisplayState = OppoPodsManager.Control.Core.Features.MultiDeviceDisplayState;
+using BusinessSnapshot = OppoPodsManager.Control.Core.Models.BusinessSnapshot;
+using ConnectedDeviceSnapshot = OppoPodsManager.Control.Core.Models.ConnectedDeviceSnapshot;
 
 namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private void CloseFloatingMenusOnBlankClick(object? sender, PointerPressedEventArgs e)
     {

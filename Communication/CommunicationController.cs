@@ -1,4 +1,4 @@
-using OppoPodsManager.Communication.Abstractions;
+﻿using OppoPodsManager.Communication.Abstractions;
 
 namespace OppoPodsManager.Communication;
 
@@ -92,7 +92,7 @@ public sealed class CommunicationController : IDisposable
         }
         catch (Exception exception)
         {
-            global::OppoPodsManager.Control.Logging.ApplicationLog.Current?.Error("Discovery", "聚合设备变化失败。", exception);
+            global::OppoPodsManager.Control.Subsystems.Logging.ApplicationLog.Current?.Error("Discovery", "聚合设备变化失败。", exception);
         }
     }
 }

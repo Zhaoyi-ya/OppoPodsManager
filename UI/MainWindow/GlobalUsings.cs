@@ -1,4 +1,4 @@
-// 全局 using：MainWindow 各 partial 共享的命名空间导入。
+﻿// 全局 using：MainWindow 各 partial 共享的命名空间导入。
 // 注意：类型别名（AvaloniaControl / Path）无法 global，由各文件单独声明。
 global using System;
 global using System.Collections.Generic;
@@ -24,10 +24,13 @@ global using SukiUI;
 global using SukiUI.Controls;
 global using SukiUI.Enums;
 global using SukiUI.Toasts;
-global using OppoPodsManager.Control;
-global using OppoPodsManager.Control.Desktop;
-global using OppoPodsManager.Control.Logging;
-global using OppoPodsManager.Control.Oppo.Models;
-global using OppoPodsManager.Control.Updates;
+global using OppoPodsManager.Control.Abstractions;
+global using OppoPodsManager.Control.Subsystems.Desktop;
+global using OppoPodsManager.Control.Subsystems.Logging;
+global using OppoPodsManager.Control.Brands.Oppo.Models;
+global using OppoPodsManager.Control.Core.Models;
+global using OppoPodsManager.Control.Core.Transport;
+global using OppoPodsManager.Control.Core.Features;
+global using OppoPodsManager.Control.Subsystems.Updates;
 global using OppoPodsManager.UI.Toast;
 global using OppoPodsManager.UI.Views;

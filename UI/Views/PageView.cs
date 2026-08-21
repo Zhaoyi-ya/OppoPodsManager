@@ -1,9 +1,10 @@
-using Avalonia.Controls;
+﻿using Avalonia.Controls;
 using OppoPodsManager.Assets.UserSettings;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Desktop;
-using OppoPodsManager.Control.Logging;
-using OppoPodsManager.Control.Oppo.Models;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Subsystems.Desktop;
+using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 
 namespace OppoPodsManager.UI.Views;
 

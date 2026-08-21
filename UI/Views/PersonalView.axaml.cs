@@ -13,7 +13,7 @@ using OppoPodsManager.Assets.VisualAssets;
 namespace OppoPodsManager.UI.Views;
 
 /// <summary>
-/// 个性化设置页面：外观（语言/主题/透明度预设/卡片透明度/Toast 时长）、
+/// 个性化设置页面：外观（语言/主题/卡片透明度/Toast 时长）、
 /// 背景（缩略图/模糊）、自定义耳机图案、设备名、高级渲染/Acrylic。
 /// 页面本地持有控件与事件；主题应用、语言切换、窗口背景、卡片透明度、标题、
 /// 高级渲染/Acrylic 等外壳级效果通过 <see cref="Host"/> 回退到 MainWindow。
@@ -22,7 +22,6 @@ public partial class PersonalView : PageView
 {
     private bool _initializing;
     private bool _refreshingComboBoxes;
-    private bool _applyingAppearancePreset;
     private readonly ObservableCollection<LanguageOption> _languageList = new();
 
     public PersonalView()
@@ -32,17 +31,11 @@ public partial class PersonalView : PageView
         // 仅本页控件的事件接线；外壳级副作用经 Host 回退。
         CbTheme.SelectionChanged += CbTheme_Changed;
         CbLanguage.SelectionChanged += CbLanguage_Changed;
-        CbTransparencyPreset.SelectionChanged += (_, _) =>
-        {
-            if (_refreshingComboBoxes) return;
-            ApplyTransparencyPreset(CbTransparencyPreset.SelectedIndex);
-        };
         SlOpacity.ValueChanged += (_, _) =>
         {
             var v = (int)SlOpacity.Value;
             TbOpacity.Text = $"{v}%";
             UiSettings.SetInt("CardOpacity", v);
-            if (!_applyingAppearancePreset) CbTransparencyPreset.SelectedIndex = 0;
             Host?.RefreshCardOpacity();
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
@@ -90,8 +83,6 @@ public partial class PersonalView : PageView
         {
             InitializeLanguageSelection();
             CbTheme.SelectedIndex = NextThemeIndex();
-
-            CbTransparencyPreset.SelectedIndex = 0;
 
             var opacityVal = Math.Clamp(UiSettings.GetInt("CardOpacity", 50), 0, 90);
             SlOpacity.Value = opacityVal;
@@ -171,7 +162,6 @@ public partial class PersonalView : PageView
     {
         _refreshingComboBoxes = true;
         RefreshSelectedIndex(CbTheme);
-        RefreshSelectedIndex(CbTransparencyPreset);
         RefreshSelectedIndex(CbToastDuration);
         RefreshSelectedIndex(CbLanguage);
         _refreshingComboBoxes = false;
@@ -203,26 +193,6 @@ public partial class PersonalView : PageView
             "light" => 2,
             _ => 0
         };
-
-    private void ApplyTransparencyPreset(int idx)
-    {
-        if (idx <= 0) return;
-        var card = idx switch
-        {
-            1 => 0,  // 清晰
-            3 => 90, // 通透
-            _ => 50, // 平衡
-        };
-        _applyingAppearancePreset = true;
-        try
-        {
-            SlOpacity.Value = card;
-        }
-        finally
-        {
-            _applyingAppearancePreset = false;
-        }
-    }
 
     // ---- Toast 时长 ----
     private void CbToastDuration_Changed(object? s, SelectionChangedEventArgs e)

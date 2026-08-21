@@ -1,5 +1,5 @@
-using Avalonia.Controls;
-using OppoPodsManager.Control.Updates;
+﻿using Avalonia.Controls;
+using OppoPodsManager.Control.Subsystems.Updates;
 
 namespace OppoPodsManager.UI.MainWindow;
 public partial class MainWindow

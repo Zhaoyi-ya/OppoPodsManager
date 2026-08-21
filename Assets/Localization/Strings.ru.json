@@ -1,4 +1,4 @@
-{
+﻿{
   "Sidebar_MultiDevice": "Список устройств",
   "Sidebar_ConnectionStrategy": "Стратегия подключения",
   "Sidebar_PriorityDevice": "Приоритетное устройство",
@@ -85,13 +85,9 @@
   "Personal_ThemeFollowSystem": "Как в системе",
   "Personal_ThemeDark": "Тёмная",
   "Personal_ThemeLight": "Светлая",
-  "Personal_TransparencyPreset": "Прозрачность",
   "Personal_CardOpacity": "Прозрачность карточек",
   "Personal_ToastDuration": "Длительность уведомлений",
   "Personal_Custom": "Пользовательский",
-  "Personal_Clear": "Прозрачный",
-  "Personal_Balanced": "Сбалансированный",
-  "Personal_Transparent": "Полупрозрачный",
   "Personal_Background": "Фон",
   "Personal_AddNewBackground": "Добавить фон",
   "Personal_BackgroundBlur": "Размытие фона",
@@ -327,7 +323,6 @@
   "Personal_EarphoneLeft": "Левый",
   "Personal_EarphoneRight": "Правый",
   "Personal_EarphoneCase": "Чехол",
-  "Personal_EarphoneDual": "Оба наушника",
   "Personal_EarphoneSelect": "Выбрать",
   "Personal_EarphoneReset": "Сбросить",
   "Battery_Unavailable": "-",

@@ -1,8 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -14,17 +15,19 @@ using SukiUI;
 using SukiUI.Controls;
 using AvaloniaControl = Avalonia.Controls.Control;
 using PathShape = Avalonia.Controls.Shapes.Path;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Oppo.Models;
-using OppoPodsManager.Control.Oppo.Features;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
+using OppoPodsManager.Control.Brands.Oppo.Features;
 using EarphoneImageProvider = OppoPodsManager.Assets.VisualAssets.EarphoneImageProvider;
 using EarphoneSlot = OppoPodsManager.Assets.VisualAssets.EarphoneSlot;
 using AncIcons = OppoPodsManager.UI.MainWindow.AncIcons;
 using OppoPodsManager.Assets.Localization;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Subsystems.Logging;
 using BackgroundImageManager = OppoPodsManager.Assets.VisualAssets.BackgroundImageManager;
 using DeviceProfileLoader = OppoPodsManager.Assets.Localization.DeviceProfileLoader;
 using AssetHelper = OppoPodsManager.Assets.VisualAssets.AssetHelper;
+using OppoPodsManager.Control.Core.Features;
 
 namespace OppoPodsManager.UI.MiniWindow.Status;
 
@@ -62,7 +65,7 @@ public partial class SmallWindow : SukiWindow
     private const string IconChargeData = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
 
 
-    private readonly Dictionary<string, (Ellipse bg, PathShape icon, TextBlock label)> _ancMainButtons = new();
+    private readonly Dictionary<string, (Border bg, PathShape icon, TextBlock label)> _ancMainButtons = new();
     private readonly Dictionary<string, (Button btn, Border bg)> _ancSubButtons = new();
     private readonly Dictionary<string, string> _ancChildToMain = new();
 
@@ -74,6 +77,8 @@ public partial class SmallWindow : SukiWindow
     private bool _isClosed;
     private bool _sukiWindowDisposed;
     private DateTime _ancUserSetAt = DateTime.MinValue;
+    private bool _gameSoundCommandPending;
+    private bool _syncingFeatures;
 
     // 初始化原项目小窗口的控件、事件和视觉资源。
     private void InitializeWindow()
@@ -112,7 +117,7 @@ public partial class SmallWindow : SukiWindow
         RightChargeBolt.Data = chargeGeo;
         CaseChargeBolt.Data = chargeGeo;
 
-        // 加载耳机图案：双耳机 + 充电盒（支持配置目录自定义图片覆盖）
+        // 加载耳机图案：左耳机 + 充电盒 + 右耳机（支持配置目录自定义图片覆盖）
         LoadEarphoneImages();
 
         RefreshAppearance();
@@ -189,14 +194,161 @@ public partial class SmallWindow : SukiWindow
         {
             AncCard.IsVisible = false;
         }
+        ApplyNextFeatureState(snapshot);
         ApplicationLog.Current?.Debug("UI", $"小窗已应用快照：revision={snapshot.Revision}，connected={snapshot.IsConnected}。");
     }
 
     // 显示 Next 快照中的电量和充电状态。
     private static void SetNextBattery(TextBlock label, AvaloniaControl bolt, BatteryLevel? battery)
     {
-        label.Text = battery is { } value ? $"{value.Percent}%" : "-%";
+        label.Text = battery is { } value ? $"{value.Percent}%" : "–%";
         bolt.IsVisible = battery?.IsCharging == true;
+    }
+
+    // ===== 功能开关（复用主页 Feature 面板的数据源与命令） =====
+
+    // 按快照同步 10 个功能开关的可见性 / 状态 / 可用性，与主页 ApplyNextFeatureState 一致。
+    private void ApplyNextFeatureState(BusinessSnapshot snapshot)
+    {
+        var manager = _controlManager?.ActiveManager ?? _nextManager;
+        var presentation = manager?.Presentation;
+        var hasFeatures = snapshot.IsConnected && presentation is not null;
+        FeatureCard.IsVisible = hasFeatures;
+        FeatureContentPanel.IsVisible = false;
+        FeaturePlaceholderText.IsVisible = !hasFeatures;
+        if (!hasFeatures)
+            return;
+
+        var visibleControls = presentation!.VisibleControls;
+        var controlStates = presentation.ControlStates;
+        var controlEnabledStates = presentation.ControlEnabledStates;
+
+        SetNextFeatureCheck(CbDualDevice, visibleControls.Contains("dual-device"), controlStates, "dual-device");
+        SetNextFeatureCheck(CbBassEngine, visibleControls.Contains("bass-engine"), controlStates, "bass-engine");
+        SetNextFeatureCheck(CbVocalEnhance, visibleControls.Contains("voice-enhancement"), controlStates, "voice-enhancement");
+        SetNextFeatureCheck(CbHearingEnhance, visibleControls.Contains("hearing-enhancement"), controlStates, "hearing-enhancement");
+        SetNextFeatureCheck(CbLongPower, visibleControls.Contains("long-battery"), controlStates, "long-battery");
+        SetNextFeatureCheck(CbWearDetection, visibleControls.Contains("wear-detection"), controlStates, "wear-detection");
+        SetNextFeatureCheck(CbSpineHealth, visibleControls.Contains("spine-health"), controlStates, "spine-health");
+        SetNextFeatureCheck(CbSpatial, visibleControls.Contains("spatial-sound"), controlStates, "spatial-sound");
+        if (!_gameSoundCommandPending && snapshot.Game.SoundType is { } gameSoundType)
+            SetNextFeatureCheck(CbGameSound, visibleControls.Contains("game-sound"),
+                new Dictionary<string, bool> { ["game-sound"] = gameSoundType != 0 }, "game-sound");
+        else
+            SetNextFeatureCheck(CbGameSound, visibleControls.Contains("game-sound"), controlStates, "game-sound");
+        SetNextFeatureCheck(CbGame, visibleControls.Contains("game-mode"), controlStates, "game-mode");
+
+        var hasVisibleFeature = CbDualDevice.IsVisible
+            || CbBassEngine.IsVisible
+            || CbVocalEnhance.IsVisible
+            || CbHearingEnhance.IsVisible
+            || CbLongPower.IsVisible
+            || CbWearDetection.IsVisible
+            || CbSpineHealth.IsVisible
+            || CbSpatial.IsVisible
+            || CbGameSound.IsVisible
+            || CbGame.IsVisible;
+        FeatureContentPanel.IsVisible = hasVisibleFeature;
+        FeaturePlaceholderText.IsVisible = !hasVisibleFeature;
+
+        SetFeatureEnabled(CbDualDevice, controlEnabledStates, "dual-device");
+        SetFeatureEnabled(CbBassEngine, controlEnabledStates, "bass-engine");
+        SetFeatureEnabled(CbVocalEnhance, controlEnabledStates, "voice-enhancement");
+        SetFeatureEnabled(CbHearingEnhance, controlEnabledStates, "hearing-enhancement");
+        SetFeatureEnabled(CbLongPower, controlEnabledStates, "long-battery");
+        SetFeatureEnabled(CbWearDetection, controlEnabledStates, "wear-detection");
+        SetFeatureEnabled(CbSpineHealth, controlEnabledStates, "spine-health");
+        SetFeatureEnabled(CbSpatial, controlEnabledStates, "spatial-sound");
+        SetFeatureEnabled(CbGameSound, controlEnabledStates, "game-sound");
+        SetFeatureEnabled(CbGame, controlEnabledStates, "game-mode");
+    }
+
+    // 同步单个开关：先隐藏，再按状态字典静默设置 IsChecked（避免触发命令）。
+    private void SetNextFeatureCheck(CheckBox box, bool visible, IReadOnlyDictionary<string, bool> states, string key)
+    {
+        box.IsVisible = visible;
+        if (!states.TryGetValue(key, out var enabled) || box.IsChecked == enabled)
+            return;
+        _syncingFeatures = true;
+        try
+        {
+            box.IsChecked = enabled;
+        }
+        finally
+        {
+            _syncingFeatures = false;
+        }
+    }
+
+    private static void SetFeatureEnabled(CheckBox box, IReadOnlyDictionary<string, bool> states, string key)
+    {
+        var enabled = !states.TryGetValue(key, out var value) || value;
+        if (box.IsEnabled != enabled)
+            box.IsEnabled = enabled;
+    }
+
+    // 所有开关共用的 Changed 处理器：Tag 里存功能 key，直接分发命令。
+    private void FeatureCheck_Changed(object? sender, RoutedEventArgs e)
+    {
+        if (_syncingFeatures)
+            return;
+        if (sender is not CheckBox box || box.Tag is not string key || box.IsChecked is not { } enabled)
+            return;
+        SendFeatureCommand(key, enabled);
+    }
+
+    private void SendFeatureCommand(string key, bool enabled)
+    {
+        if (_commandDispatcher is null)
+            return;
+        switch (key)
+        {
+            case "dual-device":
+                _ = _commandDispatcher.RunAsync("双设备", m => m.SetDualDeviceAsync(enabled, CancellationToken.None));
+                break;
+            case "game-mode":
+                _ = _commandDispatcher.RunAsync("游戏模式", m => m.SetGameModeAsync(enabled, CancellationToken.None));
+                break;
+            case "long-battery":
+                _ = _commandDispatcher.RunAsync("长续航", m => m.SetLongBatteryAsync(enabled, CancellationToken.None));
+                break;
+            case "wear-detection":
+                _ = _commandDispatcher.RunAsync("佩戴检测", m => m.SetWearDetectionAsync(enabled, CancellationToken.None));
+                break;
+            case "spine-health":
+                _ = _commandDispatcher.RunAsync("脊柱健康", m => m.SetSpineHealthAsync(enabled, CancellationToken.None));
+                break;
+            case "spatial-sound":
+                _ = _commandDispatcher.RunAsync("空间声场", m => m.SetSpatialSoundAsync(enabled, CancellationToken.None));
+                break;
+            case "game-sound":
+                _ = RunGameSoundCommandAsync(enabled);
+                break;
+            case "bass-engine":
+                _ = _commandDispatcher.RunAsync("低音引擎", m => m.SetBassEngineAsync(enabled, CancellationToken.None));
+                break;
+            case "voice-enhancement":
+                _ = _commandDispatcher.RunAsync("人声增强", m => m.SetVoiceEnhancementAsync(enabled, CancellationToken.None));
+                break;
+            case "hearing-enhancement":
+                _ = _commandDispatcher.RunAsync("听力增强", m => m.SetHearingEnhancementAsync(enabled, CancellationToken.None));
+                break;
+        }
+    }
+
+    // 游戏音效走独立命令（状态由 SoundType 反推），pending 期间不刷新避免抖动。
+    private async Task RunGameSoundCommandAsync(bool enabled)
+    {
+        _gameSoundCommandPending = true;
+        try
+        {
+            await (_commandDispatcher?.RunAsync("游戏音效", m => m.SetGameSoundEnabledAsync(enabled, CancellationToken.None))
+                ?? Task.FromResult(false));
+        }
+        finally
+        {
+            _gameSoundCommandPending = false;
+        }
     }
 
     public void RefreshAppearance()
@@ -247,8 +399,9 @@ public partial class SmallWindow : SukiWindow
 
     private void LoadEarphoneImages()
     {
-        ReplaceEarphoneImage(SmallDualImage, EarphoneSlot.SmallDual);
-        ReplaceEarphoneImage(SmallCaseImage, EarphoneSlot.Case);
+        ReplaceEarphoneImage(LeftImage, EarphoneSlot.HomeLeft);
+        ReplaceEarphoneImage(CaseImage, EarphoneSlot.Case);
+        ReplaceEarphoneImage(RightImage, EarphoneSlot.HomeRight);
     }
 
     // 替换图片前释放旧的独立位图，避免小窗反复刷新积累本地资源。
@@ -269,8 +422,9 @@ public partial class SmallWindow : SukiWindow
     // 关闭小窗时释放其独立的耳机和充电盒位图。
     private void DisposeWindowImages()
     {
-        DisposeEarphoneImage(SmallDualImage);
-        DisposeEarphoneImage(SmallCaseImage);
+        DisposeEarphoneImage(LeftImage);
+        DisposeEarphoneImage(CaseImage);
+        DisposeEarphoneImage(RightImage);
     }
 
     // 调用 SukiWindow 自带的释放流程，清理小窗的 Toast host 和渲染资源。
@@ -291,7 +445,7 @@ public partial class SmallWindow : SukiWindow
         image.Source = null;
     }
 
-    /// <summary>自定义耳机图案变化后，重新加载小 UI 的双耳机与充电盒图。</summary>
+    /// <summary>自定义耳机图案变化后，重新加载小 UI 的左耳/充电盒/右耳图。</summary>
     public void RefreshEarphoneImages() => LoadEarphoneImages();
 
     private void ApplyAcrylicBlur()
@@ -468,19 +622,33 @@ public partial class SmallWindow : SukiWindow
         _ancSubSignature = "";
         AncSubRow.IsVisible = false;
 
-        int col = 0;
+        // 主模式：整体圆角胶囊容器 + 等宽 segment（图标 + 文字），选中态高亮
+        var capsule = new Border
+        {
+            CornerRadius = new CornerRadius(9),
+            Background = AppPalette.BrushCircleStrokeInactive,
+            Padding = new Thickness(2),
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+        var segmentGrid = new UniformGrid { Columns = Math.Max(1, _ancOptions.Count) };
+        capsule.Child = segmentGrid;
+
         for (int i = 0; i < _ancOptions.Count; i++)
         {
             var opt = _ancOptions[i];
-            if (i > 0) { AncMainRow.ColumnDefinitions.Add(new ColumnDefinition(new GridLength(10))); col++; }
-            var (panel, bg, icon, label) = MakeAncIconButton(opt, 46, 22, 10);
-            AncMainRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
-            Grid.SetColumn(panel, col);
-            AncMainRow.Children.Add(panel);
-            _ancMainButtons[opt.Key] = (bg, icon, label);
-            col++;
+            var corner = _ancOptions.Count == 1
+                ? new CornerRadius(7)
+                : i == 0 ? new CornerRadius(7, 0, 0, 7)
+                : i == _ancOptions.Count - 1 ? new CornerRadius(0, 7, 7, 0)
+                : new CornerRadius(0);
+            var (segment, icon, label) = MakeAncSegmentButton(opt, corner, 30, 15, 13);
+            segmentGrid.Children.Add(segment);
+            _ancMainButtons[opt.Key] = (segment, icon, label);
             foreach (var child in opt.Children) _ancChildToMain[child.Key] = opt.Key;
         }
+
+        AncMainRow.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        AncMainRow.Children.Add(capsule);
     }
 
     // 将后端降噪模式模型转换为原小窗控件使用的层级模型。
@@ -551,51 +719,57 @@ public partial class SmallWindow : SukiWindow
         {
             var t = DeviceProfileLoader.AncLabel(key);
             label.Text = t;
-            label.FontSize = t.Length > 10 ? 8 : 10;
+            label.FontSize = t.Length > 8 ? 11 : 13;
         }
         foreach (var (key, (btn, _)) in _ancSubButtons)
             btn.Content = DeviceProfileLoader.AncLabel(key);
     }
 
-    private (AvaloniaControl panel, Ellipse bg, PathShape icon, TextBlock label) MakeAncIconButton(
-        NoiseOptionModel opt, int circleSize, int iconSize, int fontSize)
+    private (Border bg, PathShape icon, TextBlock label) MakeAncSegmentButton(
+        NoiseOptionModel opt, CornerRadius corner, int height, int iconSize, int fontSize)
     {
-        var bg = new Ellipse { Width = circleSize, Height = circleSize,
-            Fill = Brushes.Transparent };
         var icon = new PathShape
         {
             Data = StreamGeometry.Parse(AncIcons.GetAncIcon(opt.Key)),
             Width = iconSize, Height = iconSize, Fill = AppPalette.BrushGray,
-            Stretch = Stretch.Uniform
+            Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center
         };
-        var clickArea = new Ellipse
-        {
-            Width = circleSize, Height = circleSize,
-            Fill = Brushes.Transparent,
-            Tag = opt, Cursor = new Cursor(StandardCursorType.Hand)
-        };
-        clickArea.PointerPressed += (s, _) =>
-        {
-            if (s is Ellipse el && el.Tag is NoiseOptionModel o) SwitchAncMain(o);
-        };
-
-        var grid = new Grid { Width = circleSize, Height = circleSize };
-        grid.Children.Add(bg);
-        grid.Children.Add(icon);
-        grid.Children.Add(clickArea);
-
         var labelText = DeviceProfileLoader.AncLabel(opt.Key);
         var label = new TextBlock
         {
-            Text = labelText, FontSize = labelText.Length > 10 ? Math.Max(8, fontSize - 2) : fontSize,
-            Foreground = AppPalette.BrushGray, TextAlignment = TextAlignment.Center,
-            Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap
+            Text = labelText,
+            FontSize = labelText.Length > 8 ? Math.Max(10, fontSize - 2) : fontSize,
+            Foreground = AppPalette.BrushGray,
+            TextAlignment = TextAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
         };
 
-        var panel = new StackPanel();
-        panel.Children.Add(grid);
-        panel.Children.Add(label);
-        return (panel, bg, icon, label);
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        content.Children.Add(icon);
+        content.Children.Add(label);
+
+        var btn = new Button
+        {
+            Content = content, Tag = opt,
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            Padding = new Thickness(12, 0), Height = height, Focusable = false,
+            Cursor = new Cursor(StandardCursorType.Hand),
+            Foreground = AppPalette.BrushGray,
+            HorizontalContentAlignment = HorizontalAlignment.Center
+        };
+        btn.Click += (_, _) =>
+        {
+            if (btn.Tag is NoiseOptionModel o) SwitchAncMain(o);
+        };
+
+        var bg = new Border { CornerRadius = corner, Background = Brushes.Transparent, Child = btn };
+        return (bg, icon, label);
     }
 
     private void AncSub_Click(object? s, RoutedEventArgs e)
@@ -608,8 +782,9 @@ public partial class SmallWindow : SukiWindow
         foreach (var (key, (bg, icon, label)) in _ancMainButtons)
         {
             var active = key == _ancMain;
-            bg.Fill   = active ? AppPalette.Accent : AppPalette.CircleGray;
+            bg.Background = active ? AppPalette.Accent : Brushes.Transparent;
             icon.Fill = active ? AppPalette.BrushWhitePure : AppPalette.BrushGray;
+            label.Foreground = active ? AppPalette.BrushWhitePure : AppPalette.BrushGray;
         }
         foreach (var (key, (btn, bg)) in _ancSubButtons)
         {

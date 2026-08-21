@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Avalonia.Media.Transformation;
 using Avalonia.Media;
@@ -7,8 +7,9 @@ using Avalonia;
 using Avalonia.Threading;
 using OppoPodsManager.Assets.Localization;
 using NextSettingsManager = OppoPodsManager.Assets.UserSettings.SettingsManager;
-using OppoPodsManager.Control.Oppo.Models;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
+using OppoPodsManager.Control.Subsystems.Logging;
 using SukiUI;
 using AvaloniaControl = Avalonia.Controls.Control;
 
@@ -293,10 +294,8 @@ public partial class ToastWindow : Window
             ? Avalonia.Application.Current?.ActualThemeVariant
             : theme.ActiveBaseTheme;
         var isLight = activeTheme == Avalonia.Styling.ThemeVariant.Light;
-        var transparencyPct = settings is null
-            ? 50
-            : Math.Clamp(settings.Current.CardOpacity, 0, 90);
-        var alpha = (byte)Math.Clamp(255 - (transparencyPct * 255 / 100), 25, 255);
+        // 弹窗背景固定为不透明（不做毛玻璃，避免兼容性问题）。
+        const byte alpha = 255;
 
         if (isLight)
         {
@@ -340,8 +339,7 @@ public partial class ToastWindow : Window
         }
         else
         {
-            var glassAlpha = (byte)Math.Clamp(alpha * 0.35, 9, 255);
-            DarkCardBrush.Color = Color.FromArgb(glassAlpha, 0x1C, 0x1C, 0x1E);
+            DarkCardBrush.Color = Color.FromArgb(alpha, 0x1C, 0x1C, 0x1E);
             DarkPillBrush.Color = Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF);
             toast.Card.Background = DarkCardBrush;
             toast.Card.BorderBrush = new SolidColorBrush(Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF));

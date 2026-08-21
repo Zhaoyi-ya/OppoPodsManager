@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using OppoPodsManager.Control.Updates;
+using OppoPodsManager.Control.Subsystems.Updates;
 using UpdateToastAction = OppoPodsManager.UI.Toast.UpdateToastAction;
 
 namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private async Task<string?> ShowPromptDialog(string title, string defaultText = "", string hint = "")

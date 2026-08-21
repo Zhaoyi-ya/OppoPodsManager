@@ -1,4 +1,4 @@
-{
+﻿{
   "Sidebar_MultiDevice": "Device List",
   "Sidebar_ConnectionStrategy": "Connection Strategy",
   "Sidebar_PriorityDevice": "Priority Device",
@@ -85,13 +85,9 @@
   "Personal_ThemeFollowSystem": "Follow System",
   "Personal_ThemeDark": "Dark",
   "Personal_ThemeLight": "Light",
-  "Personal_TransparencyPreset": "Transparency Preset",
   "Personal_CardOpacity": "Card Opacity",
   "Personal_ToastDuration": "Toast Duration",
   "Personal_Custom": "Custom",
-  "Personal_Clear": "Clear",
-  "Personal_Balanced": "Balanced",
-  "Personal_Transparent": "Transparent",
   "Personal_Background": "Background",
   "Personal_AddNewBackground": "Add Background",
   "Personal_BackgroundBlur": "Background Blur",
@@ -327,7 +323,6 @@
   "Personal_EarphoneLeft": "Left",
   "Personal_EarphoneRight": "Right",
   "Personal_EarphoneCase": "Case",
-  "Personal_EarphoneDual": "Both earbuds",
   "Personal_EarphoneSelect": "Select",
   "Personal_EarphoneReset": "Reset",
   "Battery_Unavailable": "-",

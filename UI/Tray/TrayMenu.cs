@@ -1,9 +1,11 @@
-using Avalonia.Controls;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Oppo.Features;
-using OppoPodsManager.Control.Oppo.Models;
+﻿using Avalonia.Controls;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Brands.Oppo.Features;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Assets.Localization;
-using OppoPodsManager.Control.Logging;
+using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Control.Core.Features;
 
 namespace OppoPodsManager.UI.Tray;
 

@@ -1,22 +1,24 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using OppoPodsManager.Communication;
-using OppoPodsManager.Control;
-using OppoPodsManager.Control.Desktop;
-using OppoPodsManager.Control.Notifications;
-using OppoPodsManager.Control.Oppo;
-using OppoPodsManager.Control.Oppo.Models;
-using OppoPodsManager.Control.Vivo;
-using OppoPodsManager.Control.Edifier;
+using OppoPodsManager.Control.Abstractions;
+using OppoPodsManager.Control.Subsystems.Desktop;
+using OppoPodsManager.Control.Subsystems.Notifications;
+using OppoPodsManager.Control.Brands.Oppo;
+using OppoPodsManager.Control.Brands.Oppo.Models;
+using OppoPodsManager.Control.Core.Models;
+using OppoPodsManager.Control.Brands.Vivo;
+using OppoPodsManager.Control.Brands.Edifier;
+using OppoPodsManager.Control.Brands.Huawei;
 using OppoPodsManager.UI.MainWindow;
 using OppoPodsManager.UI.Toast;
 using OppoPodsManager.UI.Tray;
 using OppoPodsManager.Assets.UserSettings;
 using OppoPodsManager.Assets.Oplus;
-using OppoPodsManager.Control.Logging;
-using OppoPodsManager.Control.Updates;
+using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Control.Subsystems.Updates;
 using OppoPodsManager.Assets.Localization;
 
 namespace OppoPodsManager;
@@ -74,7 +76,7 @@ public sealed partial class App : Application
             _controlManager = new ControlManager(
                 _frontendState,
                 new DeviceScanner(communication),
-                [new OppoManagerFactory(_modelCatalog), new VivoManagerFactory(), new EdifierManagerFactory()],
+                [new OppoManagerFactory(_modelCatalog), new VivoManagerFactory(), new EdifierManagerFactory(), new HuaweiManagerFactory()],
                 settingsStore);
             _controlManager.StartMonitoring();
             // 由应用层创建唯一的命令调度器，所有界面入口共享同一控制层调用边界。
