@@ -55,6 +55,7 @@ public static partial class OppoProtocol
     public const ushort CmdQueryVersion      = 0x0105;  // getRemoteVersion 远程固件版本
     public const ushort CmdQueryUpgradeCap   = 0x0107;  // getUpgradeCapability 升级能力
     public const ushort CmdQueryFunctionKey  = 0x0108;  // getKeyFunction 按键功能（设置为 setKeyFunction 0x0402）
+    public const ushort CmdQueryFunctionKeyResp = 0x8108;
     public const ushort CmdQueryEarStatus    = 0x0109;  // getEarBudsStatus 耳机佩戴状态
     public const ushort CmdQueryColorId      = 0x010B;  // getEarBudsColorID 耳机颜色 ID
     // 0x010C = getCurrentNoiseReductionMode / getNoiseReductionSwitchMode / getIntelligentNoiseReductionMode
@@ -308,6 +309,10 @@ public static partial class OppoProtocol
     public static readonly byte[] PayQueryAnc = { 0x01, 0x01 };
     /// <summary>查询智能切换实时档位（0x10C + [0x04,0x01]，响应 subType=4=IntelligentNoiseModeInfo）。</summary>
     public static readonly byte[] PayQueryAncIntelligent = { 0x04, 0x01 };
+    /// <summary>查询左耳长按切换选中降噪模式（action=2, type=3）。</summary>
+    public static readonly byte[] PayQueryLongPressNoiseLeft = { 0x02, 0x03 };
+    /// <summary>查询右耳长按切换选中降噪模式（action=2, type=4）。</summary>
+    public static readonly byte[] PayQueryLongPressNoiseRight = { 0x02, 0x04 };
     public static readonly byte[] PayRegisterNotify = { 0x01, 0x01, 0x02, 0x02 };
     public static readonly byte[] PayRegisterWear = { 0x02, 0x02 };
     public static readonly byte[] PayBatchQuery = { 0x0B, 0x05, 0x04, 0x0B, 0x11, 0x13, 0x18, 0x06, 0x1B, 0x1C, 0x27, 0x28 };
@@ -350,6 +355,40 @@ public static partial class OppoProtocol
         for (int i = 0; i + 1 < payload.Length; i += 2)
             result[payload[i]] = payload[i + 1];
         return result;
+    }
+
+    /// <summary>0x0108 查询按键功能的请求载荷，对应 Melody PollCommandManager.r(264, addr)。</summary>
+    public static byte[] KeyFunctionQueryPayload() => new byte[] { 0x03, 0x02, 0x03, 0x01 };
+
+    /// <summary>
+    /// 解析 0x8108 按键功能响应。
+    /// 格式：[status(1)][count(1)][deviceType(1)][deviceButton(1)][buttonAction(1)][function(1)]...
+    /// </summary>
+    public static List<KeyFunctionItem> ParseKeyFunctions(byte[] payload)
+    {
+        var result = new List<KeyFunctionItem>();
+        if (payload == null || payload.Length < 2 || payload[0] != 0) return result;
+
+        int count = payload[1];
+        int pos = 2;
+        for (int i = 0; i < count && pos + 4 <= payload.Length; i++, pos += 4)
+            result.Add(new KeyFunctionItem(payload[pos], payload[pos + 1], payload[pos + 2], payload[pos + 3]));
+        return result;
+    }
+
+    /// <summary>0x0402 设置按键功能的请求载荷：[count(1)][items...]。</summary>
+    public static byte[] BuildKeyFunctionPayload(IReadOnlyList<KeyFunctionItem> items)
+    {
+        var payload = new byte[1 + items.Count * 4];
+        payload[0] = (byte)items.Count;
+        int pos = 1;
+        foreach (var item in items)
+        {
+            var data = item.ToBytes();
+            Buffer.BlockCopy(data, 0, payload, pos, data.Length);
+            pos += data.Length;
+        }
+        return payload;
     }
 
     public static byte[] FeaturePayload(byte feature, bool on)

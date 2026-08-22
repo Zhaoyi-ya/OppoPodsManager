@@ -12,6 +12,10 @@ public class PodState
     public string AncMode { get; set; } = "?";
     /// <summary>智能切换模式下设备实时计算出的当前档位名（如"深度"）；非智能模式为空。</summary>
     public string IntelligentRealtime { get; set; } = "";
+    /// <summary>长按切换模式下左耳选中的降噪模式位图（0x010C type=3）。</summary>
+    public int LongPressNoiseMaskLeft { get; set; }
+    /// <summary>长按切换模式下右耳选中的降噪模式位图（0x010C type=4）。</summary>
+    public int LongPressNoiseMaskRight { get; set; }
     /// <summary>当前 EQ 预设名（如 "ClearVoice"）；未知为 "?"。</summary>
     public string EqPreset { get; set; } = "?";
     /// <summary>远程固件版本（0x8105 响应）；未知为空。</summary>
@@ -67,6 +71,9 @@ public class PodState
 
     /// <summary>设备端 EQ 预设列表（由 0x8122 getAllEqInfo 响应填充）。</summary>
     public List<EqInfoEntry> DeviceEqEntries { get; set; } = new();
+
+    /// <summary>设备按键功能设置（0x8108 查询响应）。</summary>
+    public List<KeyFunctionItem> KeyFunctions { get; set; } = new();
 
     // ===== Multi-connect priority / connection strategy =====
 

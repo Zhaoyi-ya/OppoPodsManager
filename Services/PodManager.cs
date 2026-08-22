@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using OppoPodsManager.Localization;
 
 namespace OppoPodsManager;
 
@@ -32,11 +33,15 @@ public partial class PodManager : IPodManager
     private readonly Dictionary<byte, DateTime> _pendingDeleteEqIds = new();
 
     /// <summary>带超时/重试的设置命令：失败或超时时触发 CommandFailed（供 UI 提示）。</summary>
-    private void SendSet(ushort cmd, byte[] payload, string label)
+    private void SendSet(ushort cmd, byte[] payload, string label, Action? onSuccess = null)
     {
         _dispatcher.SendTracked(cmd, payload, (status, _) =>
         {
-            if (status != CmdStatus.Success)
+            if (status == CmdStatus.Success)
+            {
+                onSuccess?.Invoke();
+            }
+            else
             {
                 Log.D("RFCOMM", $"SendSet: {label} 失败 status={(int)status}");
                 CommandFailed?.Invoke($"{label} 失败" + (status == CmdStatus.Timeout ? "（超时）" : ""));
@@ -109,6 +114,7 @@ public partial class PodManager : IPodManager
             case OppoProtocol.CmdMultiConnectResp: ParseMultiConnect(p, 0, len); break;
             case OppoProtocol.CmdProductIdResp: ParseProductId(p, 0, len); break;
             case OppoProtocol.CmdCapabilityResp: ParseCapabilities(p, 0, len); break;
+            case OppoProtocol.CmdQueryFunctionKeyResp: ParseKeyFunctionResponse(p, 0, len); break;
             case OppoProtocol.CmdMultiPriorityResp: ParseMultiPriority(p, 0, len); break;
             case OppoProtocol.CmdNotifyCapabilityResp:
                 Log.D("RFCOMM", $"0x8200 通知能力响应 raw={BitConverter.ToString(p)} count={p.Length}");
@@ -290,6 +296,15 @@ public partial class PodManager : IPodManager
             if (Caps.HasCustomEq) { SendQuery(OppoProtocol.CmdQueryEqAll, OppoProtocol.PayQueryEqAll); Thread.Sleep(80); }
             if (State.SupportedCommands.Contains(OppoProtocol.CmdQueryCodecType)) { SendQuery(OppoProtocol.CmdQueryCodecType, OppoProtocol.PayEmpty); Thread.Sleep(80); }
             if (Caps.HasGameSound) { SendQuery(OppoProtocol.CmdQueryGameSound, OppoProtocol.PayEmpty); Thread.Sleep(80); }
+            if (Caps.HasKeyFunction)
+            {
+                SendQueryKeyFunction();
+                Thread.Sleep(80);
+                SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryLongPressNoiseLeft);
+                Thread.Sleep(80);
+                SendQuery(OppoProtocol.CmdQueryAnc, OppoProtocol.PayQueryLongPressNoiseRight);
+                Thread.Sleep(80);
+            }
             // 空间音频三模式当前值：仅三模式（headsetSpatialType）机型才有 0x012A，
             // 两模式开关型机型走 feature 0x1B（批量查询）已覆盖，不发以免无谓拦截日志。
             if (Caps.HasSpatialAudio)
@@ -371,6 +386,28 @@ public partial class PodManager : IPodManager
     {
         Log.D("RFCOMM", "SendMultiConnectInfo");
         if (Caps.HasDualDevice) SendQuery(OppoProtocol.CmdMultiConnectInfo, OppoProtocol.PayEmpty);
+    }
+
+    public void SendQueryKeyFunction()
+    {
+        if (!State.Connected) return;
+        Log.D("RFCOMM", "SendQueryKeyFunction");
+        SendQuery(OppoProtocol.CmdQueryFunctionKey, OppoProtocol.KeyFunctionQueryPayload());
+    }
+
+    public void SendKeyFunctionChange(IReadOnlyList<KeyFunctionItem> items)
+    {
+        if (items == null || items.Count == 0) return;
+        var label = LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_TouchControls);
+        SendSet(OppoProtocol.CmdSetKeyFunction, OppoProtocol.BuildKeyFunctionPayload(items), label, SendQueryKeyFunction);
+    }
+
+    public void SendLongPressNoise(byte side, int modeMask)
+    {
+        if (!State.Connected || modeMask == 0) return;
+        var noiseType = side == 1 ? (byte)3 : (byte)4;
+        var label = LanguageManager.Instance.GetString(LanguageManager.Instance.DeviceInfo_LongPress);
+        SendSet(OppoProtocol.CmdSetNoiseMode, OppoProtocol.LongPressNoisePayload(noiseType, modeMask), label);
     }
 
     /// <summary>

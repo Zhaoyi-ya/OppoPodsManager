@@ -219,6 +219,27 @@ public partial class MainWindow : SukiWindow
     private readonly ObservableCollection<string> _modelList = new();
     private readonly ObservableCollection<LanguageOption> _languageList = new();
     private bool _refreshingComboBoxes;
+    private bool _refreshingTouchControls;
+    private DateTime _touchUserSetAt;
+
+    private const byte TouchSideLeft = 1;
+    private const byte TouchSideRight = 2;
+    private const byte TouchButtonMusic = 1;
+    private const byte TouchButtonCall = 6;
+    private const byte TouchButtonFallback = 6;
+    private const byte TouchActionSingle = 1;
+    private const byte TouchActionDouble = 2;
+    private const byte TouchActionTriple = 3;
+    private const byte TouchActionLong = 4;
+    private const byte TouchActionSlide = 5;
+    private const byte TouchActionSuperLong = 6;
+    private const byte TouchFunctionNone = 0;
+    private const byte TouchFunctionPlayPause = 1;
+    private const byte TouchFunctionVoice = 3;
+    private const byte TouchFunctionGame = 17;
+    private const byte TouchFunctionVolume = 7;
+    private const byte TouchFunctionSongSwitch = 10;
+    private const byte TouchFunctionNoise = 8;
     private Dictionary<string, Dictionary<string, List<string>>> _brandTree = new();
 
     public MainWindow()
@@ -271,6 +292,35 @@ public partial class MainWindow : SukiWindow
         CbLanguage.SelectionChanged += CbLanguage_Changed;
         CbDevice.SelectionChanged += CbDevice_Changed;
         TbCustomName.TextChanged += TbCustomName_Changed;
+
+        CbTouchLeftClick.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftDouble.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftTriple.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftSlide.SelectionChanged += CbTouch_Changed;
+        CbTouchRightClick.SelectionChanged += CbTouch_Changed;
+        CbTouchRightDouble.SelectionChanged += CbTouch_Changed;
+        CbTouchRightTriple.SelectionChanged += CbTouch_Changed;
+        CbTouchRightSlide.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftCallSingle.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftCallDouble.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftCallTriple.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftCallLong.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftCallSuperLong.SelectionChanged += CbTouch_Changed;
+        CbTouchRightCallSingle.SelectionChanged += CbTouch_Changed;
+        CbTouchRightCallDouble.SelectionChanged += CbTouch_Changed;
+        CbTouchRightCallTriple.SelectionChanged += CbTouch_Changed;
+        CbTouchRightCallLong.SelectionChanged += CbTouch_Changed;
+        CbTouchRightCallSuperLong.SelectionChanged += CbTouch_Changed;
+        CbTouchLeftLong.SelectionChanged += CbTouchLongSelection_Changed;
+        CbTouchRightLong.SelectionChanged += CbTouchLongSelection_Changed;
+        CbTouchLeftLongAnc.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchLeftLongAdaptive.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchLeftLongTransparent.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchLeftLongOff.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchRightLongAnc.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchRightLongAdaptive.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchRightLongTransparent.IsCheckedChanged += CbTouchLong_Changed;
+        CbTouchRightLongOff.IsCheckedChanged += CbTouchLong_Changed;
 
         // EQ 滑块事件
         EqSlider62.PropertyChanged += EqSlider_Changed;
@@ -909,6 +959,7 @@ public partial class MainWindow : SukiWindow
         }
 
         if (DeviceInfoPanel.IsVisible || SettingsPanel.IsVisible) RefreshDeviceInfo();
+        if (DeviceInfoPanel.IsVisible) SyncTouchControlsFromState();
 
         BuildAncUi(caps);
         SpatialAudioPanel.IsVisible = caps.HasSpatialAudio;
@@ -1711,6 +1762,270 @@ public partial class MainWindow : SukiWindow
         SettingsManager.SetInt("Theme", idx);
     }
 
+    private void CbTouch_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_refreshingTouchControls || !_pods.IsConnected || _pods.State.KeyFunctions.Count == 0) return;
+        _touchUserSetAt = DateTime.Now;
+        _pods.SendKeyFunctionChange(CollectTouchSettings());
+    }
+
+    private void CbTouchLong_Changed(object? s, RoutedEventArgs e)
+    {
+        if (_refreshingTouchControls || !_pods.IsConnected || _pods.State.KeyFunctions.Count == 0) return;
+        var side = TouchSideFromLongSender(s);
+        if (side == 0) return;
+        _touchUserSetAt = DateTime.Now;
+
+        var longItem = _pods.State.KeyFunctions.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == TouchActionLong && k.DeviceButton == TouchButtonMusic);
+        if (longItem != null && longItem.Function != TouchFunctionNoise)
+        {
+            _pods.SendKeyFunctionChange(new[]
+            {
+                new KeyFunctionItem(longItem.DeviceType, longItem.DeviceButton, longItem.ButtonAction, TouchFunctionNoise)
+            });
+        }
+
+        _pods.SendLongPressNoise(side, LongPressMaskFor(side));
+    }
+
+    private void CbTouchLongSelection_Changed(object? s, SelectionChangedEventArgs e)
+    {
+        if (_refreshingTouchControls || !_pods.IsConnected || _pods.State.KeyFunctions.Count == 0) return;
+        var isLeft = ReferenceEquals(s, CbTouchLeftLong);
+        var side = isLeft ? TouchSideLeft : TouchSideRight;
+        var combo = isLeft ? CbTouchLeftLong : CbTouchRightLong;
+        var panel = isLeft ? DiTouchLeftLongNoisePanel : DiTouchRightLongNoisePanel;
+        _touchUserSetAt = DateTime.Now;
+
+        var function = TouchFunctionByIndex(combo.SelectedIndex);
+        panel.IsVisible = function == TouchFunctionNoise;
+
+        var longItem = _pods.State.KeyFunctions.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == TouchActionLong && k.DeviceButton == TouchButtonMusic);
+        if (longItem == null) return;
+
+        if (longItem.Function != function)
+        {
+            _pods.SendKeyFunctionChange(new[]
+            {
+                new KeyFunctionItem(longItem.DeviceType, longItem.DeviceButton, longItem.ButtonAction, function)
+            });
+        }
+
+        if (function == TouchFunctionNoise)
+            _pods.SendLongPressNoise(side, LongPressMaskFor(side));
+    }
+
+    private (byte prev, byte next) TouchPrevNextCodes()
+    {
+        var model = _pods.Caps.ModelName;
+        return (model == "OnePlus Buds" || model == "OnePlus Buds Z")
+            ? ((byte)4, (byte)5)
+            : ((byte)5, (byte)6);
+    }
+
+    private byte TouchFunctionByIndex(int index)
+    {
+        var (prev, next) = TouchPrevNextCodes();
+        return index switch
+        {
+            0 => TouchFunctionNone,
+            1 => TouchFunctionPlayPause,
+            2 => prev,
+            3 => next,
+            4 => TouchFunctionVoice,
+            5 => TouchFunctionGame,
+            6 => TouchFunctionVolume,
+            7 => TouchFunctionSongSwitch,
+            8 => TouchFunctionNoise,
+            _ => TouchFunctionNone
+        };
+    }
+
+    private int TouchFunctionIndex(byte function)
+    {
+        var (prev, next) = TouchPrevNextCodes();
+        if (function == TouchFunctionNone) return 0;
+        if (function == TouchFunctionPlayPause) return 1;
+        if (function == prev) return 2;
+        if (function == next) return 3;
+        if (function == TouchFunctionVoice) return 4;
+        if (function == TouchFunctionGame) return 5;
+        if (function == TouchFunctionVolume) return 6;
+        if (function == TouchFunctionSongSwitch) return 7;
+        if (function == TouchFunctionNoise) return 8;
+        return -1;
+    }
+
+    private byte TouchFunctionForSingle(int index) => TouchFunctionByIndex(index);
+    private byte TouchFunctionForDouble(int index) => TouchFunctionByIndex(index);
+    private byte TouchFunctionForTriple(int index) => TouchFunctionByIndex(index);
+    private byte TouchFunctionForSlide(int index) => TouchFunctionByIndex(index);
+
+    private List<KeyFunctionItem> CollectTouchSettings()
+    {
+        var state = _pods.State.KeyFunctions;
+        var result = new List<KeyFunctionItem>();
+
+        KeyFunctionItem? FindItem(byte side, byte action, byte button)
+        {
+            return state.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == action && k.DeviceButton == button);
+        }
+
+        void Update(byte side, byte action, ComboBox combo, byte button, Func<int, byte> func)
+        {
+            var existing = FindItem(side, action, button);
+            if (existing == null) return;
+            var function = func(combo.SelectedIndex);
+            if (existing.Function != function)
+                result.Add(new KeyFunctionItem(existing.DeviceType, existing.DeviceButton, existing.ButtonAction, function));
+        }
+
+        Update(TouchSideLeft, TouchActionSingle, CbTouchLeftClick, TouchButtonMusic, TouchFunctionForSingle);
+        Update(TouchSideLeft, TouchActionDouble, CbTouchLeftDouble, TouchButtonMusic, TouchFunctionForDouble);
+        Update(TouchSideLeft, TouchActionTriple, CbTouchLeftTriple, TouchButtonMusic, TouchFunctionForTriple);
+        Update(TouchSideLeft, TouchActionSlide, CbTouchLeftSlide, TouchButtonMusic, TouchFunctionForSlide);
+        Update(TouchSideRight, TouchActionSingle, CbTouchRightClick, TouchButtonMusic, TouchFunctionForSingle);
+        Update(TouchSideRight, TouchActionDouble, CbTouchRightDouble, TouchButtonMusic, TouchFunctionForDouble);
+        Update(TouchSideRight, TouchActionTriple, CbTouchRightTriple, TouchButtonMusic, TouchFunctionForTriple);
+        Update(TouchSideRight, TouchActionSlide, CbTouchRightSlide, TouchButtonMusic, TouchFunctionForSlide);
+
+        Update(TouchSideLeft, TouchActionSingle, CbTouchLeftCallSingle, TouchButtonCall, TouchFunctionForSingle);
+        Update(TouchSideLeft, TouchActionDouble, CbTouchLeftCallDouble, TouchButtonCall, TouchFunctionForDouble);
+        Update(TouchSideLeft, TouchActionTriple, CbTouchLeftCallTriple, TouchButtonCall, TouchFunctionForTriple);
+        Update(TouchSideLeft, TouchActionLong, CbTouchLeftCallLong, TouchButtonCall, TouchFunctionForDouble);
+        Update(TouchSideLeft, TouchActionSuperLong, CbTouchLeftCallSuperLong, TouchButtonCall, TouchFunctionForDouble);
+        Update(TouchSideRight, TouchActionSingle, CbTouchRightCallSingle, TouchButtonCall, TouchFunctionForSingle);
+        Update(TouchSideRight, TouchActionDouble, CbTouchRightCallDouble, TouchButtonCall, TouchFunctionForDouble);
+        Update(TouchSideRight, TouchActionTriple, CbTouchRightCallTriple, TouchButtonCall, TouchFunctionForTriple);
+        Update(TouchSideRight, TouchActionLong, CbTouchRightCallLong, TouchButtonCall, TouchFunctionForDouble);
+        Update(TouchSideRight, TouchActionSuperLong, CbTouchRightCallSuperLong, TouchButtonCall, TouchFunctionForDouble);
+
+        return result;
+    }
+
+    private byte TouchSideFromLongSender(object? sender) => sender switch
+    {
+        _ when ReferenceEquals(sender, CbTouchLeftLongAnc) ||
+               ReferenceEquals(sender, CbTouchLeftLongAdaptive) ||
+               ReferenceEquals(sender, CbTouchLeftLongTransparent) ||
+               ReferenceEquals(sender, CbTouchLeftLongOff) => TouchSideLeft,
+        _ when ReferenceEquals(sender, CbTouchRightLongAnc) ||
+               ReferenceEquals(sender, CbTouchRightLongAdaptive) ||
+               ReferenceEquals(sender, CbTouchRightLongTransparent) ||
+               ReferenceEquals(sender, CbTouchRightLongOff) => TouchSideRight,
+        _ => 0
+    };
+
+    private int LongPressMaskFor(byte side)
+    {
+        var caps = _pods.Caps;
+        int mask = 0;
+
+        void Add(CheckBox box, string key)
+        {
+            if (box.IsChecked != true || !caps.AncNameToIndex.TryGetValue(key, out var idx))
+                return;
+            if (idx < 32)
+                mask |= 1 << idx;
+        }
+
+        var anc = side == TouchSideLeft ? CbTouchLeftLongAnc : CbTouchRightLongAnc;
+        var adaptive = side == TouchSideLeft ? CbTouchLeftLongAdaptive : CbTouchRightLongAdaptive;
+        var transparent = side == TouchSideLeft ? CbTouchLeftLongTransparent : CbTouchRightLongTransparent;
+        var off = side == TouchSideLeft ? CbTouchLeftLongOff : CbTouchRightLongOff;
+
+        Add(anc, "NC");
+        Add(adaptive, "Adaptive");
+        Add(transparent, "Transparency");
+        Add(off, "Off");
+        return mask;
+    }
+
+    private void SyncTouchControlsFromState()
+    {
+        if (_pods.State.KeyFunctions.Count == 0) return;
+        if (DateTime.Now - _touchUserSetAt < TimeSpan.FromSeconds(1)) return;
+
+        _refreshingTouchControls = true;
+        try
+        {
+            var items = _pods.State.KeyFunctions;
+
+            void SetComboBox(ComboBox box, byte side, byte action, byte button, Func<int, bool>? condition = null)
+            {
+                var item = items.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == action && k.DeviceButton == button);
+                if (item == null) return;
+                var idx = TouchFunctionIndex(item.Function);
+                if (idx >= 0) box.SelectedIndex = idx;
+            }
+
+            SetComboBox(CbTouchLeftClick, TouchSideLeft, TouchActionSingle, TouchButtonMusic);
+            SetComboBox(CbTouchLeftDouble, TouchSideLeft, TouchActionDouble, TouchButtonMusic);
+            SetComboBox(CbTouchLeftTriple, TouchSideLeft, TouchActionTriple, TouchButtonMusic);
+            SetComboBox(CbTouchLeftSlide, TouchSideLeft, TouchActionSlide, TouchButtonMusic);
+            SetComboBox(CbTouchRightClick, TouchSideRight, TouchActionSingle, TouchButtonMusic);
+            SetComboBox(CbTouchRightDouble, TouchSideRight, TouchActionDouble, TouchButtonMusic);
+            SetComboBox(CbTouchRightTriple, TouchSideRight, TouchActionTriple, TouchButtonMusic);
+            SetComboBox(CbTouchRightSlide, TouchSideRight, TouchActionSlide, TouchButtonMusic);
+
+            SetComboBox(CbTouchLeftCallSingle, TouchSideLeft, TouchActionSingle, TouchButtonCall);
+            SetComboBox(CbTouchLeftCallDouble, TouchSideLeft, TouchActionDouble, TouchButtonCall);
+            SetComboBox(CbTouchLeftCallTriple, TouchSideLeft, TouchActionTriple, TouchButtonCall);
+            SetComboBox(CbTouchLeftCallLong, TouchSideLeft, TouchActionLong, TouchButtonCall);
+            SetComboBox(CbTouchLeftCallSuperLong, TouchSideLeft, TouchActionSuperLong, TouchButtonCall);
+            SetComboBox(CbTouchRightCallSingle, TouchSideRight, TouchActionSingle, TouchButtonCall);
+            SetComboBox(CbTouchRightCallDouble, TouchSideRight, TouchActionDouble, TouchButtonCall);
+            SetComboBox(CbTouchRightCallTriple, TouchSideRight, TouchActionTriple, TouchButtonCall);
+            SetComboBox(CbTouchRightCallLong, TouchSideRight, TouchActionLong, TouchButtonCall);
+            SetComboBox(CbTouchRightCallSuperLong, TouchSideRight, TouchActionSuperLong, TouchButtonCall);
+
+            void SyncLongDropdown(ComboBox box, StackPanel panel, byte side)
+            {
+                var item = items.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == TouchActionLong && k.DeviceButton == TouchButtonMusic);
+                if (item == null)
+                {
+                    box.SelectedIndex = 0;
+                    panel.IsVisible = false;
+                    return;
+                }
+
+                var idx = TouchFunctionIndex(item.Function);
+                box.SelectedIndex = idx >= 0 ? idx : 0;
+                panel.IsVisible = item.Function == TouchFunctionNoise;
+            }
+
+            SyncLongDropdown(CbTouchLeftLong, DiTouchLeftLongNoisePanel, TouchSideLeft);
+            SyncLongDropdown(CbTouchRightLong, DiTouchRightLongNoisePanel, TouchSideRight);
+
+            void SyncLongPress(byte side, CheckBox anc, CheckBox adaptive, CheckBox transparent, CheckBox off)
+            {
+                var item = items.FirstOrDefault(k => k.DeviceType == side && k.ButtonAction == TouchActionLong && k.DeviceButton == TouchButtonMusic);
+                var active = item != null && item.Function == TouchFunctionNoise;
+                var mask = side == TouchSideLeft ? _pods.State.LongPressNoiseMaskLeft : _pods.State.LongPressNoiseMaskRight;
+                bool Checked(string key) => active && _pods.Caps.AncNameToIndex.TryGetValue(key, out var idx) && (mask & (1 << idx)) != 0;
+                bool NoiseFamilyChecked()
+                {
+                    if (!active) return false;
+                    foreach (var key in new[] { "NC", "Smart", "Light", "Medium", "Deep" })
+                        if (Checked(key)) return true;
+                    return false;
+                }
+
+                anc.IsChecked = NoiseFamilyChecked();
+                adaptive.IsChecked = Checked("Adaptive");
+                transparent.IsChecked = Checked("Transparency");
+                off.IsChecked = Checked("Off");
+            }
+
+            SyncLongPress(TouchSideLeft, CbTouchLeftLongAnc, CbTouchLeftLongAdaptive, CbTouchLeftLongTransparent, CbTouchLeftLongOff);
+            SyncLongPress(TouchSideRight, CbTouchRightLongAnc, CbTouchRightLongAdaptive, CbTouchRightLongTransparent, CbTouchRightLongOff);
+        }
+        finally
+        {
+            _refreshingTouchControls = false;
+        }
+    }
+
     private void InitializeLanguageSelection()
     {
         _languageList.Clear();
@@ -1801,6 +2116,18 @@ public partial class MainWindow : SukiWindow
         RefreshSelectedIndex(CbTouchRightDouble);
         RefreshSelectedIndex(CbTouchRightTriple);
         RefreshSelectedIndex(CbTouchRightSlide);
+        RefreshSelectedIndex(CbTouchLeftCallSingle);
+        RefreshSelectedIndex(CbTouchLeftCallDouble);
+        RefreshSelectedIndex(CbTouchLeftCallTriple);
+        RefreshSelectedIndex(CbTouchLeftCallLong);
+        RefreshSelectedIndex(CbTouchLeftCallSuperLong);
+        RefreshSelectedIndex(CbTouchRightCallSingle);
+        RefreshSelectedIndex(CbTouchRightCallDouble);
+        RefreshSelectedIndex(CbTouchRightCallTriple);
+        RefreshSelectedIndex(CbTouchRightCallLong);
+        RefreshSelectedIndex(CbTouchRightCallSuperLong);
+        RefreshSelectedIndex(CbTouchLeftLong);
+        RefreshSelectedIndex(CbTouchRightLong);
         RefreshSelectedIndex(CbLanguage);
 
         _refreshingComboBoxes = false;
@@ -2059,6 +2386,7 @@ public partial class MainWindow : SukiWindow
 
     private void NavHome_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("home");
     private void NavEq_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("eq");
+    private void NavDeviceInfo_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("deviceinfo");
     private void NavLog_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("log");
     private void NavPersonal_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("personal");
     private void NavSettings_Click(object? s, Avalonia.Interactivity.RoutedEventArgs e) => ShowPage("settings");
@@ -2081,11 +2409,13 @@ public partial class MainWindow : SukiWindow
 
         NavHome.Classes.Remove("selected");
         NavEq.Classes.Remove("selected");
+        NavDeviceInfo.Classes.Remove("selected");
         NavPersonal.Classes.Remove("selected");
         NavSettings.Classes.Remove("selected");
 
         if (page == "home") NavHome.Classes.Add("selected");
         else if (page == "eq") NavEq.Classes.Add("selected");
+        else if (page == "deviceinfo") NavDeviceInfo.Classes.Add("selected");
         else if (page == "personal") NavPersonal.Classes.Add("selected");
         else NavSettings.Classes.Add("selected");
 
@@ -2096,6 +2426,7 @@ public partial class MainWindow : SukiWindow
             _logAutoScroll = true;
         }
         if (page == "deviceinfo" || page == "settings") RefreshDeviceInfo();
+        if (page == "deviceinfo" && _pods.IsConnected) _pods.SendQueryKeyFunction();
         if (page == "eq") RefreshEqPresetList();
         if (page == "log") RefreshLogView();
     }
@@ -3091,6 +3422,10 @@ public partial class MainWindow : SukiWindow
         DiDeviceName.Text = caps.ModelName;
         DiFirmware.Text = FormatFirmware(_pods.State.FirmwareVersion);
         DiCodec.Text = OppoProtocol.CodecName(_pods.State.CodecType);
+        // Melody renders custom controls from the key-function records returned by 0x8108.
+        // Do not expose a generic editor merely because the local model profile claims support.
+        // Melody renders this category from actual key-function records returned by 0x8108.
+        DiTouchCard.IsVisible = _pods.State.Connected && _pods.State.KeyFunctions.Count > 0;
     }
 
     /// <summary>固件版本 CSV → 显示格式：138.138.105。</summary>

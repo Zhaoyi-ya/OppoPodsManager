@@ -120,6 +120,15 @@ public partial class PodManager
         StateChanged?.Invoke();
     }
 
+    private void ParseKeyFunctionResponse(byte[] pkt, int start, int len)
+    {
+        var payload = Slice(pkt, start, len);
+        var items = OppoProtocol.ParseKeyFunctions(payload);
+        State.KeyFunctions = items;
+        Log.D("RFCOMM", $"按键功能: {items.Count} 项 raw={BitConverter.ToString(payload)}");
+        StateChanged?.Invoke();
+    }
+
     private void ParseAnc(byte[] pkt, int start, int len)
     {
         if (len >= 5 && pkt[start + 1] == 0x04)
@@ -133,6 +142,16 @@ public partial class PodManager
 
         for (int i = 0; i + 3 < len; i++)
         {
+            if (pkt[start + i] == 0x02 && (pkt[start + i + 1] == 0x03 || pkt[start + i + 1] == 0x04))
+            {
+                int value = 0;
+                for (int b = 0; b < 4 && start + i + 2 + b < start + len; b++)
+                    value |= (pkt[start + i + 2 + b] & 0xFF) << (b * 8);
+                if (pkt[start + i + 1] == 0x03) State.LongPressNoiseMaskLeft = value;
+                else State.LongPressNoiseMaskRight = value;
+                Log.D("RFCOMM", $"ParseAnc: 长按降噪切换 type={pkt[start + i + 1]} mask=0x{value:X}");
+                continue;
+            }
             if (pkt[start + i] == 0x01 && pkt[start + i + 1] == 0x01)
             {
                 byte v1 = pkt[start + i + 2], v2 = pkt[start + i + 3];

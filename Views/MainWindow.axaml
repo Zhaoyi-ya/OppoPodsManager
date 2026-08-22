@@ -143,6 +143,8 @@
        Click="NavHome_Click" Classes="SidebarNav"/>
      <Button x:Name="NavEq" Content="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_NavEq}}" Height="38" FontSize="13"
        Click="NavEq_Click" Classes="SidebarNav"/>
+     <Button x:Name="NavDeviceInfo" Content="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_NavDeviceInfo}}" Height="38" FontSize="13"
+       Click="NavDeviceInfo_Click" Classes="SidebarNav"/>
      <Button x:Name="NavPersonal" Content="{Translate {x:Static l10n:LanguageManager+Keys.Sidebar_NavPersonal}}" Height="38" FontSize="13"
        Click="NavPersonal_Click" Classes="SidebarNav"/>
     </StackPanel>
@@ -349,8 +351,116 @@
               Click="BtnRestoreHiddenDevices_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4" Classes="TextPanelButton"/>
           <Button Content="{Translate {x:Static l10n:LanguageManager+Keys.Settings_About}}" Height="32" FontSize="13"
              Click="About_Click" HorizontalAlignment="Stretch" Margin="0,0,0,4" Classes="TextPanelButton"/>
-        </StackPanel>
-       </Grid>
+       </StackPanel>
+      </Grid>
+      <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallSettings}}" FontSize="14"
+         Foreground="{DynamicResource SukiText}" Opacity="0.9"/>
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
+       <StackPanel Grid.Column="0" Spacing="8">
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallSingleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchLeftCallSingle" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallDoubleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchLeftCallDouble" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallTripleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchLeftCallTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallLongPress}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchLeftCallLong" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallSuperLongPress}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchLeftCallSuperLong" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+       </StackPanel>
+       <StackPanel Grid.Column="1" Spacing="8">
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallSingleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchRightCallSingle" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallDoubleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchRightCallDouble" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallTripleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchRightCallTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallLongPress}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchRightCallLong" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+        <Grid ColumnDefinitions="38,*" Margin="0,2">
+         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_CallSuperLongPress}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6" Foreground="{DynamicResource SukiText}"/>
+         <ComboBox x:Name="CbTouchRightCallSuperLong" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+          <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+         </ComboBox>
+        </Grid>
+       </StackPanel>
+      </Grid>
       </StackPanel>
      </Border>
      <!-- ====== 连接（原设备详情-连接策略） ====== -->
@@ -790,10 +900,7 @@
        <Grid ColumnDefinitions="*,Auto">
         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_TouchControls}}" FontSize="14"
            Foreground="{DynamicResource SukiText}" Opacity="0.9"/>
-        <Border Grid.Column="1" CornerRadius="9" Padding="8,2" Background="#22FFB020">
-         <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_WIP}}" FontSize="11" Foreground="#FFFFB020"/>
-        </Border>
-       </Grid>
+      </Grid>
        <Grid ColumnDefinitions="*,*" ColumnSpacing="20">
         <!-- ===== 左耳 ===== -->
         <StackPanel Grid.Column="0" Spacing="8" HorizontalAlignment="Stretch">
@@ -806,6 +913,10 @@
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchLeftClick" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
@@ -815,34 +926,50 @@
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_TripleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchLeftTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Slide}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchLeftSlide" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/>
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/>
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <StackPanel Spacing="3" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPress}}" FontSize="12" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
-          <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPressHint}}" FontSize="10" Opacity="0.45"
-             Foreground="{DynamicResource SukiText}" Margin="0,0,0,2"/>
-          <CheckBox x:Name="CbTouchLeftLongAnc" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchLeftLongAdaptive" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeAdaptive}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchLeftLongTransparent" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeTransparency}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchLeftLongOff" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeOff}}" Margin="0,1"/>
+          <ComboBox x:Name="CbTouchLeftLong" Height="26" FontSize="13" Padding="4,0">
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+          </ComboBox>
+          <StackPanel x:Name="DiTouchLeftLongNoisePanel" IsVisible="False" Spacing="3" Margin="0,2">
+           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPressHint}}" FontSize="10" Opacity="0.45"
+              Foreground="{DynamicResource SukiText}"/>
+           <CheckBox x:Name="CbTouchLeftLongAnc" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchLeftLongAdaptive" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeAdaptive}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchLeftLongTransparent" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeTransparency}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchLeftLongOff" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeOff}}" Margin="0,1"/>
+          </StackPanel>
          </StackPanel>
         </StackPanel>
 
@@ -857,6 +984,10 @@
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchRightClick" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
@@ -866,34 +997,50 @@
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_TripleTap}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchRightTriple" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
            <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <Grid ColumnDefinitions="38,*" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Slide}}" FontSize="12" VerticalAlignment="Center" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
           <ComboBox x:Name="CbTouchRightSlide" Grid.Column="1" Height="26" FontSize="13" Padding="4,0">
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/>
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/>
-           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
           </ComboBox>
          </Grid>
          <StackPanel Spacing="3" Margin="0,2">
           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPress}}" FontSize="12" Opacity="0.6"
              Foreground="{DynamicResource SukiText}"/>
-          <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPressHint}}" FontSize="10" Opacity="0.45"
-             Foreground="{DynamicResource SukiText}" Margin="0,0,0,2"/>
-          <CheckBox x:Name="CbTouchRightLongAnc" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchRightLongAdaptive" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeAdaptive}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchRightLongTransparent" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeTransparency}}" Margin="0,1"/>
-          <CheckBox x:Name="CbTouchRightLongOff" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeOff}}" Margin="0,1"/>
+          <ComboBox x:Name="CbTouchRightLong" Height="26" FontSize="13" Padding="4,0">
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_None}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_PlayPause}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Prev}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_Next}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VoiceAssistant}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Feature_GameMode}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_VolumeControl}}"/><ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_SongSwitch}}"/>
+           <ComboBoxItem Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}"/>
+          </ComboBox>
+          <StackPanel x:Name="DiTouchRightLongNoisePanel" IsVisible="False" Spacing="3" Margin="0,2">
+           <TextBlock Text="{Translate {x:Static l10n:LanguageManager+Keys.DeviceInfo_LongPressHint}}" FontSize="10" Opacity="0.45"
+              Foreground="{DynamicResource SukiText}"/>
+           <CheckBox x:Name="CbTouchRightLongAnc" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeNoiseCancellation}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchRightLongAdaptive" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeAdaptive}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchRightLongTransparent" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeTransparency}}" Margin="0,1"/>
+           <CheckBox x:Name="CbTouchRightLongOff" Content="{Translate {x:Static l10n:LanguageManager+Keys.Anc_ModeOff}}" Margin="0,1"/>
+          </StackPanel>
          </StackPanel>
         </StackPanel>
        </Grid>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -109,6 +110,15 @@ public interface IPodManager : IDisposable
 
     /// <summary>主动查询电量（结果经 StateChanged 通知，读 State.Battery）。通常由 PollAsync 自动回读。</summary>
     void SendBattery();
+
+    /// <summary>主动查询耳机按键功能设置（结果经 StateChanged 通知，读 State.KeyFunctions）。</summary>
+    void SendQueryKeyFunction();
+
+    /// <summary>下发耳机按键功能设置。</summary>
+    void SendKeyFunctionChange(IReadOnlyList<KeyFunctionItem> items);
+
+    /// <summary>下发长按切换的降噪模式选择。side 取 1/2，modeMask 为 protocolIndex 位图。</summary>
+    void SendLongPressNoise(byte side, int modeMask);
 
     // ==================== 多设备管理（cmd 0x0429）====================
     // 用法：先 SendMultiConnectInfo() 刷新，从 State.ConnectedDevices 拿列表。

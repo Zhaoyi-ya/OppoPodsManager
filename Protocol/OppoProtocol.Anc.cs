@@ -90,4 +90,28 @@ public static partial class OppoProtocol
         payload[2 + (protocolIndex / 8)] = (byte)bitVal;
         return payload;
     }
+
+    /// <summary>
+    /// 构造长按切换选中降噪模式的 setSupportNoiseReduction 载荷。
+    /// 对应 Melody NoiseReductionInfo: [action=2][type][value little-endian]。
+    /// </summary>
+    public static byte[] LongPressNoisePayload(byte noiseType, int modeMask)
+    {
+        int byteCount = 1;
+        for (int i = 3; i > 0; i--)
+        {
+            if ((modeMask & (0xFF << (i * 8))) != 0)
+            {
+                byteCount = i + 1;
+                break;
+            }
+        }
+
+        var payload = new byte[2 + byteCount];
+        payload[0] = 0x02; // action=2: support noise reduction selection
+        payload[1] = noiseType;
+        for (int i = 0; i < byteCount; i++)
+            payload[2 + i] = (byte)(modeMask >> (i * 8));
+        return payload;
+    }
 }
