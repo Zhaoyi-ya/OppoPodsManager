@@ -64,6 +64,11 @@ public partial class SmallWindow : SukiWindow
     private const string IconRData       = "M3.992,2.871V11.133H5.726V8.026H6.907L8.934,11.133H11.016L8.708,7.79C9.219,7.602 9.613,7.306 9.89,6.901C10.168,6.488 10.307,6.004 10.307,5.449C10.307,4.931 10.187,4.481 9.947,4.098C9.714,3.708 9.369,3.408 8.911,3.198C8.461,2.98 7.924,2.871 7.301,2.871H3.992Z M8.472,5.449C8.472,6.282 7.969,6.698 6.964,6.698H5.726V4.199H6.964C7.969,4.199 8.472,4.616 8.472,5.449Z";
     private const string IconChargeData = "M0.009,7.21C-0.023,7.286 0.032,7.37 0.115,7.37H3.303V11.885C3.303,12.011 3.476,12.045 3.524,11.929L6.6,4.471C6.631,4.396 6.575,4.313 6.494,4.313H3.303V0.115C3.303,-0.01 3.132,-0.045 3.083,0.069L0.009,7.21Z";
 
+    // 电量文字颜色阈值：<10% 红、10%~20% 黄、>20% 白（仅改大号电量数字，不影响图标）。
+    private static readonly SolidColorBrush BatteryColorWhite  = new(Colors.White);
+    private static readonly SolidColorBrush BatteryColorYellow = new(Color.FromRgb(0xFF, 0xCC, 0x00));
+    private static readonly SolidColorBrush BatteryColorRed    = new(Color.FromRgb(0xFF, 0x3B, 0x30));
+
 
     private readonly Dictionary<string, (Border bg, PathShape icon, TextBlock label)> _ancMainButtons = new();
     private readonly Dictionary<string, (Button btn, Border bg)> _ancSubButtons = new();
@@ -198,10 +203,21 @@ public partial class SmallWindow : SukiWindow
         ApplicationLog.Current?.Debug("UI", $"小窗已应用快照：revision={snapshot.Revision}，connected={snapshot.IsConnected}。");
     }
 
-    // 显示 Next 快照中的电量和充电状态。
+    // 显示 Next 快照中的电量和充电状态，并按电量阈值给数字上色。
     private static void SetNextBattery(TextBlock label, AvaloniaControl bolt, BatteryLevel? battery)
     {
-        label.Text = battery is { } value ? $"{value.Percent}%" : "–%";
+        if (battery is { } value)
+        {
+            label.Text = $"{value.Percent}%";
+            label.Foreground = value.Percent < 10 ? BatteryColorRed
+                              : value.Percent <= 20 ? BatteryColorYellow
+                              : BatteryColorWhite;
+        }
+        else
+        {
+            label.Text = "–%";
+            label.Foreground = BatteryColorWhite;
+        }
         bolt.IsVisible = battery?.IsCharging == true;
     }
 
@@ -527,6 +543,7 @@ public partial class SmallWindow : SukiWindow
             _bgTintBrush.Color = Color.FromArgb(0x36, 0xFF, 0xFF, 0xFF);
             BatteryCard.BorderBrush = _cardBorderBrush;
             AncCard.BorderBrush = _cardBorderBrush;
+            FeatureCard.BorderBrush = _cardBorderBrush;
         }
         else
         {
@@ -535,10 +552,12 @@ public partial class SmallWindow : SukiWindow
             _bgTintBrush.Color = Color.FromArgb(0x66, 0x00, 0x00, 0x00);
             BatteryCard.BorderBrush = null;
             AncCard.BorderBrush = null;
+            FeatureCard.BorderBrush = null;
         }
 
         BatteryCard.Background = _cardBgBrush;
         AncCard.Background = _cardBgBrush;
+        FeatureCard.Background = _cardBgBrush;
         BgTint.Background = _bgTintBrush;
         ApplySavedBackground();
     }

@@ -83,24 +83,31 @@ internal static class GestureUi
     private static Avalonia.Controls.Control BuildCycleSetRow(Grid grid, GestureEntry entry,
         Action<EarSide, GestureSource, TapKind, IReadOnlyList<NoiseMode>>? onCycleSet)
     {
+        // 触发按钮：无边框填充风格（与项目 TextPanelButton 一致），圆角 + 背景保持可点感，
+// 右侧 ▾ 下拉箭头。MinHeight=32 匹配 Suki ComboBox 模板隐式尺寸，避免本行比其他行矮。
         var button = new Button
         {
-            Height = 26,
+            MinHeight = 32,
             FontSize = 13,
-            Padding = new Thickness(8, 0),
+            Padding = new Thickness(10, 0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            Content = new StackPanel
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            BorderThickness = new Thickness(0),
+            Background = AppPalette.BrushCard,
+            CornerRadius = new CornerRadius(6),
+            Content = new Grid
             {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
                 Children =
                 {
                     new TextBlock { Text = L("Gesture_NoiseControlToggle"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center },
-                    new TextBlock { Text = "▾", FontSize = 11, Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center },
                 },
             },
         };
+        var caret = new TextBlock { Text = "▾", FontSize = 11, Opacity = 0.6, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(caret, 1);
+        ((Grid)button.Content).Children.Add(caret);
         Grid.SetColumn(button, 1);
         grid.Children.Add(button);
 
@@ -109,20 +116,23 @@ internal static class GestureUi
             PlacementTarget = button,
             Placement = PlacementMode.Bottom,
             VerticalOffset = 4,
-            // 默认 IsLightDismissEnabled=true：点击面板外部自动关闭。
+            // 点击面板外部自动关闭（Avalonia 默认 false，必须显式开启，否则弹窗关不掉）。
+            IsLightDismissEnabled = true,
         };
-        var stack = new StackPanel { Spacing = 6, MinWidth = 230 };
+        // 限制弹窗宽度不超过触发按钮所在列，避免溢出盖住另一耳的手势行。
+        void SyncPopupWidth() => popup.MaxWidth = Math.Min(Math.Max(button.Bounds.Width, 1), 300);
+        popup.Opened += (_, _) => SyncPopupWidth();
+        var stack = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Stretch };
         stack.Children.Add(new TextBlock
         {
             Text = L("Gesture_NoiseControlToggle"),
-            FontSize = 13,
-            FontWeight = FontWeight.SemiBold,
+            FontSize = 15,
             Foreground = AppPalette.BrushGray,
         });
         stack.Children.Add(new TextBlock
         {
             Text = L("DeviceInfo_LongPressHint"),
-            FontSize = 11,
+            FontSize = 13,
             Opacity = 0.55,
             Foreground = AppPalette.BrushGray,
             TextWrapping = TextWrapping.Wrap,
@@ -134,13 +144,27 @@ internal static class GestureUi
             boxes.Add(check);
             stack.Children.Add(check);
         }
+        // 操作按钮行：参考软件内更新对话框（取消 + 确定），右对齐。
+        var cancel = new Button
+        {
+            Content = L("Dialog_Cancel"),
+            MinHeight = 32,
+            FontSize = 13,
+            Padding = new Thickness(14, 0),
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            FocusAdorner = null,
+        };
+        cancel.Click += (_, _) => popup.IsOpen = false;
+
         var ok = new Button
         {
             Content = L("Dialog_OK"),
-            Height = 28,
-            FontSize = 12,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(0, 8, 0, 0),
+            MinHeight = 32,
+            FontSize = 13,
+            Padding = new Thickness(14, 0),
+            IsDefault = true,
+            FocusAdorner = null,
         };
         ok.Click += (_, _) =>
         {
@@ -151,19 +175,33 @@ internal static class GestureUi
             onCycleSet?.Invoke(entry.Ear, entry.Source, entry.Kind, modes);
             popup.IsOpen = false;
         };
-        stack.Children.Add(ok);
 
+        var actionRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            Margin = new Thickness(0, 12, 0, 0),
+            Children = { cancel, ok },
+        };
+        stack.Children.Add(actionRow);
+
+        // 弹窗容器对齐软件内更新对话框（DialogBox）：圆角 10、内边距 20、同款阴影。
         popup.Child = new Border
         {
             Background = AppPalette.BrushCard,
             BorderBrush = AppPalette.BrushCircleStroke,
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(12),
-            Padding = new Thickness(16, 12),
-            BoxShadow = new BoxShadows(BoxShadow.Parse("0 4 16 0 #33000000")),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(20),
+            BoxShadow = new BoxShadows(BoxShadow.Parse("0 6 30 0 #20000000")),
             Child = stack,
         };
-        button.Click += (_, _) => popup.IsOpen = !popup.IsOpen;
+        button.Click += (_, _) =>
+        {
+            SyncPopupWidth();
+            popup.IsOpen = !popup.IsOpen;
+        };
         Grid.SetColumn(popup, 1);
         grid.Children.Add(popup);
         return grid;

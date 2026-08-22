@@ -7,6 +7,7 @@
    Title="OPPO Pods" Width="300" SizeToContent="Height" MaxHeight="440"
    WindowStartupLocation="Manual"
    CanMinimize="False" CanMaximize="False" CanPin="False" CanFullScreen="False"
+   CanResize="False"
    ShowInTaskbar="False"
    FontFamily="{StaticResource AppFont}"
    BackgroundStyle="Flat">

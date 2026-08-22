@@ -12,6 +12,7 @@ using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Control.Brands.Vivo;
 using OppoPodsManager.Control.Brands.Edifier;
 using OppoPodsManager.Control.Brands.Huawei;
+using OppoPodsManager.Control.Brands.Xiaomi;
 using OppoPodsManager.UI.MainWindow;
 using OppoPodsManager.UI.Toast;
 using OppoPodsManager.UI.Tray;
@@ -76,7 +77,7 @@ public sealed partial class App : Application
             _controlManager = new ControlManager(
                 _frontendState,
                 new DeviceScanner(communication),
-                [new OppoManagerFactory(_modelCatalog), new VivoManagerFactory(), new EdifierManagerFactory(), new HuaweiManagerFactory()],
+                [new OppoManagerFactory(_modelCatalog), new VivoManagerFactory(), new EdifierManagerFactory(), new HuaweiManagerFactory(), new XiaomiManagerFactory(_modelCatalog)],
                 settingsStore);
             _controlManager.StartMonitoring();
             // 由应用层创建唯一的命令调度器，所有界面入口共享同一控制层调用边界。
