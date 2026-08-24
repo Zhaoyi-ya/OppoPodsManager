@@ -74,6 +74,52 @@ public static class HuaweiConstants
     public const ushort QueryLongPressState = 0x2B17;
     public const ushort ReportLongPressState = 0x2B17;
 
+    // 均衡器（EQ）：读 S2B C4A / 写 S2B C49（fire-and-forget）。
+    // 来源：OpenFreebuds config_equalizer.py（CMD_EQ_READ=0x2b4a / CMD_EQ_WRITE=0x2b49）。
+    // 内置预设写负载 TLV (1, presetId)；读响应 param2=当前预设 ID、param3=可用预设列表。
+    public const ushort QueryEqualizer = 0x2B4A;
+    public const ushort SetEqualizer = 0x2B49;
+
+    // 低延迟/游戏模式：S2B C6C（读 param2=1/0；写 TLV (1, 0x01/0x00)）。
+    // 来源：OpenFreebuds low_latency.py（CMD_LOW_LATENCY=0x2b6c）。
+    public const ushort QueryLowLatency = 0x2B6C;
+    public const ushort SetLowLatency = 0x2B6C;
+
+    // 双设备（dual-connect）：使能读/写、枚举、首选写、执行、变更事件。
+    // 来源：OpenFreebuds dual_connect（CMD_DUAL_CONNECT_*）。
+    public const ushort QueryDualConnectEnabled = 0x2B2F;
+    public const ushort SetDualConnectEnabled = 0x2B2E;
+    public const ushort EnumerateDualConnect = 0x2B31;
+    public const ushort SetDualConnectPreferred = 0x2B32;
+    public const ushort ExecuteDualConnect = 0x2B33;
+    public const ushort DualConnectChangeEvent = 0x2B36;
+
+    // ---- 均衡器内置预设 ID（与 OpenFreebuds KNOWN_BUILT_IN_PRESETS 对齐）----
+    public const byte EqPresetDefault = 1;   // 默认
+    public const byte EqPresetBass = 2;      // 重低音 (hardbass)
+    public const byte EqPresetTreble = 3;    // 高音增强 (treble)
+    public const byte EqPresetVoices = 9;    // 人声 (voices)
+    public static readonly IReadOnlyDictionary<byte, string> EqPresetNames = new Dictionary<byte, string>()
+    {
+        [EqPresetDefault] = "默认",
+        [EqPresetBass] = "重低音",
+        [EqPresetTreble] = "高音增强",
+        [EqPresetVoices] = "人声",
+    };
+
+    // 与上面的字典顺序一致的有序列表，供 Presentation.EqualizerPresets 直接消费。
+    public static readonly IReadOnlyList<string> EqPresetList = new[]
+    {
+        "默认", "重低音", "高音增强", "人声",
+    };
+
+    // ---- 双设备执行命令（OfbHuaweiDualConnCommand）----
+    public const byte DualConnectConnect = 1;
+    public const byte DualConnectDisconnect = 2;
+    public const byte DualConnectUnpair = 3;
+    public const byte DualConnectEnableAuto = 4;
+    public const byte DualConnectDisableAuto = 5;
+
     // ---- TLV 类型 ----
     public const byte TlvBatteryLevels = 0x02;
     public const byte TlvChargingStates = 0x03;

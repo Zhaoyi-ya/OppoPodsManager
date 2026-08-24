@@ -59,8 +59,18 @@ internal sealed class HuaweiManager : IBrandManager
     // 佩戴检测开关（bool 语义，非耳侧佩戴状态）。
     private bool? _wearDetectionEnabled;
 
+    // 均衡器档案（内置预设；自定义编辑暂缓）。
+    private readonly HuaweiEqualizerProfile _equalizerProfile;
+    // 低延迟/游戏模式开关（bool 语义）。
+    private bool? _lowLatencyEnabled;
+    // 双设备（dual-connect）状态。
+    private bool? _dualConnectEnabled;
+    private readonly List<ConnectedDeviceSnapshot> _dualDevices = new();
+    private string? _dualPreferredAddress;
+
     public HuaweiManager()
     {
+        _equalizerProfile = new HuaweiEqualizerProfile(_state);
         _state.Changed += OnStateChanged;
     }
 
@@ -73,7 +83,8 @@ internal sealed class HuaweiManager : IBrandManager
         => new Dictionary<string, IReadOnlyDictionary<string, IReadOnlyList<ModelDefinition>>>();
     public ModelCatalogLocation? FindModelLocation(string? modelName) => null;
     public BrandPresentation Presentation => BuildPresentation();
-    public bool CanManageMultiDevice => false;
+    // 双设备：仅对支持 dual-connect 的型号开放（FreeBuds 5i/6i/Pro3/Pro5/FreeClip 2）。
+    public bool CanManageMultiDevice => _capabilities.SupportsDualConnect;
 
     public void SetInteractivePolling(bool enabled)
     {
@@ -104,6 +115,11 @@ internal sealed class HuaweiManager : IBrandManager
         _route = HuaweiRoute.Unsupported;
         _capabilities = HuaweiCapabilities.Unknown;
         _wearDetectionEnabled = null;
+        _lowLatencyEnabled = null;
+        _dualConnectEnabled = null;
+        _dualPreferredAddress = null;
+        _dualDevices.Clear();
+        _dualEnumerateTcs = null;
         _doubleTapLeft = _doubleTapRight = _tripleTapLeft = _tripleTapRight = null;
         _longPressLeft = _longPressRight = _swipeLeft = _swipeRight = null;
         _state.Reset();
@@ -123,30 +139,173 @@ internal sealed class HuaweiManager : IBrandManager
     // ---- OPPO 专属功能：统一返回不支持 ----
     public Task<bool> SetVoiceEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetHearingEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetDualDeviceAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
+    // ---- 双设备（实装：使能开关 + 枚举列表 + 连接/断开/解绑/首选）----
+    public async Task<bool> SetDualDeviceAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsDualConnect)
+            return false;
+        try
+        {
+            // S2B C2E：TLV (1, 0/1) 切换双设备总开关（OpenFreebuds _toggle_enabled）。
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetDualConnectEnabled,
+                new byte[] { 0x01, 0x01, enabled ? (byte)0x01 : (byte)0x00 }, cancellationToken);
+            _dualConnectEnabled = enabled;
+            _state.NotifyChanged();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置双设备开关失败：{exception.Message}", exception);
+            return false;
+        }
+    }
     public Task<bool> SetLongBatteryAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetBassEngineAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetSpatialSoundAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetSpineHealthAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken) => Task.FromResult(false);
+    // ---- 低延迟/游戏模式（实装：S2B C6C 切换）----
+    public async Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsLowLatency)
+            return false;
+        try
+        {
+            // S2B C6C：TLV (1, 0x01/0x00) 切换低延迟（OpenFreebuds change_rq(0x2b6c, [(1, 0/1)])）。
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetLowLatency,
+                new byte[] { 0x01, 0x01, enabled ? (byte)0x01 : (byte)0x00 }, cancellationToken);
+            _lowLatencyEnabled = enabled;
+            _state.NotifyChanged();
+            await Task.Delay(200, cancellationToken);
+            await RefreshLowLatencyAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置低延迟失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+    // ---- 均衡器（实装：内置预设 默认/重低音/高音增强/人声）----
+    public async Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsEqualizer)
+            return false;
+        if (!HuaweiConstants.EqPresetNames.ContainsKey(presetId))
+            return false;
+        try
+        {
+            // S2B C49：TLV (1, presetId) 选择内置预设（OpenFreebuds change_rq(0x2b49, [(1, mode_id)])）。
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetEqualizer,
+                _equalizerProfile.EncodeSetPreset(presetId), cancellationToken);
+            _state.SetEqualizer(new EqualizerSnapshot(presetId, HuaweiConstants.EqPresetNames[presetId]));
+            await Task.Delay(200, cancellationToken);
+            await RefreshEqualizerAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置均衡器失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken)
+    {
+        foreach (var (id, name) in HuaweiConstants.EqPresetNames)
+        {
+            if (string.Equals(name, presetName, StringComparison.Ordinal))
+                return SetEqualizerAsync(id, cancellationToken);
+        }
+        return Task.FromResult(false);
+    }
     public Task<bool> SetSpatialAudioAsync(SpatialAudioMode mode, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetSpatialAudioByKeyAsync(string modeKey, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetFindDeviceAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> RefreshMultiDeviceAsync(CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> RefreshMultiDevicePriorityAsync(CancellationToken cancellationToken) => Task.FromResult(false);
+    public async Task<bool> RefreshMultiDeviceAsync(CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsDualConnect)
+            return false;
+        try
+        {
+            await RefreshDualConnectEnabledAsync(_link, cancellationToken);
+            await EnumerateDualConnectAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"刷新双设备失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    public Task<bool> RefreshMultiDevicePriorityAsync(CancellationToken cancellationToken) => RefreshMultiDeviceAsync(cancellationToken);
     public Task<bool> RefreshCustomEqualizersAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> PreviewCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SaveCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> DeleteCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> RefreshGameSoundAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken) => Task.FromResult(false);
+    public async Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsDualConnect || string.IsNullOrWhiteSpace(address))
+            return false;
+        var mac = ConvertMacToBytes(address);
+        if (mac is null)
+            return false;
+        try
+        {
+            // S2B C32：TLV (1, mac) 设置首选设备（OpenFreebuds _set_preferred）。
+            var payload = new byte[2 + mac.Length];
+            payload[0] = 0x01;
+            payload[1] = (byte)mac.Length;
+            mac.CopyTo(payload, 2);
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetDualConnectPreferred, payload, cancellationToken);
+            _dualPreferredAddress = address;
+            _state.NotifyChanged();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置双设备首选失败：{exception.Message}", exception);
+            return false;
+        }
+    }
 
-    // ---- 均衡器：华为协议不支持，返回空档案；UI 经 SupportsCustomEqualizer 判定不可见 ----
-    public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
+    public async Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsDualConnect || string.IsNullOrWhiteSpace(address))
+            return false;
+        var cmd = operation switch
+        {
+            MultiDeviceOperation.Connect => HuaweiConstants.DualConnectConnect,
+            MultiDeviceOperation.Disconnect => HuaweiConstants.DualConnectDisconnect,
+            MultiDeviceOperation.Unpair => HuaweiConstants.DualConnectUnpair,
+            _ => (byte)0
+        };
+        if (cmd == 0)
+            return false;
+        var mac = ConvertMacToBytes(address);
+        if (mac is null)
+            return false;
+        try
+        {
+            // S2B C33：TLV (cmd, mac) 执行连接/断开/解绑（OpenFreebuds _exec_command）。
+            var payload = new byte[2 + mac.Length];
+            payload[0] = cmd;
+            payload[1] = (byte)mac.Length;
+            mac.CopyTo(payload, 2);
+            await _link.SendFireAndForgetAsync(HuaweiConstants.ExecuteDualConnect, payload, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"双设备操作失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    // ---- 均衡器：内置预设档案（默认/重低音/高音增强/人声），自定义编辑暂缓 ----
+    public IEqualizerProfile EqualizerProfile => _equalizerProfile;
     public sbyte CustomEqualizerMinimumGain => BrandPresentation.DefaultCustomEqMinimumGain;
     public sbyte CustomEqualizerMaximumGain => BrandPresentation.DefaultCustomEqMaximumGain;
     public bool IsValidCustomEqualizerName(string name) => false;
@@ -154,7 +313,10 @@ internal sealed class HuaweiManager : IBrandManager
         => new(0, string.Empty, false, -6, 6, [], []);
     public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry) => [];
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
-        => new([], []);
+    {
+        var snapshot = new MultiDeviceSnapshot(_dualDevices, _dualPreferredAddress is not null, _dualPreferredAddress);
+        return MultiDevicePolicy.BuildDisplayState(snapshot, hiddenAddresses);
+    }
 
     // ---- 佩戴检测（实装，7 款型号）----
     public async Task<bool> SetWearDetectionAsync(bool enabled, CancellationToken cancellationToken)
@@ -326,6 +488,12 @@ internal sealed class HuaweiManager : IBrandManager
             await RefreshGestureStatesAsync(link, cancellationToken);
         if (_capabilities.SupportsWearDetection)
             await RefreshWearDetectionAsync(link, cancellationToken);
+        if (_capabilities.SupportsEqualizer)
+            await RefreshEqualizerAsync(link, cancellationToken);
+        if (_capabilities.SupportsLowLatency)
+            await RefreshLowLatencyAsync(link, cancellationToken);
+        if (_capabilities.SupportsDualConnect)
+            await RefreshMultiDeviceAsync(cancellationToken);
         // 尽力而为：PC 端 SPP 通道可能无 HFP 风格回包（参考源注明“SPP 常无回包”），
         // 故仅发一次 AT 探测；真正的电量以设备主动推送的 +UPDATEHUAWEIBATTERY= 文本为准
         // （由 RawDataReceived 捕获并解析）。无响应时不影响既有的二进制电量路径。
@@ -348,6 +516,13 @@ internal sealed class HuaweiManager : IBrandManager
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportTripleTapState, f => ApplyGestureState(HuaweiConstants.QueryTripleTapState, f.Payload.Span)));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportLongPressState, f => ApplyGestureState(HuaweiConstants.QueryLongPressState, f.Payload.Span)));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportSwipeState, f => ApplyGestureState(HuaweiConstants.QuerySwipeState, f.Payload.Span)));
+        // 新能力回报订阅：EQ / 低延迟 / 双设备枚举 / 双设备变更事件。
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.QueryEqualizer, OnEqualizerReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.QueryLowLatency, OnLowLatencyReport));
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.EnumerateDualConnect, OnDualConnectEnumerate));
+        // 形参必须用非 _ 名称，否则 `_ = Task` 会被解析为把 Task 赋给 ProtocolFrame 形参。
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.DualConnectChangeEvent,
+            frame => _ = RefreshMultiDeviceAsync(CancellationToken.None)));
         // 原始字节透传：捕获非二进制 AT 文本电量行（+HUAWEIBATTERY= / +UPDATEHUAWEIBATTERY=）。
         _rawHandler = OnRawData;
         link.RawDataReceived += _rawHandler;
@@ -560,6 +735,146 @@ internal sealed class HuaweiManager : IBrandManager
             if (RuntimeWearSupported)
                 await RefreshWearDetectionAsync(link, cancellationToken);
         }
+    }
+
+    // ---- 华为新能力读取/枚举（EQ / 低延迟 / 双设备）----
+    private TaskCompletionSource? _dualEnumerateTcs;
+    private int _dualEnumerateExpected;
+
+    private async Task RefreshEqualizerAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // S2B C4A 读回，TLV (1..8, 空) 请求各参数；响应 param2=当前预设 ID。
+            var payload = new byte[] { 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00,
+                0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00 };
+            var response = await link.RequestAsync(HuaweiConstants.QueryEqualizer,
+                HuaweiConstants.QueryEqualizer, payload, cancellationToken);
+            if (response is not null)
+                _equalizerProfile.ApplyCurrentPreset(response.Payload.Span);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"均衡器查询失败：{exception.Message}");
+        }
+    }
+
+    private async Task RefreshLowLatencyAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // S2B C6C 读回，TLV (2, 空) 请求；响应 param2=1/0。
+            var response = await link.RequestAsync(HuaweiConstants.QueryLowLatency,
+                HuaweiConstants.QueryLowLatency, new byte[] { 0x02, 0x00 }, cancellationToken);
+            if (response is not null)
+            {
+                var fields = ParseTlv(response.Payload.Span);
+                if (fields.TryGetValue(0x02, out var value) && value.Length > 0)
+                    _lowLatencyEnabled = value.Span[0] == 1;
+            }
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"低延迟查询失败：{exception.Message}");
+        }
+    }
+
+    private async Task RefreshDualConnectEnabledAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // S2B C2F 读回，TLV (1, 空)；响应 param1=1/0。
+            var response = await link.RequestAsync(HuaweiConstants.QueryDualConnectEnabled,
+                HuaweiConstants.QueryDualConnectEnabled, new byte[] { 0x01, 0x00 }, cancellationToken);
+            if (response is not null)
+            {
+                var fields = ParseTlv(response.Payload.Span);
+                if (fields.TryGetValue(0x01, out var value) && value.Length > 0)
+                    _dualConnectEnabled = value.Span[0] == 1;
+            }
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"双设备开关查询失败：{exception.Message}");
+        }
+    }
+
+    // 双设备枚举：设备逐包回报（无结束帧），用收集窗口 + 计数完成判定。
+    private async Task EnumerateDualConnectAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        _dualDevices.Clear();
+        _dualEnumerateExpected = int.MaxValue;
+        _dualEnumerateTcs = new TaskCompletionSource();
+        try
+        {
+            // S2B C31 枚举，TLV (1, 空) 触发（OpenFreebuds on_init 枚举流程）。
+            await link.SendFireAndForgetAsync(HuaweiConstants.EnumerateDualConnect,
+                new byte[] { 0x01, 0x00 }, cancellationToken);
+        }
+        catch
+        {
+            _dualEnumerateTcs.TrySetResult();
+            return;
+        }
+        await Task.WhenAny(_dualEnumerateTcs.Task, Task.Delay(2000, cancellationToken));
+        _dualEnumerateTcs = null;
+    }
+
+    private void OnEqualizerReport(ProtocolFrame frame) => _equalizerProfile.ApplyCurrentPreset(frame.Payload.Span);
+
+    private void OnLowLatencyReport(ProtocolFrame frame)
+    {
+        var fields = ParseTlv(frame.Payload.Span);
+        if (fields.TryGetValue(0x02, out var value) && value.Length > 0)
+        {
+            _lowLatencyEnabled = value.Span[0] == 1;
+            _state.NotifyChanged();
+        }
+    }
+
+    // 双设备枚举回报：TLV 2=总数, 3=索引, 4=MAC, 5=连接态, 7=首选, 8=自动连接, 9=名称
+    // （OpenFreebuds dual_connect/models.py OfbHuaweiDualConnectRow）。
+    private void OnDualConnectEnumerate(ProtocolFrame frame)
+    {
+        var fields = ParseTlv(frame.Payload.Span);
+        if (!fields.TryGetValue(0x02, out var countBytes) || countBytes.Length < 1)
+            return;
+        _dualEnumerateExpected = countBytes.Span[0];
+        var mac = fields.TryGetValue(0x04, out var macBytes) ? HexString(macBytes.Span) : "";
+        if (string.IsNullOrWhiteSpace(mac))
+            return;
+        var name = fields.TryGetValue(0x09, out var nameBytes)
+            ? Encoding.UTF8.GetString(nameBytes.Span).TrimEnd('\0') : "";
+        var connState = fields.TryGetValue(0x05, out var connBytes) && connBytes.Length > 0 ? connBytes.Span[0] : (byte)0;
+        var preferred = fields.TryGetValue(0x07, out var prefBytes) && prefBytes.Length > 0 && prefBytes.Span[0] == 1;
+        var playing = connState == 9;
+        _dualDevices.RemoveAll(device => device.Address == mac);
+        _dualDevices.Add(new ConnectedDeviceSnapshot(mac, name, 0, connState > 0 ? (byte)2 : (byte)0,
+            false, playing, preferred));
+        if (_dualEnumerateExpected > 0 && _dualDevices.Count >= _dualEnumerateExpected)
+            _dualEnumerateTcs?.TrySetResult();
+    }
+
+    private static string HexString(ReadOnlySpan<byte> bytes)
+    {
+        var builder = new System.Text.StringBuilder(bytes.Length * 2);
+        foreach (var value in bytes)
+            builder.Append(value.ToString("X2"));
+        return builder.ToString();
+    }
+
+    private static byte[]? ConvertMacToBytes(string mac)
+    {
+        var cleaned = mac.Replace(":", "").Replace("-", "").Trim();
+        if (cleaned.Length != 12)
+            return null;
+        var result = new byte[6];
+        for (var i = 0; i < 6; i++)
+        {
+            if (!byte.TryParse(cleaned.AsSpan(i * 2, 2), System.Globalization.NumberStyles.HexNumber, null, out result[i]))
+                return null;
+        }
+        return result;
     }
 
     // ---- 华为解析 ----
@@ -953,7 +1268,7 @@ internal sealed class HuaweiManager : IBrandManager
         return queries;
     }
 
-    private static Dictionary<byte, ReadOnlyMemory<byte>> ParseTlv(ReadOnlySpan<byte> payload)
+    internal static Dictionary<byte, ReadOnlyMemory<byte>> ParseTlv(ReadOnlySpan<byte> payload)
     {
         var fields = new Dictionary<byte, ReadOnlyMemory<byte>>();
         var offset = 0;
@@ -985,6 +1300,25 @@ internal sealed class HuaweiManager : IBrandManager
             if (_wearDetectionEnabled is { } wearOn)
                 controlStates["wear-detection"] = wearOn;
         }
+        if (_capabilities.SupportsEqualizer)
+        {
+            visibleControls.Add("equalizer");
+            controlEnabledStates["equalizer"] = true;
+        }
+        if (_capabilities.SupportsLowLatency)
+        {
+            visibleControls.Add("game-mode");
+            controlEnabledStates["game-mode"] = true;
+            if (_lowLatencyEnabled is { } lowLatencyOn)
+                controlStates["game-mode"] = lowLatencyOn;
+        }
+        if (_capabilities.SupportsDualConnect)
+        {
+            visibleControls.Add("dual-device");
+            controlEnabledStates["dual-device"] = true;
+            if (_dualConnectEnabled is { } dualOn)
+                controlStates["dual-device"] = dualOn;
+        }
         var modelName = HuaweiModels.IsKnown(_route)
             ? _capabilities.DisplayName
             : _deviceName ?? "HUAWEI TWS";
@@ -992,13 +1326,13 @@ internal sealed class HuaweiManager : IBrandManager
             modelName,
             HuaweiModels.IsKnown(_route),
             false,                                  // SupportsSpatialAudio
-            false,                                  // SupportsCustomEqualizer
+            _capabilities.SupportsEqualizer,        // SupportsCustomEqualizer（仅内置预设，自定义编辑暂缓）
             RuntimeAncSupported,                    // SupportsNoiseCancellation
-            false,                                  // CanManageMultiDevice
+            _capabilities.SupportsDualConnect,      // CanManageMultiDevice
             [],                                     // CustomEqFrequencies
             BrandPresentation.DefaultCustomEqMinimumGain,
             BrandPresentation.DefaultCustomEqMaximumGain,
-            [],                                     // EqualizerPresets
+            _capabilities.SupportsEqualizer ? HuaweiConstants.EqPresetList : [],  // EqualizerPresets
             visibleControls,
             controlStates,
             controlEnabledStates,
