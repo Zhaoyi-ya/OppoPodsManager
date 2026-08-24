@@ -103,3 +103,33 @@ public sealed class DeviceCandidatesChangedEventArgs : EventArgs
     public IReadOnlyList<DeviceCandidate> Devices { get; }
     public long Generation { get; }
 }
+
+// AirPods 等纯 BLE 广播品牌使用的传输名；AirPods 不需要 RFCOMM 串口，
+// 只读状态来自 BLE 厂商数据广播，控制通道(L2CAP)在 Windows 上暂未实现。
+public static class TransportNames
+{
+    public const string BleAdvertisement = "ble-adv";
+}
+
+// BLE 广播数据源：AppleManager 通过它获取最新厂商数据并在新广播到达时得到通知。
+// 与平台无关，Windows/Linux 各自提供实现（Windows 走 WinRT BluetoothLEAdvertisementWatcher）。
+public interface IAppleAdvertisementProvider
+{
+    byte[]? LatestData { get; }
+
+    event EventHandler<byte[]>? AdvertisementUpdated;
+}
+
+// 单条 BLE 广播事件负载，携带稳定标识与完整厂商数据。
+public sealed class AppleAdvertisementEventArgs : EventArgs
+{
+    public AppleAdvertisementEventArgs(string stableId, byte[] data)
+    {
+        StableId = stableId;
+        Data = data;
+    }
+
+    public string StableId { get; }
+
+    public byte[] Data { get; }
+}

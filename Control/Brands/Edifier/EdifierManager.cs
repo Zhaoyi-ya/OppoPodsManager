@@ -1,5 +1,6 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using OppoPodsManager.Communication.Abstractions;
 using OppoPodsManager.Control.Abstractions;
 using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Transport;
@@ -140,44 +141,63 @@ internal sealed class EdifierManager : IBrandManager
     }
     // ---- 会话建立 ----
     // 漫步者 SPP 通道无需握手，直接读取电量与降噪并启动轮询。
+    // 但 RFCOMM 通道能建链 ≠ 设备说漫步者协议：若初始电量与降噪查询“一个有效响应都没有”，
+    // 说明落到了裸通道/错协议设备，应判通道不可用（抛 ChannelUnusableException），
+    // 让控制层的协议确认回退到下一候选品牌，而不是假连接后卡死在超时轮询里。
     public async Task StartSessionAsync(string deviceName, ConnectionLink link, CancellationToken cancellationToken)
     {
         await DisconnectAsync();
         _deviceName = deviceName;
         _link = link;
-        await RefreshBatteryAsync(link, cancellationToken);
-        await RefreshNoiseAsync(link, cancellationToken);
+        var batteryOk = await RefreshBatteryAsync(link, cancellationToken);
+        var noiseOk = await RefreshNoiseAsync(link, cancellationToken);
+        if (!batteryOk && !noiseOk)
+        {
+            throw new ChannelUnusableException(
+                $"Edifier 协议握手未收到任何有效响应（电量/降噪均无应答），疑似落到非 Edifier 裸通道：device={deviceName}。");
+        }
         _state.SetConnected(deviceName);
         _pollCancellation = new CancellationTokenSource();
         _pollTask = RunPollingAsync(link, _pollCancellation.Token);
     }
     // ---- 内部读取/轮询 ----
-    private async Task RefreshBatteryAsync(ConnectionLink link, CancellationToken cancellationToken)
+    // 返回是否收到有效（非 null）响应；超时/异常返回 false（由 StartSessionAsync 汇总判断）。
+    private async Task<bool> RefreshBatteryAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
         try
         {
             var response = await link.RequestAsync(
                 EdifierConstants.QueryBattery, EdifierConstants.ReportBattery, Array.Empty<byte>(), cancellationToken);
             if (response is not null)
+            {
                 ApplyBattery(response.Payload.Span);
+                return true;
+            }
+            return false;
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Edifier", $"电量查询失败：{exception.Message}");
+            return false;
         }
     }
-    private async Task RefreshNoiseAsync(ConnectionLink link, CancellationToken cancellationToken)
+    private async Task<bool> RefreshNoiseAsync(ConnectionLink link, CancellationToken cancellationToken)
     {
         try
         {
             var response = await link.RequestAsync(
                 EdifierConstants.QueryNoiseMode, EdifierConstants.ReportNoiseMode, Array.Empty<byte>(), cancellationToken);
             if (response is not null)
+            {
                 ApplyNoise(response.Payload.Span);
+                return true;
+            }
+            return false;
         }
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Edifier", $"降噪查询失败：{exception.Message}");
+            return false;
         }
     }
     private async Task<bool> SetNoiseModeCoreAsync(byte edifierMode, CancellationToken cancellationToken)

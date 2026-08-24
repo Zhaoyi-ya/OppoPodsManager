@@ -8,9 +8,10 @@ public static class CommunicationBootstrap
     public static CommunicationController CreateDefault()
     {
 #if WINDOWS
+        var bleHub = new Windows.BleAdvertisementHub();
         return new CommunicationController(
-            [new Windows.WindowsRfcommConnectionFactory()],
-            [new Windows.WindowsBluetoothDiscovery()]);
+            [new Windows.WindowsRfcommConnectionFactory(), new Windows.BleAdvertisementConnectionFactory(bleHub)],
+            [new Windows.WindowsBluetoothDiscovery(), new Windows.WindowsBleAdvertisementDiscovery(bleHub)]);
 #elif LINUX
         return new CommunicationController(
             [new Linux.LinuxConnectionFactory()],

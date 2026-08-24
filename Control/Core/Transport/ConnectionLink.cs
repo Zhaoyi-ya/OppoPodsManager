@@ -29,6 +29,9 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
     }
 
     public event EventHandler? Disconnected;
+    // 原始字节透传：供品牌层捕获非二进制协议帧（如华为 HFP 风格的 AT 文本行
+    // +HUAWEIBATTERY=），这些不会通过 IFrameCodec 解码，也无法经 FrameRouter 路由。
+    public event EventHandler<ReadOnlyMemory<byte>>? RawDataReceived;
     public FrameRouter Router => _router;
 
     public async Task SendAsync(ushort command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
@@ -93,6 +96,16 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
         }
     }
 
+    // 绕过帧编解码，直接发送原始字节（如 AT 文本命令）。供品牌层在不破坏二进制协议流的前提下
+    // 发送无法用 codec 表达的探测/查询。调用方需自行保证不与二进制请求在字节层面交错。
+    public async Task SendRawAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!_connection.IsConnected)
+            throw new InvalidOperationException("The raw connection is not connected.");
+        await _connection.SendAsync(data, cancellationToken);
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -116,6 +129,8 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
 
     private async void OnDataReceived(object? sender, ReadOnlyMemory<byte> bytes)
     {
+        // 先透传原始字节，供品牌层抓非二进制帧（AT 文本等）。
+        RawDataReceived?.Invoke(this, bytes);
         try
         {
             await _receiveGate.WaitAsync();

@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using OppoPodsManager.Control.Abstractions;
@@ -36,6 +37,10 @@ internal sealed class HuaweiManager : IBrandManager
 
     // 连接级订阅句柄，断开时统一释放。
     private readonly List<IDisposable> _subscriptions = new();
+    // 原始字节透传订阅（抓非二进制 AT 文本帧），需手动退订。
+    private EventHandler<ReadOnlyMemory<byte>>? _rawHandler;
+    // 跨块累积原始文本，避免 HUAWEIBATTERY 行被分片截断。
+    private readonly StringBuilder _rawBuffer = new();
     // 运行期熔断：某查询连续超时则标记为“运行期不支持”，之后停止轮询，避免链路被无用查询占满。
     private readonly HashSet<ushort> _runtimeUnsupported = new();
     private readonly Dictionary<ushort, int> _pollFailures = new();
@@ -81,6 +86,10 @@ internal sealed class HuaweiManager : IBrandManager
         _pollCancellation?.Dispose();
         _pollCancellation = null;
         _pollTask = null;
+        if (_rawHandler is not null && _link is not null)
+            _link.RawDataReceived -= _rawHandler;
+        _rawHandler = null;
+        _rawBuffer.Clear();
         foreach (var subscription in _subscriptions)
             subscription.Dispose();
         _subscriptions.Clear();
@@ -317,6 +326,10 @@ internal sealed class HuaweiManager : IBrandManager
             await RefreshGestureStatesAsync(link, cancellationToken);
         if (_capabilities.SupportsWearDetection)
             await RefreshWearDetectionAsync(link, cancellationToken);
+        // 尽力而为：PC 端 SPP 通道可能无 HFP 风格回包（参考源注明“SPP 常无回包”），
+        // 故仅发一次 AT 探测；真正的电量以设备主动推送的 +UPDATEHUAWEIBATTERY= 文本为准
+        // （由 RawDataReceived 捕获并解析）。无响应时不影响既有的二进制电量路径。
+        await ProbeBatteryAtAsync(link, cancellationToken);
         _state.SetConnected(deviceName);
         _pollCancellation = new CancellationTokenSource();
         _pollTask = RunPollingAsync(link, _pollCancellation.Token);
@@ -335,6 +348,47 @@ internal sealed class HuaweiManager : IBrandManager
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportTripleTapState, f => ApplyGestureState(HuaweiConstants.QueryTripleTapState, f.Payload.Span)));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportLongPressState, f => ApplyGestureState(HuaweiConstants.QueryLongPressState, f.Payload.Span)));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportSwipeState, f => ApplyGestureState(HuaweiConstants.QuerySwipeState, f.Payload.Span)));
+        // 原始字节透传：捕获非二进制 AT 文本电量行（+HUAWEIBATTERY= / +UPDATEHUAWEIBATTERY=）。
+        _rawHandler = OnRawData;
+        link.RawDataReceived += _rawHandler;
+    }
+
+    // 华为电量文本走 HFP/SPP 的 AT 行，不以二进制 5A 帧出现，故经原始字节流捕获后解析。
+    private void OnRawData(object? sender, ReadOnlyMemory<byte> bytes)
+    {
+        if (bytes.Length == 0)
+            return;
+        _rawBuffer.Append(Encoding.UTF8.GetString(bytes.Span));
+        // 仅保留末尾足够长度，避免二进制噪声无限增长。
+        const int maxBuffer = 1024;
+        if (_rawBuffer.Length > maxBuffer)
+            _rawBuffer.Remove(0, _rawBuffer.Length - maxBuffer);
+        var parsed = HuaweiBatteryParser.Parse(_rawBuffer.ToString());
+        if (parsed is not null)
+            ApplyBatteryFromAt(parsed);
+    }
+
+    private void ApplyBatteryFromAt(HuaweiBatteryParser.BatteryState state)
+    {
+        BatteryLevel? left = state.LeftPercent is { } l ? new BatteryLevel((byte)l, state.LeftCharging) : null;
+        BatteryLevel? right = state.RightPercent is { } r ? new BatteryLevel((byte)r, state.RightCharging) : null;
+        BatteryLevel? @case = state.CasePercent is { } c ? new BatteryLevel((byte)c, state.CaseCharging) : null;
+        _state.SetBattery(left, right, @case);
+    }
+
+    // 尽力而为的 AT 电量探测：PC 端 SPP 通道可能无回包，仅发送不等待应答，
+    // 后续电量以设备主动推送的文本行为准。发送失败仅记录，不影响其它功能。
+    private async Task ProbeBatteryAtAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var at = Encoding.ASCII.GetBytes("AT+HUAWEIBATTERY?\r\n");
+            await link.SendRawAsync(at, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"电量 AT 探测发送失败：{exception.Message}");
+        }
     }
 
     private void OnBatteryReport(ProtocolFrame frame) => ApplyBattery(frame.Payload.Span);
