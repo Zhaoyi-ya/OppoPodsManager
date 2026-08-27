@@ -10,16 +10,25 @@ public enum HuaweiRoute
 {
     FreeBuds3,
     FreeBuds4E,
+    FreeBuds4I,
     FreeBuds5,
     FreeBuds5I,
     FreeBuds6I,
+    FreeBudsPro,
+    FreeBudsPro2,
     FreeBudsPro3,
     FreeBudsPro4,
     FreeBudsPro5,
     FreeBuds7I,
+    FreeBudsSe,
+    FreeBudsSe2,
+    FreeBudsSe4,
+    FreeBudsStudio,
     FreeClip,
     FreeClip2,
     FreeArc,
+    FreeLacePro,
+    FreeLacePro2,
     Eyewear,
     Eyewear2,
     Unsupported,
@@ -39,7 +48,17 @@ public sealed record HuaweiCapabilities(
     bool SupportsLowLatency,
     bool SupportsDualConnect,
     bool HasChargingCase,
-    bool UsesReportedEarbudAvailability)
+    bool UsesReportedEarbudAvailability,
+    // ---- OpenFreebuds 对齐新增（2026-08-28）----
+    // 语音语言（0x0C01/0x0C02）：部分型号支持切换设备语音播报语言。
+    bool SupportsVoiceLanguage = false,
+    // 音质偏好（0x2BA2/0x2BA3）：连接优先 vs 音质优先（5i/6i/Pro2/Pro3/Pro5/FreeClip2/LacePro2）。
+    bool SupportsSoundQuality = false,
+    // 佩戴状态主动上报（0x2B03）：耳机端 in-ear 检测的实时通知（独立于自动暂停开关 0x2B10/0x2B11）。
+    bool SupportsInEarState = false,
+    // 首选 SPP 通道（0=走 SDP 端口 0 解析；非 0=该型号控制服务固定在指定 RFCOMM 通道，
+    // 参考 OpenFreebuds per_model 的 _spp_service_port：6i/Pro/Pro2/Pro3/Pro5/SE2/SE4/Studio/FreeClip2/LacePro2=1）。
+    byte PreferredSppChannel = 0)
 {
     public static HuaweiCapabilities Unknown { get; } = new("HUAWEI TWS",
         SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
@@ -85,37 +104,104 @@ public static class HuaweiModels
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
-                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true),
             [HuaweiRoute.FreeBuds6I] = new("HUAWEI FreeBuds 6i",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
-                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeBudsPro3] = new("HUAWEI FreeBuds Pro 3",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
-                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeBudsPro4] = new("HUAWEI FreeBuds Pro 4",
-                SupportsAnc: true, SupportsTransparency: false, SupportsAncStateReadback: false,
-                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
-                SupportsRfcommBattery: true, SupportsGestureConfiguration: false,
-                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
-                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeBudsPro5] = new("HUAWEI FreeBuds Pro 5",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
-                HasChargingCase: true, UsesReportedEarbudAvailability: true),
+                HasChargingCase: true, UsesReportedEarbudAvailability: true,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeBuds7I] = new("HUAWEI FreeBuds 7i",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: false, SupportsDualConnect: false,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false),
+            [HuaweiRoute.FreeBuds4I] = new("HUAWEI FreeBuds 4i",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsInEarState: true),
+            [HuaweiRoute.FreeBudsPro] = new("HUAWEI FreeBuds Pro",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: true,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsInEarState: true, PreferredSppChannel: 1),
+            [HuaweiRoute.FreeBudsPro2] = new("HUAWEI FreeBuds Pro 2",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: false, SupportsDualConnect: true,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
+            [HuaweiRoute.FreeBudsSe] = new("HUAWEI FreeBuds SE",
+                SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
+                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+            [HuaweiRoute.FreeBudsSe2] = new("HUAWEI FreeBuds SE 2",
+                SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
+                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: false,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                PreferredSppChannel: 1),
+            [HuaweiRoute.FreeBudsSe4] = new("HUAWEI FreeBuds SE 4",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: false,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                PreferredSppChannel: 1),
+            [HuaweiRoute.FreeBudsStudio] = new("HUAWEI FreeBuds Studio",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: false,
+                SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: false, SupportsDualConnect: false,
+                HasChargingCase: false, UsesReportedEarbudAvailability: false,
+                PreferredSppChannel: 1),
+            [HuaweiRoute.FreeLacePro] = new("HUAWEI FreeLace Pro",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                HasChargingCase: false, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true),
+            [HuaweiRoute.FreeLacePro2] = new("HUAWEI FreeLace Pro 2",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
+                HasChargingCase: false, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeClip] = new("HUAWEI FreeClip",
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
                 SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
@@ -127,7 +213,8 @@ public static class HuaweiModels
                 SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
-                HasChargingCase: true, UsesReportedEarbudAvailability: false),
+                HasChargingCase: true, UsesReportedEarbudAvailability: false,
+                SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeArc] = new("HUAWEI FreeArc",
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
                 SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
@@ -159,6 +246,12 @@ public static class HuaweiModels
         Add(HuaweiRoute.FreeBuds3, "FreeBuds 3");
         Add(HuaweiRoute.FreeBuds4E, "HUAWEI FreeBuds 4E");
         Add(HuaweiRoute.FreeBuds4E, "FreeBuds 4E");
+        Add(HuaweiRoute.FreeBuds4I, "HUAWEI FreeBuds 4i");
+        Add(HuaweiRoute.FreeBuds4I, "FreeBuds 4i");
+        Add(HuaweiRoute.FreeBudsPro, "HUAWEI FreeBuds Pro");
+        Add(HuaweiRoute.FreeBudsPro, "FreeBuds Pro");
+        Add(HuaweiRoute.FreeBudsPro2, "HUAWEI FreeBuds Pro 2");
+        Add(HuaweiRoute.FreeBudsPro2, "FreeBuds Pro 2");
         Add(HuaweiRoute.FreeBuds5, "HUAWEI FreeBuds 5");
         Add(HuaweiRoute.FreeBuds5, "FreeBuds 5");
         Add(HuaweiRoute.FreeBuds5I, "HUAWEI FreeBuds 5i");
@@ -173,6 +266,18 @@ public static class HuaweiModels
         Add(HuaweiRoute.FreeBudsPro5, "FreeBuds Pro 5");
         Add(HuaweiRoute.FreeBuds7I, "HUAWEI FreeBuds 7i");
         Add(HuaweiRoute.FreeBuds7I, "FreeBuds 7i");
+        Add(HuaweiRoute.FreeBudsSe, "HUAWEI FreeBuds SE");
+        Add(HuaweiRoute.FreeBudsSe, "FreeBuds SE");
+        Add(HuaweiRoute.FreeBudsSe2, "HUAWEI FreeBuds SE 2");
+        Add(HuaweiRoute.FreeBudsSe2, "FreeBuds SE 2");
+        Add(HuaweiRoute.FreeBudsSe4, "HUAWEI FreeBuds SE 4");
+        Add(HuaweiRoute.FreeBudsSe4, "FreeBuds SE 4");
+        Add(HuaweiRoute.FreeBudsStudio, "HUAWEI FreeBuds Studio");
+        Add(HuaweiRoute.FreeBudsStudio, "FreeBuds Studio");
+        Add(HuaweiRoute.FreeLacePro, "HUAWEI FreeLace Pro");
+        Add(HuaweiRoute.FreeLacePro, "FreeLace Pro");
+        Add(HuaweiRoute.FreeLacePro2, "HUAWEI FreeLace Pro 2");
+        Add(HuaweiRoute.FreeLacePro2, "FreeLace Pro 2");
         Add(HuaweiRoute.FreeClip, "HUAWEI FreeClip");
         Add(HuaweiRoute.FreeClip, "FreeClip");
         Add(HuaweiRoute.FreeClip2, "HUAWEI FreeClip 2");
@@ -321,14 +426,19 @@ public static class HuaweiAncLevels
     {
         options = route switch
         {
-            // 5i/6i 实机抓包确认：智慧动态=3、轻度=1、均衡=0、深度=2。
-            HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds6I =>
+            // 统一映射（OpenFreebuds anc.py cancel_level_options：舒适=1、标准=0、深度=2、动态=3）：
+            // 智慧动态(dynamic)=3、轻度(comfort)=1、均衡(normal)=0、深度(ultra)=2。
+            // 此前 Pro3/7i 单独映射(1/0/2/3)与 OpenFreebuds 冲突，已按权威源统一；5i/6i 实机抓包一致。
+            HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds6I or
+            HuaweiRoute.FreeBudsPro or HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBudsPro4 or
+            HuaweiRoute.FreeBudsPro5 or HuaweiRoute.FreeBuds7I or
+            HuaweiRoute.FreeBudsSe4 or HuaweiRoute.FreeBudsStudio or HuaweiRoute.FreeLacePro2 =>
                 [(HuaweiAncLevel.Adaptive, (byte)0x03), (HuaweiAncLevel.Light, (byte)0x01),
                  (HuaweiAncLevel.Balanced, (byte)0x00), (HuaweiAncLevel.Deep, (byte)0x02)],
-            // Pro 3 / 7i：智慧动态=1、轻度=0、均衡=2、深度=3。
-            HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBuds7I =>
-                [(HuaweiAncLevel.Adaptive, (byte)0x01), (HuaweiAncLevel.Light, (byte)0x00),
-                 (HuaweiAncLevel.Balanced, (byte)0x02), (HuaweiAncLevel.Deep, (byte)0x03)],
+            // Pro 2 / FreeLace Pro：无动态档位（OpenFreebuds w_cancel_lvl 但无 w_cancel_dynamic）。
+            HuaweiRoute.FreeBudsPro2 or HuaweiRoute.FreeLacePro =>
+                [(HuaweiAncLevel.Light, (byte)0x01), (HuaweiAncLevel.Balanced, (byte)0x00),
+                 (HuaweiAncLevel.Deep, (byte)0x02)],
             // FreeBuds 5：智慧动态=3、轻度=1、均衡=0。
             HuaweiRoute.FreeBuds5 =>
                 [(HuaweiAncLevel.Adaptive, (byte)0x03), (HuaweiAncLevel.Light, (byte)0x01),
@@ -340,4 +450,23 @@ public static class HuaweiAncLevels
         };
         return options.Count > 0;
     }
+}
+
+// EQ 内置预设 ID 按型号路由：Pro3/Pro4/Pro5 的预设 ID 与其余型号不同
+// （OpenFreebuds buds_pro_3.py / buds_pro_5.py：default=5、hardbass=1、treble=2、voice=9；
+// 其余型号：default=1、hardbass=2、treble=3、voices=9）。LacePro2 仅自定义 EQ，无内置预设。
+public static class HuaweiEqPresets
+{
+    public static IReadOnlyDictionary<byte, string> ForRoute(HuaweiRoute route) => route switch
+    {
+        HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBudsPro4 or HuaweiRoute.FreeBudsPro5 =>
+            new Dictionary<byte, string> { [5] = "默认", [1] = "重低音", [2] = "高音增强", [9] = "人声" },
+        HuaweiRoute.FreeBudsPro2 or HuaweiRoute.FreeBudsStudio =>
+            new Dictionary<byte, string> { [1] = "默认", [2] = "重低音", [3] = "高音增强" },
+        HuaweiRoute.FreeLacePro2 => new Dictionary<byte, string>(),
+        _ => new Dictionary<byte, string> { [1] = "默认", [2] = "重低音", [3] = "高音增强", [9] = "人声" },
+    };
+
+    public static IReadOnlyList<string> Names(HuaweiRoute route)
+        => ForRoute(route).Select(kv => kv.Value).ToArray();
 }

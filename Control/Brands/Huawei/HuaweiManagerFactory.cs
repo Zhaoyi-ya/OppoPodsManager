@@ -12,6 +12,9 @@ public sealed class HuaweiManagerFactory : IBrandManagerFactory
     // StartSessionAsync 内置协议握手验证兜底（见 IBrandManagerFactory.ProbeEvidence 注释）。
     public BrandProbeEvidence ProbeEvidence => BrandProbeEvidence.GenericSpp;
     public bool IsCandidateName(string? deviceName) => HuaweiModels.IsFamilyName(deviceName);
+    // 识别到具体型号后返回其首选 SPP 通道（6i/Pro/Pro2/Pro3/Pro5/SE2/SE4/Studio/FreeClip2/LacePro2=1）。
+    public int GetPreferredChannel(string? deviceName)
+        => HuaweiModels.GetCapabilities(HuaweiModels.DetectRoute(deviceName)).PreferredSppChannel;
     public async Task<IBrandManager> CreateAsync(
         DeviceConnectionPlan plan,
         IRawConnection connection,

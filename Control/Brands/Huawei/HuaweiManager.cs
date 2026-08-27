@@ -39,10 +39,6 @@ internal sealed class HuaweiManager : IBrandManager
 
     // 连接级订阅句柄，断开时统一释放。
     private readonly List<IDisposable> _subscriptions = new();
-    // 原始字节透传订阅（抓非二进制 AT 文本帧），需手动退订。
-    private EventHandler<ReadOnlyMemory<byte>>? _rawHandler;
-    // 跨块累积原始文本，避免 HUAWEIBATTERY 行被分片截断。
-    private readonly StringBuilder _rawBuffer = new();
     // 运行期熔断：某查询连续超时则标记为“运行期不支持”，之后停止轮询，避免链路被无用查询占满。
     private readonly HashSet<ushort> _runtimeUnsupported = new();
     private readonly Dictionary<ushort, int> _pollFailures = new();
@@ -67,11 +63,15 @@ internal sealed class HuaweiManager : IBrandManager
 
     // 佩戴检测开关（bool 语义，非耳侧佩戴状态）。
     private bool? _wearDetectionEnabled;
+    // 耳侧佩戴状态（0x2B03 主动上报，1=入耳）。
+    private bool? _inEarState;
 
     // 均衡器档案（内置预设；自定义编辑暂缓）。
     private readonly HuaweiEqualizerProfile _equalizerProfile;
     // 低延迟/游戏模式开关（bool 语义）。
     private bool? _lowLatencyEnabled;
+    // 音质偏好（0=连接优先、1=音质优先）。
+    private bool? _soundQualityPreferred;
     // 双设备（dual-connect）状态。
     private bool? _dualConnectEnabled;
     private readonly List<ConnectedDeviceSnapshot> _dualDevices = new();
@@ -110,10 +110,6 @@ internal sealed class HuaweiManager : IBrandManager
         _pollCancellation?.Dispose();
         _pollCancellation = null;
         _pollTask = null;
-        if (_rawHandler is not null && _link is not null)
-            _link.RawDataReceived -= _rawHandler;
-        _rawHandler = null;
-        _rawBuffer.Clear();
         foreach (var subscription in _subscriptions)
             subscription.Dispose();
         _subscriptions.Clear();
@@ -128,7 +124,9 @@ internal sealed class HuaweiManager : IBrandManager
         _route = HuaweiRoute.Unsupported;
         _capabilities = HuaweiCapabilities.Unknown;
         _wearDetectionEnabled = null;
+        _inEarState = null;
         _lowLatencyEnabled = null;
+        _soundQualityPreferred = null;
         _dualConnectEnabled = null;
         _dualPreferredAddress = null;
         _dualDevices.Clear();
@@ -199,19 +197,87 @@ internal sealed class HuaweiManager : IBrandManager
             return false;
         }
     }
-    // ---- 均衡器（实装：内置预设 默认/重低音/高音增强/人声）----
+    // ---- 语音语言 / 音质偏好（OpenFreebuds 对齐新增）----
+    public async Task<string?> GetVoiceLanguageOptionsAsync(CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsVoiceLanguage)
+            return null;
+        try
+        {
+            // S0C C02：读 TLV [01 00][02 00]，响应 TLV 0x03=UTF8 语言列表。
+            var response = await _link.RequestAsync(
+                HuaweiConstants.QueryVoiceLanguage, HuaweiConstants.QueryVoiceLanguage,
+                new byte[] { 0x01, 0x00, 0x02, 0x00 }, cancellationToken);
+            if (response is null)
+                return null;
+            var fields = ParseTlv(response.Payload.Span);
+            return fields.TryGetValue(0x03, out var locales) && locales.Length > 0
+                ? Encoding.UTF8.GetString(locales.Span).TrimEnd('\0')
+                : null;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"语音语言查询失败：{exception.Message}");
+            return null;
+        }
+    }
+
+    public async Task<bool> SetVoiceLanguageAsync(string language, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsVoiceLanguage || string.IsNullOrWhiteSpace(language))
+            return false;
+        try
+        {
+            // S0C C01：写 TLV [01 len lang][02 01 01]（OpenFreebuds change_rq(0x0c01, [(1,lang),(2,1)])）。
+            var lang = Encoding.UTF8.GetBytes(language);
+            var payload = new byte[2 + lang.Length + 3];
+            payload[0] = 0x01; payload[1] = (byte)lang.Length;
+            lang.CopyTo(payload.AsSpan(2));
+            payload[2 + lang.Length] = 0x02; payload[3 + lang.Length] = 0x01; payload[4 + lang.Length] = 0x01;
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetVoiceLanguage, payload, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置语音语言失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    public async Task<bool> SetSoundQualityAsync(bool qualityPreferred, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsSoundQuality)
+            return false;
+        try
+        {
+            // S2B CA2：写 TLV (1, 0/1)，0=连接优先、1=音质优先。
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetSoundQuality,
+                new byte[] { 0x01, 0x01, qualityPreferred ? (byte)0x01 : (byte)0x00 }, cancellationToken);
+            await Task.Delay(200, cancellationToken);
+            await RefreshSoundQualityAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置音质偏好失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    // ---- 均衡器（实装：内置预设，ID 按型号路由，见 HuaweiEqPresets）----
     public async Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken)
     {
         if (_link is null || !_capabilities.SupportsEqualizer)
             return false;
-        if (!HuaweiConstants.EqPresetNames.ContainsKey(presetId))
+        var presets = HuaweiEqPresets.ForRoute(_route);
+        if (!presets.ContainsKey(presetId))
             return false;
         try
         {
             // S2B C49：TLV (1, presetId) 选择内置预设（OpenFreebuds change_rq(0x2b49, [(1, mode_id)])）。
             await _link.SendFireAndForgetAsync(HuaweiConstants.SetEqualizer,
                 _equalizerProfile.EncodeSetPreset(presetId), cancellationToken);
-            _state.SetEqualizer(new EqualizerSnapshot(presetId, HuaweiConstants.EqPresetNames[presetId]));
+            _state.SetEqualizer(new EqualizerSnapshot(presetId, presets[presetId]));
             await Task.Delay(200, cancellationToken);
             await RefreshEqualizerAsync(_link, cancellationToken);
             return true;
@@ -225,7 +291,7 @@ internal sealed class HuaweiManager : IBrandManager
 
     public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken)
     {
-        foreach (var (id, name) in HuaweiConstants.EqPresetNames)
+        foreach (var (id, name) in HuaweiEqPresets.ForRoute(_route))
         {
             if (string.Equals(name, presetName, StringComparison.Ordinal))
                 return SetEqualizerAsync(id, cancellationToken);
@@ -609,23 +675,20 @@ internal sealed class HuaweiManager : IBrandManager
             await RefreshEqualizerAsync(link, cancellationToken);
         if (_capabilities.SupportsLowLatency)
             await RefreshLowLatencyAsync(link, cancellationToken);
+        if (_capabilities.SupportsSoundQuality)
+            await RefreshSoundQualityAsync(link, cancellationToken);
         if (_capabilities.SupportsDualConnect)
             await RefreshMultiDeviceAsync(cancellationToken);
-        // 尽力而为：PC 端 SPP 通道可能无 HFP 风格回包（参考源注明“SPP 常无回包”），
-        // 故仅发一次 AT 探测；真正的电量以设备主动推送的 +UPDATEHUAWEIBATTERY= 文本为准
-        // （由 RawDataReceived 捕获并解析）。无响应时不影响既有的二进制电量路径。
-        await ProbeBatteryAtAsync(link, cancellationToken);
 
-        // 会话握手验证：至少收到一条协议响应（电量/降噪二进制回包或 AT 文本电量推送）才允许
-        // SetConnected。若全部无响应，说明该 RFCOMM 通道只是“能建链但不是华为协议”（其它品牌
-        // 设备或死通道），必须抛 ChannelUnusableException 让 Discovery 切换下一品牌重试，
-        // 而不是锁死一个永不响应的空会话。AT 文本电量推送可能稍晚于查询，最多等 2s。
+        // 会话握手验证：至少收到一条协议响应（电量/降噪二进制回包）才允许 SetConnected。
+        // 若全部无响应，说明该 RFCOMM 通道只是“能建链但不是华为协议”（其它品牌设备或死通道），
+        // 必须抛 ChannelUnusableException 让 Discovery 切换下一品牌重试，而不是锁死一个永不响应的空会话。
         var handshakeDeadline = Environment.TickCount64 + 2_000;
         while (!_protocolResponded && Environment.TickCount64 < handshakeDeadline)
             await Task.Delay(100, cancellationToken);
         if (!_protocolResponded)
             throw new ChannelUnusableException(
-                $"华为会话握手验证失败：设备“{deviceName}”在电量/降噪查询与 AT 文本探测后均未返回任何协议帧，" +
+                $"华为会话握手验证失败：设备“{deviceName}”在电量/降噪查询后均未返回任何协议帧，" +
                 "当前 RFCOMM 通道非华为协议或设备不可达。");
 
         _state.SetConnected(deviceName);
@@ -653,49 +716,32 @@ internal sealed class HuaweiManager : IBrandManager
         // 形参必须用非 _ 名称，否则 `_ = Task` 会被解析为把 Task 赋给 ProtocolFrame 形参。
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.DualConnectChangeEvent,
             frame => _ = RefreshMultiDeviceAsync(CancellationToken.None)));
-        // 原始字节透传：捕获非二进制 AT 文本电量行（+HUAWEIBATTERY= / +UPDATEHUAWEIBATTERY=）。
-        _rawHandler = OnRawData;
-        link.RawDataReceived += _rawHandler;
+        // 佩戴状态主动上报（0x2B03，OpenFreebuds state_in_ear）：耳机端 in-ear 检测实时通知。
+        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.InEarStateNotify, OnInEarReport));
     }
 
-    // 华为电量文本走 HFP/SPP 的 AT 行，不以二进制 5A 帧出现，故经原始字节流捕获后解析。
-    private void OnRawData(object? sender, ReadOnlyMemory<byte> bytes)
+    private void OnInEarReport(ProtocolFrame frame)
     {
-        if (bytes.Length == 0)
-            return;
-        _rawBuffer.Append(Encoding.UTF8.GetString(bytes.Span));
-        // 仅保留末尾足够长度，避免二进制噪声无限增长。
-        const int maxBuffer = 1024;
-        if (_rawBuffer.Length > maxBuffer)
-            _rawBuffer.Remove(0, _rawBuffer.Length - maxBuffer);
-        var parsed = HuaweiBatteryParser.Parse(_rawBuffer.ToString());
-        if (parsed is not null)
-            ApplyBatteryFromAt(parsed);
-    }
-
-    private void ApplyBatteryFromAt(HuaweiBatteryParser.BatteryState state)
-    {
-        // 收到 AT 文本电量行（+HUAWEIBATTERY=/+UPDATEHUAWEIBATTERY=）即证明对端是活的华为协议设备。
+        // 收到佩戴状态主动上报即证明对端是活的华为协议设备。
         _protocolResponded = true;
-        BatteryLevel? left = state.LeftPercent is { } l ? new BatteryLevel((byte)l, state.LeftCharging) : null;
-        BatteryLevel? right = state.RightPercent is { } r ? new BatteryLevel((byte)r, state.RightCharging) : null;
-        BatteryLevel? @case = state.CasePercent is { } c ? new BatteryLevel((byte)c, state.CaseCharging) : null;
-        _state.SetBattery(left, right, @case);
+        if (ParseInEarState(frame.Payload.Span) is { } inEar)
+        {
+            _inEarState = inEar;
+            ApplicationLog.Current?.Debug("Huawei", $"佩戴状态上报：inEar={inEar}。");
+            _state.NotifyChanged();
+        }
     }
 
-    // 尽力而为的 AT 电量探测：PC 端 SPP 通道可能无回包，仅发送不等待应答，
-    // 后续电量以设备主动推送的文本行为准。发送失败仅记录，不影响其它功能。
-    private async Task ProbeBatteryAtAsync(ConnectionLink link, CancellationToken cancellationToken)
+    // 解析 0x2B03 佩戴状态：TLV 0x08/0x09 单字节，1=入耳（OpenFreebuds find_param(8,9)）。
+    private static bool? ParseInEarState(ReadOnlySpan<byte> payload)
     {
-        try
+        var fields = ParseTlv(payload);
+        foreach (var type in new byte[] { 0x08, 0x09 })
         {
-            var at = Encoding.ASCII.GetBytes("AT+HUAWEIBATTERY?\r\n");
-            await link.SendRawAsync(at, cancellationToken);
+            if (fields.TryGetValue(type, out var value) && value.Length >= 1)
+                return value.Span[0] == 1;
         }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Debug("Huawei", $"电量 AT 探测发送失败：{exception.Message}");
-        }
+        return null;
     }
 
     private void OnBatteryReport(ProtocolFrame frame) => ApplyBattery(frame.Payload.Span);
@@ -908,6 +954,31 @@ internal sealed class HuaweiManager : IBrandManager
         catch (Exception exception)
         {
             ApplicationLog.Current?.Debug("Huawei", $"低延迟查询失败：{exception.Message}");
+        }
+    }
+
+    private async Task RefreshSoundQualityAsync(ConnectionLink link, CancellationToken cancellationToken)
+    {
+        if (!_capabilities.SupportsSoundQuality)
+            return;
+        try
+        {
+            // S2B CA3 读回，TLV (1, 空)(2, 空) 请求；响应 param1/2 单字节 0=连接优先/1=音质优先。
+            var response = await link.RequestAsync(HuaweiConstants.QuerySoundQuality,
+                HuaweiConstants.QuerySoundQuality, new byte[] { 0x01, 0x00, 0x02, 0x00 }, cancellationToken);
+            if (response is not null)
+            {
+                var fields = ParseTlv(response.Payload.Span);
+                if (fields.TryGetValue(0x02, out var value) && value.Length > 0)
+                    _soundQualityPreferred = value.Span[0] == 1;
+                else if (fields.TryGetValue(0x01, out value) && value.Length > 0)
+                    _soundQualityPreferred = value.Span[0] == 1;
+                _state.NotifyChanged();
+            }
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Debug("Huawei", $"音质偏好查询失败：{exception.Message}");
         }
     }
 
@@ -1555,7 +1626,7 @@ internal sealed class HuaweiManager : IBrandManager
                 ? HuaweiEqualizerProfile.BandFrequencies : [],  // CustomEqFrequencies
             HuaweiEqualizerProfile.CustomEqMinimumGain,
             HuaweiEqualizerProfile.CustomEqMaximumGain,
-            _capabilities.SupportsEqualizer ? HuaweiConstants.EqPresetList : [],  // EqualizerPresets
+            _capabilities.SupportsEqualizer ? HuaweiEqPresets.Names(_route) : [],  // EqualizerPresets（ID 按型号路由）
             visibleControls,
             controlStates,
             controlEnabledStates,

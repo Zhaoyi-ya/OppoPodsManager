@@ -141,7 +141,7 @@ public sealed class WindowsRfcommConnectionFactory : IConnectionFactory
         if (options.ServiceId is not { } serviceId)
             throw new InvalidOperationException("RFCOMM connection requires a service UUID selected by ControlManager.");
 
-        var connection = new WindowsRfcommConnection(candidate, serviceId, options.AllowBareChannels);
+        var connection = new WindowsRfcommConnection(candidate, serviceId, options.AllowBareChannels, options.Channel);
         try
         {
             await connection.ConnectAsync(cancellationToken);

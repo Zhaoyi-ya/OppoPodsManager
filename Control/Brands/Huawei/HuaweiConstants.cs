@@ -101,24 +101,24 @@ public static class HuaweiConstants
     public const ushort ExecuteDualConnect = 0x2B33;
     public const ushort DualConnectChangeEvent = 0x2B36;
 
-    // ---- 均衡器内置预设 ID（与 OpenFreebuds KNOWN_BUILT_IN_PRESETS 对齐）----
-    public const byte EqPresetDefault = 1;   // 默认
-    public const byte EqPresetBass = 2;      // 重低音 (hardbass)
-    public const byte EqPresetTreble = 3;    // 高音增强 (treble)
-    public const byte EqPresetVoices = 9;    // 人声 (voices)
-    public static readonly IReadOnlyDictionary<byte, string> EqPresetNames = new Dictionary<byte, string>()
-    {
-        [EqPresetDefault] = "默认",
-        [EqPresetBass] = "重低音",
-        [EqPresetTreble] = "高音增强",
-        [EqPresetVoices] = "人声",
-    };
+    // ---- 语音语言（service language）----
+    // 读 S0C C02（响应 TLV 0x03=UTF8 语言列表）、写 S0C C01（TLV 0x01=UTF8 语言码，0x02=1）。
+    // 来源：OpenFreebuds service_language.py（read=0x0c02 / write=0x0c01）。
+    public const ushort QueryVoiceLanguage = 0x0C02;
+    public const ushort SetVoiceLanguage = 0x0C01;
 
-    // 与上面的字典顺序一致的有序列表，供 Presentation.EqualizerPresets 直接消费。
-    public static readonly IReadOnlyList<string> EqPresetList = new[]
-    {
-        "默认", "重低音", "高音增强", "人声",
-    };
+    // ---- 音质偏好（sound quality preference）----
+    // 读 S2B CA3（响应 TLV 0x01/0x02 单字节）、写 S2B CA2（TLV 0x01：0=连接优先，1=音质优先）。
+    // 来源：OpenFreebuds sound_quality_preference.py（read=0x2ba3 / write=0x2ba2）。
+    public const ushort QuerySoundQuality = 0x2BA3;
+    public const ushort SetSoundQuality = 0x2BA2;
+    public const byte SoundQualityConnectivity = 0x00;
+    public const byte SoundQualityQuality = 0x01;
+
+    // ---- 佩戴状态主动上报（in-ear state）----
+    // 耳机端 in-ear 检测的实时通知（TLV 0x08/0x09 单字节，1=入耳）。
+    // 来源：OpenFreebuds state_in_ear.py（commands=[0x2b03]）。
+    public const ushort InEarStateNotify = 0x2B03;
 
     // ---- 双设备执行命令（OfbHuaweiDualConnCommand）----
     public const byte DualConnectConnect = 1;

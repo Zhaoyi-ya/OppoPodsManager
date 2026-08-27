@@ -37,6 +37,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
     private readonly DeviceCandidate _candidate;
     private readonly Guid _serviceId;
     private readonly bool _allowBareChannels;
+    private readonly int _preferredChannel;
     private readonly object _socketGate = new();
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private IntPtr _socket;
@@ -45,11 +46,12 @@ public sealed class WindowsRfcommConnection : IRawConnection
     private int _connected;
     private int _disposed;
 
-    public WindowsRfcommConnection(DeviceCandidate candidate, Guid serviceId, bool allowBareChannels = true)
+    public WindowsRfcommConnection(DeviceCandidate candidate, Guid serviceId, bool allowBareChannels = true, int preferredChannel = 0)
     {
         _candidate = candidate;
         _serviceId = serviceId;
         _allowBareChannels = allowBareChannels;
+        _preferredChannel = preferredChannel;
     }
 
     public bool IsConnected => Volatile.Read(ref _connected) != 0;
@@ -175,6 +177,15 @@ public sealed class WindowsRfcommConnection : IRawConnection
         var resolvedChannel = QueryRfcommChannel(address, _serviceId);
 
         var attempts = new List<(string Label, Guid ServiceId, uint Port, int TimeoutMicros)>();
+        // 品牌首选通道优先：部分型号（如华为 6i/Pro/Pro2/Pro3/Pro5/SE2/SE4/Studio/FreeClip2/LacePro2）
+        // 的控制服务固定在 RFCOMM channel 1，SDP 缓存缺失时端口 0 解析会失败，直连该通道可自愈。
+        // 若该通道非目标服务，后续 SDP/枚举/裸通道仍会继续尝试，不会阻塞。
+        if (_preferredChannel > 0)
+        {
+            attempts.Add(("Channel-pref", Guid.Empty, (uint)_preferredChannel, 500_000));
+            ApplicationLog.Current?.Info("Bluetooth",
+                $"RFCOMM 首选通道：address={address:X12}，channel={_preferredChannel}。");
+        }
         if (resolvedChannel.HasValue)
         {
             attempts.Add(("Service-UUID(resolved)", Guid.Empty, resolvedChannel.Value, 500_000));

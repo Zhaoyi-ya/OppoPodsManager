@@ -286,11 +286,14 @@ public sealed class ControlManager : IAsyncDisposable
             lock (_availableDevicesLock)
                 failedBrands = GetActiveProbeFailures(plan.Candidate.StableId);
         }
+        // BLE-only 品牌（ServiceId == Guid.Empty，如 Apple）不参与 RFCOMM 探测/连接：它们走独立的
+        // ble-adv 传输，RFCOMM 尝试只会拿 Guid.Empty 空 UUID 白白失败（WSA=10049）并多抛一次异常。
+        var isBleAdvertisement = string.Equals(plan.Options.Transport, TransportNames.BleAdvertisement, StringComparison.OrdinalIgnoreCase);
         return brands
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(brand => failedBrands is null || !failedBrands.Contains(brand))
             .Select(brand => _managerFactories.TryGetValue(brand, out var factory) ? factory : null)
-            .Where(factory => factory is not null)
+            .Where(factory => factory is not null && (isBleAdvertisement || factory.ServiceId != Guid.Empty))
             .Cast<IBrandManagerFactory>()
             .ToArray();
     }
@@ -379,12 +382,17 @@ public sealed class ControlManager : IAsyncDisposable
                     var candidatePlan = plan with
                     {
                         Brand = factory.Brand,
-                        // 品牌探测阶段禁用裸通道 1/15 兜底：设备刚上线（SPP 服务未就绪）时，Service-UUID
-                        // 端口 0 会超时；若退回裸通道则能建链但必是死通道，随后每个品牌各自握手超时白等
-                        // （真机案例：vivo 重新上线后 Vivo 4s + Edifier 8s + OPPO 11s ≈ 25s，还误确认成
-                        // OPPO）。禁裸通道后探测在端口 0 阶段即快速失败（~500ms/品牌），待设备就绪后由
-                        // 下一次设备发现重触发、再用端口 0 直连成功。手动连接路径仍保留裸通道兜底。
-                        Options = plan.Options with { ServiceId = factory.ServiceId, AllowBareChannels = false }
+                        // 裸通道兜底按“名称是否命中本品牌”放行：名称强匹配的设备（如 OPPO 盒内休眠、
+                        // SDP 不响应但控制通道仍在 channel 1）允许退化到裸通道 1/15 直连自愈；
+                        // 跨品牌探测（vivo 被 OPPO 探测）不碰裸通道，端口 0 一超时即快速失败，避免
+                        // Vivo 4s + Edifier 8s + OPPO 11s ≈ 25s 的死通道白等。误锁由各品牌握手验证
+                        // （LastResponseTicks==0）兜底。
+                        Options = plan.Options with
+                        {
+                            ServiceId = factory.ServiceId,
+                            AllowBareChannels = factory.IsCandidateName(plan.Candidate.DisplayName),
+                            Channel = factory.GetPreferredChannel(plan.Candidate.DisplayName)
+                        }
                     };
                     IBrandManager? manager = null;
                     IRawConnection? connection = null;
@@ -667,7 +675,11 @@ public sealed class ControlManager : IAsyncDisposable
                 var candidatePlan = plan with
                 {
                     Brand = factory.Brand,
-                    Options = plan.Options with { ServiceId = factory.ServiceId }
+                    Options = plan.Options with
+                    {
+                        ServiceId = factory.ServiceId,
+                        Channel = factory.GetPreferredChannel(plan.Candidate.DisplayName)
+                    }
                 };
                 // 握手阶段若品牌层判定通道不可用（典型为落到不回 GAIA 帧的裸通道），先强制只用服务 UUID
                 // 端口 0 重试一次，给“port 0 当时未就绪”的启动竞态一个自愈机会；仍失败则按原路径报错，

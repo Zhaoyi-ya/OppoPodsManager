@@ -21,6 +21,11 @@ public interface IBrandManagerFactory
     // 判断蓝牙名称是否属于当前品牌，用于确定首个待验证的服务 UUID。
     bool IsCandidateName(string? deviceName);
 
+    // 按设备名解析该品牌的“首选 RFCOMM 通道”（0=走 SDP 端口 0 解析）。
+    // 部分型号的控制服务固定在指定通道（如华为 6i/Pro/Pro2/Pro3/Pro5/SE2/SE4/Studio/FreeClip2/LacePro2=1），
+    // SDP 缓存缺失时直连该通道可自愈。默认 0，仅识别到具体型号且需要固定通道的品牌覆写。
+    int GetPreferredChannel(string? deviceName) => 0;
+
     Task<IBrandManager> CreateAsync(
         DeviceConnectionPlan plan,
         IRawConnection connection,

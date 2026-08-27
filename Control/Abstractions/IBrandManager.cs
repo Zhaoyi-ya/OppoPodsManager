@@ -60,6 +60,15 @@ public interface IBrandManager : IAsyncDisposable
     /// 默认实现返回 false（无该能力的品牌不下发）。</summary>
     Task<bool> SetAncDirectionLevelAsync(byte level, CancellationToken cancellationToken)
         => Task.FromResult(false);
+    /// <summary>读取设备语音语言列表（返回空则不支持）。华为型号返回 UTF8 语言码列表。</summary>
+    Task<string?> GetVoiceLanguageOptionsAsync(CancellationToken cancellationToken)
+        => Task.FromResult<string?>(null);
+    /// <summary>设置设备语音语言（如 "zh-CN" / "en-US"）。默认返回 false。</summary>
+    Task<bool> SetVoiceLanguageAsync(string language, CancellationToken cancellationToken)
+        => Task.FromResult(false);
+    /// <summary>设置音质偏好（false=连接优先，true=音质优先）。默认返回 false。</summary>
+    Task<bool> SetSoundQualityAsync(bool qualityPreferred, CancellationToken cancellationToken)
+        => Task.FromResult(false);
     // 均衡器协议档案：解码/编码与预设名解析的跨品牌抽象。UI 通过此接口消费，
     // 不感知具体品牌命令字、负载格式与频段白名单对齐方式。
     IEqualizerProfile EqualizerProfile { get; }

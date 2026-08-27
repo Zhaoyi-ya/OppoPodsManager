@@ -47,6 +47,21 @@
         <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
           Background="Transparent" BorderThickness="0" Opacity="0.72"
           Click="OpenUrl_Click" Tag="https://github.com/Star-ZER0/Pods-Protocol-Reverse-Engineering">Star-ZER0/Pods-Protocol-Reverse-Engineering</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/melianmiko/OpenFreebuds">melianmiko/OpenFreebuds</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/CesurPolat/MiBudsClient">CesurPolat/MiBudsClient</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/web1n/android_packages_apps_XiaomiTWS">web1n/android_packages_apps_XiaomiTWS</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/web1n/android_packages_apps_XiaomiTWS_xiaomi-sdk">web1n/android_packages_apps_XiaomiTWS_xiaomi-sdk</Button>
+        <Button FontSize="13" HorizontalAlignment="Center" Margin="0,0,0,4" Padding="4,2"
+          Background="Transparent" BorderThickness="0" Opacity="0.72"
+          Click="OpenUrl_Click" Tag="https://github.com/librepods-org/librepods">librepods-org/librepods</Button>
         <TextBlock Text="{l10n:Translate About_OpenSourceLibraries}" FontSize="14" FontWeight="SemiBold"
           HorizontalAlignment="Center" Margin="0,12,0,4" Opacity="0.7"
           Foreground="{DynamicResource SukiText}"/>

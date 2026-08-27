@@ -97,7 +97,7 @@ public sealed class HuaweiEqualizerProfile : IEqualizerProfile
         if (bandCount is < 1 or > BandCount)
             bandCount = BandCount;
 
-        if (HuaweiConstants.EqPresetNames.TryGetValue(selectedId, out var presetName))
+        if (HuaweiEqPresets.ForRoute(Route).TryGetValue(selectedId, out var presetName))
             _state.SetEqualizer(new EqualizerSnapshot(selectedId, presetName));
         else if (selectedId is >= 0x64 and <= 0x66)
         {
@@ -184,7 +184,8 @@ public sealed class HuaweiEqualizerProfile : IEqualizerProfile
 
     public static bool SupportsCustomEqualizer(HuaweiRoute route) => route switch
     {
-        HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBudsPro5 or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc => true,
+        HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBudsPro4 or
+        HuaweiRoute.FreeBudsPro5 or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc or HuaweiRoute.FreeLacePro2 => true,
         _ => false,
     };
 }
