@@ -11,6 +11,7 @@ using OppoPodsManager.Control.Core.Transport;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Communication.Abstractions;
 
 namespace OppoPodsManager.Control.Brands.Xiaomi;
 
@@ -96,13 +97,22 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
             else
             {
                 ApplicationLog.Current?.Info("Xiaomi",
-                    "电量请求未收到有效响应（命令通道可能无需认证，或帧/响应格式待真机校准）。连接本身已建立。");
+                    "电量请求未收到有效响应（命令通道可能无需认证，或帧/响应格式待真机校准）。");
             }
         }
         catch (Exception ex)
         {
             ApplicationLog.Current?.Error("Xiaomi", $"电量读取失败：{ex.Message}", ex);
         }
+
+        // 会话握手验证：电量查询没有收到过“匹配命令字的应答” = 死通道（其它品牌设备的裸通道会发
+        // 非协议噪声字节，仅凭 LastReceiveTicks==0 拦不住），改用 LastResponseTicks==0 判死通道，
+        // 抛 ChannelUnusableException 让 Discovery 切换下一品牌，而不是建一个空会话假在线。
+        // 注：真小米若要求认证而认证未实装，同样无协议应答——此时会话本就无任何可用数据，
+        // 如实失败优于假连接；认证实装后本检查自然放行。
+        if (link.LastResponseTicks == 0)
+            throw new ChannelUnusableException(
+                $"小米协议握手未收到任何应答（电量查询无应答），疑似落到非小米通道：{deviceName}。");
     }
 
     private static byte Clamp(byte value) => value > 100 ? (byte)100 : value;

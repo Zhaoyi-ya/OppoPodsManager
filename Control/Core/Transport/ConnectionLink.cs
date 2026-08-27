@@ -34,12 +34,29 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
     public event EventHandler<ReadOnlyMemory<byte>>? RawDataReceived;
     public FrameRouter Router => _router;
 
+    // 会话活性打点（TickCount64，毫秒）：供 ControlManager 的会话看门狗判定
+    // “发送后持续无响应”的死会话。空闲但健康的会话（无发送无接收）不会被误判。
+    public long LastSendTicks => Volatile.Read(ref _lastSendField);
+    public long LastReceiveTicks => Volatile.Read(ref _lastReceiveField);
+    // 请求应答打点：仅在 RequestAsync 收到“与本请求命令字匹配的响应帧”时更新，用于握手验证。
+    // 与 LastReceiveTicks（收到任何字节即打点）不同——其它品牌设备的裸通道可能发非协议噪声字节，
+    // 令 LastReceiveTicks != 0 却从未应答本协议请求；LastResponseTicks == 0 才是可靠的“死通道”判据。
+    public long LastResponseTicks => Volatile.Read(ref _lastResponseField);
+
+    private void MarkSend() => Volatile.Write(ref _lastSendField, Environment.TickCount64);
+    private void MarkReceive() => Volatile.Write(ref _lastReceiveField, Environment.TickCount64);
+    private void MarkResponse() => Volatile.Write(ref _lastResponseField, Environment.TickCount64);
+    private long _lastSendField;
+    private long _lastReceiveField;
+    private long _lastResponseField;
+
     public async Task SendAsync(ushort command, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken)
     {
         ApplicationLog.Current?.Debug("Protocol", $"发送数据帧：command=0x{command:X4}，bytes={payload.Length}，payload={FormatPayload(payload.Span)}。");
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_connection.IsConnected)
             throw new InvalidOperationException("The raw connection is not connected.");
+        MarkSend();
         await _connection.SendAsync(_codec.Encode(command, payload.Span), cancellationToken);
     }
 
@@ -53,6 +70,7 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
         await _requestGate.WaitAsync(cancellationToken);
         try
         {
+            MarkSend();
             await _connection.SendAsync(_codec.Encode(command, payload.Span), cancellationToken);
         }
         finally
@@ -73,7 +91,11 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
         try
         {
             var completion = new TaskCompletionSource<ProtocolFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var subscription = _router.Subscribe(responseCommand, frame => completion.TrySetResult(frame));
+            using var subscription = _router.Subscribe(responseCommand, frame =>
+            {
+                MarkResponse();
+                completion.TrySetResult(frame);
+            });
             await SendAsync(command, payload, cancellationToken);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _connectionCancellation.Token);
             timeout.CancelAfter(ResponseTimeout);
@@ -103,6 +125,7 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!_connection.IsConnected)
             throw new InvalidOperationException("The raw connection is not connected.");
+        MarkSend();
         await _connection.SendAsync(data, cancellationToken);
     }
 
@@ -129,6 +152,8 @@ public sealed class ConnectionLink : ICommandRequester, IAsyncDisposable
 
     private async void OnDataReceived(object? sender, ReadOnlyMemory<byte> bytes)
     {
+        // 任何字节到达都视为链路活性证据（早于解析：即使解析失败也说明设备在回话）。
+        MarkReceive();
         // 先透传原始字节，供品牌层抓非二进制帧（AT 文本等）。
         RawDataReceived?.Invoke(this, bytes);
         try

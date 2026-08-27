@@ -8,6 +8,9 @@ public sealed class HuaweiManagerFactory : IBrandManagerFactory
 {
     public string Brand => "Huawei";
     public Guid ServiceId => HuaweiConstants.HuaweiSppServiceId;
+    // 标准 SPP UUID：任何串口蓝牙设备都可能应答建链（如 vivo），不能作为品牌证据；
+    // StartSessionAsync 内置协议握手验证兜底（见 IBrandManagerFactory.ProbeEvidence 注释）。
+    public BrandProbeEvidence ProbeEvidence => BrandProbeEvidence.GenericSpp;
     public bool IsCandidateName(string? deviceName) => HuaweiModels.IsFamilyName(deviceName);
     public async Task<IBrandManager> CreateAsync(
         DeviceConnectionPlan plan,

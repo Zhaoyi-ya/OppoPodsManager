@@ -272,9 +272,9 @@ internal sealed class VivoManager : BrandManagerBase, IBrandManager
     }
     public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
         => SetTouchGestureCoreAsync(ear, kind, action, source, cancellationToken);
-    // vivo 的自定义 EQ 走独立音频效果协议（VivoAudioEffectCatalog），本档案暂用空实现占位；
-    // 后续若需把预设名解析/增益对齐统一收口，可提供 VivoEqualizerProfile 实现本接口。
-    public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
+    // vivo 的内置音效走独立音频效果协议（VivoAudioEffectCatalog），自定义 EQ 不通过本接口消费；
+    // VivoEqualizerProfile 仅负责把协议键 "Vivo.AudioEffect.x" 解析为本地化显示名，其余委托空实现。
+    public IEqualizerProfile EqualizerProfile => VivoEqualizerProfile.Instance;
     private GestureActionKind ResolveCurrentGesture(TapKind kind, EarSide ear)
     {
         if (kind == TapKind.LongPress)

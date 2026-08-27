@@ -11,6 +11,7 @@ using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 using OppoPodsManager.Control.Core;
 using OppoPodsManager.Control.Core.Features;
+using OppoPodsManager.Communication.Abstractions;
 namespace OppoPodsManager.Control.Brands.Oppo;
 // 管理单个 OPPO 耳机会话：识别型号、注册通知、维护状态并执行受能力约束的读写。
 public sealed class OppoManager : BrandManagerBase, IBrandManager
@@ -656,6 +657,14 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
             var productIdApplied = productResponse is not null
                 && identityReader.TryApplyProductId(productResponse.Payload.Span, deviceName);
             var dynamicCapability = await TryReadCapabilitiesAsync(link, cancellationToken);
+            // 会话握手验证：产品标识与能力位图两轮请求都没有收到过“匹配命令字的应答”，说明该 RFCOMM
+            // 通道只是“能建链但不回本协议”——典型为其它品牌设备的裸通道（真机案例：vivo TWS 3e 重新
+            // 上线后其裸通道在 0x0100/通知/电量全部超时的情况下仍误“确认成功”；且 vivo 裸通道会发
+            // 非 GAIA 噪声字节，仅凭 LastReceiveTicks==0 拦不住）。改用 LastResponseTicks==0（无任何
+            // 协议应答）判死通道，抛 ChannelUnusableException 让 Discovery 切换下一品牌。
+            if (link.LastResponseTicks == 0)
+                throw new ChannelUnusableException(
+                    $"OPPO 协议握手未收到任何应答（产品标识/能力位图均无应答），疑似落到非 OPPO 通道：{deviceName}。");
             _baseCapability = _capabilityLoader.Load(
                 State.Snapshot().Identity?.ProductId,
                 deviceName,

@@ -13,6 +13,10 @@ public sealed class WindowsRfcommConnection : IRawConnection
 {
     // 部分固件只以标准 SPP UUID 暴露 RFCOMM，需要按它去查真实通道。
     private static readonly Guid GenericSppServiceId = new("00001101-0000-1000-8000-00805F9B34FB");
+    // SDP 公共浏览组根：serviceId 为 null（全盘枚举）时用它做 service search。
+    // NULL service class 的查询在 Windows 上会退化（Begin 成功但枚举不出任何服务）；
+    // 所有服务默认都注册在公共浏览组下，按 browse root 搜索等价于遍历该设备的全部 SDP 服务。
+    private static readonly Guid PublicBrowseGroupRootId = new("00001002-0000-1000-8000-00805F9B34FB");
     private const int AfBth = 32;
     private const int SockStream = 1;
     private const int BthProtoRfcomm = 3;
@@ -178,6 +182,21 @@ public sealed class WindowsRfcommConnection : IRawConnection
                 $"RFCOMM SDP 解析：address={address:X12}，serviceId={_serviceId}，解析到通道={resolvedChannel.Value}。");
         }
         attempts.Add(("Service-UUID", _serviceId, 0u, 500_000));
+
+        // P1：枚举设备广播的全部 SDP RFCOMM 通道（不只品牌 UUID）。部分型号（如 FreeBuds Pro 4/5）
+        // 不暴露标准 SPP UUID，仅在私有/未知服务下挂 RFCOMM 通道，必须遍历全部 SDP 记录才能连上。
+        // 对应参考实现的「secure/insecure SPP → 设备 SDP 全部 UUID → 隐藏通道」回退链的前两段。
+        var discovered = EnumerateRfcommChannels(address, null);
+        foreach (var channel in discovered)
+        {
+            if (attempts.Any(a => a.ServiceId == Guid.Empty && a.Port == channel))
+                continue;
+            attempts.Add(($"SDP-chan-{channel}", Guid.Empty, channel, 500_000));
+        }
+        if (discovered.Count > 0)
+            ApplicationLog.Current?.Info("Bluetooth",
+                $"RFCOMM SDP 全盘枚举：address={address:X12}，发现通道={string.Join("/", discovered)}。");
+
         if (_allowBareChannels)
         {
             // 裸通道 1/15 仅作兜底：能建链但不回 GAIA 帧时即是死通道，由上层握手判定后禁用并重试。
@@ -186,7 +205,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
         }
 
         ApplicationLog.Current?.Debug("Bluetooth",
-            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，端口={(resolvedChannel.HasValue ? resolvedChannel.Value + "/" : "")}0{(_allowBareChannels ? "/1/15" : "")}。");
+            $"RFCOMM 连接策略：address={address:X12}，目标 serviceId={_serviceId}，端口={(resolvedChannel.HasValue ? resolvedChannel.Value + "/" : "")}0{(_allowBareChannels ? "/1/15" : "")}，SDP 枚举={discovered.Count}。");
 
         var lastWsa = 0;
         foreach (var (label, serviceId, port, timeout) in attempts)
@@ -254,15 +273,25 @@ public sealed class WindowsRfcommConnection : IRawConnection
     // 用原生 Winsock WSALookupService（NS_BTH 命名空间）查询远端设备 SDP 记录，
     // 从返回的 CSADDR_INFO 中读取真实 RFCOMM 通道。用强类型结构体封送（非手写偏移），
     // 避免 WSAQUERYSETW / CSADDR_INFO 偏移量或步长算错导致的堆损坏与通道解析失败。
-    // 任何异常或查询失败都返回 null，交由上层通道扫描兜底。
+    // 任何异常或查询失败都返回空列表，交由上层通道扫描兜底。
+    // serviceId 为 null 时按 SDP 公共浏览组根（00001002）搜索，遍历设备广播的全部
+    // SDP 服务（P1 的多通道回退）。NULL service class 的查询在 Windows 上会退化，
+    // Begin 成功也枚举不出任何结果，故必须换用 browse root 做 service search。
     private static uint? QueryRfcommChannel(ulong address, Guid serviceId)
+        => EnumerateRfcommChannels(address, serviceId).Cast<uint?>().FirstOrDefault();
+
+    private static IReadOnlyList<uint> EnumerateRfcommChannels(ulong address, Guid? serviceId)
     {
         EnsureWsaStarted();
+        // 全盘枚举时用公共浏览组根替代 NULL service class：所有服务默认注册在公共浏览组下，
+        // 按 browse root 搜索等价于遍历该设备的全部 SDP 服务。
+        var effectiveServiceId = serviceId ?? PublicBrowseGroupRootId;
         IntPtr guidPtr = IntPtr.Zero;
         IntPtr ctxPtr = IntPtr.Zero;
         IntPtr qsPtr = IntPtr.Zero;
         IntPtr buf = IntPtr.Zero;
         IntPtr hLookup = IntPtr.Zero;
+        var channels = new List<uint>();
         try
         {
             qsPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WsaQuerySet>());
@@ -272,7 +301,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
                 DwNameSpace = NsBth,
                 LpServiceClassId = guidPtr = Marshal.AllocHGlobal(16),
             };
-            Marshal.Copy(serviceId.ToByteArray(), 0, guidPtr, 16);
+            Marshal.Copy(effectiveServiceId.ToByteArray(), 0, guidPtr, 16);
 
             // 将目标地址格式化为 "XX:XX:XX:XX:XX:XX"，限定 SDP 查询到该设备。
             var addressText = string.Create(17, address, (span, addr) =>
@@ -289,8 +318,16 @@ public sealed class WindowsRfcommConnection : IRawConnection
             qs.LpszContext = ctxPtr = Marshal.StringToHGlobalUni(addressText);
             Marshal.StructureToPtr(qs, qsPtr, false);
 
-            if (WSALookupServiceBegin(qsPtr, LupFlushCache, out hLookup) != 0)
-                return null;
+            // 返回内容标志必须在 Begin 就传入：多数 Windows 版本上结果集在 Begin 阶段已确定，
+            // 只在 Next 传 LUP_RETURN_ALL 会得到空结果（此前“SDP 枚举=0”的直接原因之一）。
+            const uint lookupFlags = LupFlushCache | LupReturnAll;
+            if (WSALookupServiceBegin(qsPtr, lookupFlags, out hLookup) != 0)
+            {
+                var beginError = WSAGetLastError();
+                ApplicationLog.Current?.Debug("Bluetooth",
+                    $"SDP 查询启动失败：address={address:X12}，serviceId={effectiveServiceId}，WSA={beginError}（{BluetoothConnectException.DescribeWsa(beginError)}）。");
+                return channels; // SDP 查询失败时返回空列表，由上层通道扫描兜底（不能返回 null，Cast 会抛 ArgumentNullException）
+            }
 
             var bufSize = 4096;
             buf = Marshal.AllocHGlobal(bufSize);
@@ -298,7 +335,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
             while (true)
             {
                 var size = bufSize;
-                if (WSALookupServiceNext(hLookup, LupReturnAll, ref size, buf) != 0)
+                if (WSALookupServiceNext(hLookup, lookupFlags, ref size, buf) != 0)
                 {
                     var err = WSAGetLastError();
                     if (err is 10108 or 10110) // WSA_E_NO_MORE / WSAENOMORE：没有更多结果
@@ -310,6 +347,8 @@ public sealed class WindowsRfcommConnection : IRawConnection
                         buf = Marshal.AllocHGlobal(bufSize);
                         continue;
                     }
+                    ApplicationLog.Current?.Debug("Bluetooth",
+                        $"SDP 查询中断：address={address:X12}，serviceId={effectiveServiceId}，WSA={err}。");
                     break;
                 }
 
@@ -323,7 +362,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
                         continue;
                     var sa = Marshal.PtrToStructure<SockAddrBth>(sockaddrPtr);
                     if (sa.Port is > 0 and <= 30)
-                        return (uint)sa.Port;
+                        channels.Add((uint)sa.Port);
                 }
             }
         }
@@ -342,7 +381,7 @@ public sealed class WindowsRfcommConnection : IRawConnection
             if (guidPtr != IntPtr.Zero) Marshal.FreeHGlobal(guidPtr);
             if (qsPtr != IntPtr.Zero) Marshal.FreeHGlobal(qsPtr);
         }
-        return null;
+        return channels;
     }
 
     private static IntPtr TryConnect(ulong address, Guid serviceId, uint port, int timeoutMicros, out int wsaError)
@@ -376,9 +415,13 @@ public sealed class WindowsRfcommConnection : IRawConnection
                 Seconds = timeoutMicros / 1_000_000,
                 Microseconds = timeoutMicros % 1_000_000,
             };
-            if (select(0, IntPtr.Zero, ref write, ref errors, ref timeout) <= 0)
+            var selectResult = select(0, IntPtr.Zero, ref write, ref errors, ref timeout);
+            if (selectResult <= 0)
             {
-                wsaError = WSAGetLastError();
+                // select 返回 0 = 等待超时（并未置错误码，WSAGetLastError 会返回 0）；-1 才是真错误。
+                // 把超时显式映射成 WSAETIMEDOUT(10060)，否则上层 BluetoothConnectException 会报
+                // "WSA=0（未知）"，误导为程序错误，也吃不到 DescribeWsa 的"连接超时"友好文案。
+                wsaError = selectResult == 0 ? WsaTimedOut : WSAGetLastError();
                 return CloseFailedSocket(nativeSocket);
             }
             var error = 0;

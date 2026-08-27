@@ -56,7 +56,17 @@ public interface IBrandManager : IAsyncDisposable
     /// 默认实现返回 false（协议编码未实现的品牌不下发，仅由覆写的品牌保存状态）。</summary>
     Task<bool> SetLongPressCycleAsync(EarSide ear, GestureSource source, IReadOnlyList<NoiseMode> modes, CancellationToken cancellationToken)
         => Task.FromResult(false);
+    /// <summary>设置降噪方向档位（如 FreeBuds 3 的 0-8 级智能降噪方向感）。
+    /// 默认实现返回 false（无该能力的品牌不下发）。</summary>
+    Task<bool> SetAncDirectionLevelAsync(byte level, CancellationToken cancellationToken)
+        => Task.FromResult(false);
     // 均衡器协议档案：解码/编码与预设名解析的跨品牌抽象。UI 通过此接口消费，
     // 不感知具体品牌命令字、负载格式与频段白名单对齐方式。
     IEqualizerProfile EqualizerProfile { get; }
+
+    /// <summary>会话活性探测：返回（最后发送 tick，最后接收 tick）（TickCount64 毫秒）。
+    /// 无链路或品牌不适用（如 BLE 广播型 Apple）时返回 null，看门狗将跳过该会话。
+    /// 契约：LastSend &gt; LastReceive 且持续无接收超过阈值 ⇒ 视为死会话，由控制层
+    /// teardown 并重新探测品牌，避免“会话已建立但设备永不再响应”导致界面卡死。</summary>
+    (long LastSendTicks, long LastReceiveTicks)? SessionLiveness => null;
 }

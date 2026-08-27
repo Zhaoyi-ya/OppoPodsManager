@@ -21,6 +21,8 @@ public enum TapKind
     LongPress,
     /// <summary>按压（主触控区第 6 动作 / 柄键的按压动作，按 Enco Free4 实测帧结构推断）。</summary>
     Press,
+    /// <summary>按捏（华为 FreeBuds Pro 3 / Pro 5 的独立捏合手势，命令字 0x2B92，单全局设置不分左右耳）。</summary>
+    Pinch,
 }
 
 /// <summary>耳侧。</summary>
@@ -63,6 +65,12 @@ public enum GestureActionKind
     SongSwitch,
     Translate,
     QuickAttention,
+    /// <summary>空间音频切换（FreeClip 2 双击可映射为 0x07）。</summary>
+    SpatialAudio,
+    /// <summary>按捏接听来电（华为 Pro3/Pro5 按捏功能之一）。</summary>
+    AnswerCall,
+    /// <summary>按捏拒接来电（华为 Pro3/Pro5 按捏功能之一）。</summary>
+    RejectCall,
 }
 
 /// <summary>单个可选动作：逻辑语义 + 本地化 key（UI 显示文字）。</summary>
@@ -125,6 +133,9 @@ public static class GestureDisplay
         GestureActionKind.SongSwitch => "DeviceInfo_SongSwitch",
         GestureActionKind.Translate => "Gesture_Translate",
         GestureActionKind.QuickAttention => "Gesture_QuickAttention",
+        GestureActionKind.SpatialAudio => "Gesture_SpatialAudio",
+        GestureActionKind.AnswerCall => "Gesture_AnswerCall",
+        GestureActionKind.RejectCall => "Gesture_RejectCall",
         _ => "Gesture_" + kind,
     };
 }

@@ -9,6 +9,7 @@ using OppoPodsManager.Control.Core.Transport;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
+using OppoPodsManager.Communication.Abstractions;
 
 namespace OppoPodsManager.Control.Brands.Huawei;
 
@@ -23,8 +24,9 @@ namespace OppoPodsManager.Control.Brands.Huawei;
 //
 // 协议模式：华为写命令（ANC/手势/佩戴）无通用 ACK，全部走 SendFireAndForgetAsync +
 // 乐观更新 + 延迟回读确认；带响应的查询走 ConnectionLink.RequestAsync。
-// 已知限制（首版 TODO，无法验证）：FreeBuds 3 无 RFCOMM 电量（需 HFP AT 通道）、
-// FreeBuds Pro 4/Pro 5 无状态回读与手势配置（优雅返回 false / 隐藏控件）。
+// 已知限制（协议均按参考项目 HuaweiPods 实机抓包接入，但均未经真机验证）：
+// FreeBuds 3 无 RFCOMM 电量（已接 HFP AT 探测 + +UPDATEHUAWEIBATTERY= 文本解析兜底）、
+// 华为写命令（ANC/手势/佩戴/按捏/方向档位）无通用 ACK，全部走乐观更新 + 回读确认，真机行为待验证。
 internal sealed class HuaweiManager : IBrandManager
 {
     private readonly BusinessState _state = new();
@@ -55,6 +57,13 @@ internal sealed class HuaweiManager : IBrandManager
     private byte? _longPressRight;
     private byte? _swipeLeft;
     private byte? _swipeRight;
+    // 按捏（pinch）当前功能（逻辑动作，仅 Pro3/Pro5；全局设置，不分左右耳）。
+    private GestureActionKind? _pinchAction;
+    // FreeBuds 3 智能降噪方向档位（0-8，SupportsAncDirectionDial；启用降噪时附带下发）。
+    private byte _ancDirectionLevel = 4;
+    // 手势写入时间戳（TickCount64，毫秒）：写入后短时间内抑制回读覆盖，避免乐观更新被旧值漂移。
+    private readonly Dictionary<(TapKind Kind, EarSide Ear), long> _gestureWriteStamps = new();
+    private const int GestureReadbackSettleMs = 1500;
 
     // 佩戴检测开关（bool 语义，非耳侧佩戴状态）。
     private bool? _wearDetectionEnabled;
@@ -85,6 +94,10 @@ internal sealed class HuaweiManager : IBrandManager
     public BrandPresentation Presentation => BuildPresentation();
     // 双设备：仅对支持 dual-connect 的型号开放（FreeBuds 5i/6i/Pro3/Pro5/FreeClip 2）。
     public bool CanManageMultiDevice => _capabilities.SupportsDualConnect;
+
+    // 会话活性：委托 ConnectionLink 的收发打点，供控制层看门狗判定死会话。
+    public (long LastSendTicks, long LastReceiveTicks)? SessionLiveness
+        => _link is { } link ? (link.LastSendTicks, link.LastReceiveTicks) : null;
 
     public void SetInteractivePolling(bool enabled)
     {
@@ -122,6 +135,7 @@ internal sealed class HuaweiManager : IBrandManager
         _dualEnumerateTcs = null;
         _doubleTapLeft = _doubleTapRight = _tripleTapLeft = _tripleTapRight = null;
         _longPressLeft = _longPressRight = _swipeLeft = _swipeRight = null;
+        _pinchAction = null;
         _state.Reset();
     }
 
@@ -239,10 +253,47 @@ internal sealed class HuaweiManager : IBrandManager
     }
 
     public Task<bool> RefreshMultiDevicePriorityAsync(CancellationToken cancellationToken) => RefreshMultiDeviceAsync(cancellationToken);
-    public Task<bool> RefreshCustomEqualizersAsync(CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> PreviewCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> SaveCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
-    public Task<bool> DeleteCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken) => Task.FromResult(false);
+    public async Task<bool> RefreshCustomEqualizersAsync(CancellationToken cancellationToken)
+    {
+        if (_link is null || !HuaweiEqualizerProfile.SupportsCustomEqualizer(_route))
+            return false;
+        await RefreshEqualizerAsync(_link, cancellationToken);
+        return true;
+    }
+
+    public Task<bool> PreviewCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken)
+        => WriteCustomEqualizerAsync(2, entry, cancellationToken);
+
+    public Task<bool> SaveCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken)
+        => WriteCustomEqualizerAsync(entry.Id == 0 ? (byte)1 : (byte)2, entry, cancellationToken);
+
+    public Task<bool> DeleteCustomEqualizerAsync(EqualizerEntrySnapshot entry, CancellationToken cancellationToken)
+    {
+        // 参考 HuaweiEqualizerCodec 未逆向出设备侧删除协议（仅新增/更新），此处降级为不操作并提示。
+        ApplicationLog.Current?.Debug("Huawei", "自定义 EQ 删除：设备侧协议未逆向，跳过。");
+        return Task.FromResult(false);
+    }
+
+    private async Task<bool> WriteCustomEqualizerAsync(byte action, EqualizerEntrySnapshot entry, CancellationToken cancellationToken)
+    {
+        if (_link is null || !HuaweiEqualizerProfile.SupportsCustomEqualizer(_route))
+            return false;
+        if (!_equalizerProfile.TryEncodeCustomEqualizerEntry(action, entry, out var payload))
+            return false;
+        try
+        {
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetEqualizer, payload, cancellationToken);
+            // 写后回读确认：刷新 EQ 状态，UI 重新拉取自定义列表与当前选中。
+            await Task.Delay(200, cancellationToken);
+            await RefreshEqualizerAsync(_link, cancellationToken);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"写入自定义 EQ 失败：{exception.Message}", exception);
+            return false;
+        }
+    }
     public Task<bool> RefreshGameSoundAsync(CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public async Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken)
@@ -306,12 +357,13 @@ internal sealed class HuaweiManager : IBrandManager
 
     // ---- 均衡器：内置预设档案（默认/重低音/高音增强/人声），自定义编辑暂缓 ----
     public IEqualizerProfile EqualizerProfile => _equalizerProfile;
-    public sbyte CustomEqualizerMinimumGain => BrandPresentation.DefaultCustomEqMinimumGain;
-    public sbyte CustomEqualizerMaximumGain => BrandPresentation.DefaultCustomEqMaximumGain;
-    public bool IsValidCustomEqualizerName(string name) => false;
+    public sbyte CustomEqualizerMinimumGain => HuaweiEqualizerProfile.CustomEqMinimumGain;
+    public sbyte CustomEqualizerMaximumGain => HuaweiEqualizerProfile.CustomEqMaximumGain;
+    public bool IsValidCustomEqualizerName(string name) => _equalizerProfile.IsValidCustomEqualizerName(name);
     public EqualizerEntrySnapshot CreateCustomEqualizerEntry(byte id, string name, IReadOnlyList<double> gains)
-        => new(0, string.Empty, false, -6, 6, [], []);
-    public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry) => [];
+        => _equalizerProfile.CreateCustomEqualizerEntry(id, name, gains);
+    public IReadOnlyList<sbyte> AlignCustomEqualizerGains(EqualizerEntrySnapshot entry)
+        => _equalizerProfile.AlignCustomEqualizerGains(entry);
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
     {
         var snapshot = new MultiDeviceSnapshot(_dualDevices, _dualPreferredAddress is not null, _dualPreferredAddress);
@@ -363,6 +415,10 @@ internal sealed class HuaweiManager : IBrandManager
         try
         {
             await _link.SendFireAndForgetAsync(HuaweiConstants.SetAncMode, payload, cancellationToken);
+            // FB3 方向感档位（0-8 级）随降噪开启一并下发（参考 S2B C08 SetAncDirectionLevel）。
+            if (_route == HuaweiRoute.FreeBuds3 && _capabilities.SupportsAncDirectionDial)
+                await _link.SendFireAndForgetAsync(HuaweiConstants.SetAncDirectionLevel,
+                    new byte[] { 0x01, 0x01, _ancDirectionLevel }, cancellationToken);
             // 乐观更新：离散档位直接用档位 Mode（Light/Medium/…）表达，使 UI 子模式立即高亮。
             _state.SetNoise(new NoiseSnapshot(mode, null));
             // 支持状态回读的型号延迟确认（200ms），失败仅记录不翻转乐观值。
@@ -376,6 +432,28 @@ internal sealed class HuaweiManager : IBrandManager
         catch (Exception exception)
         {
             ApplicationLog.Current?.Error("Huawei", $"设置降噪失败：{exception.Message}", exception);
+            return false;
+        }
+    }
+
+    public async Task<bool> SetAncDirectionLevelAsync(byte level, CancellationToken cancellationToken)
+    {
+        if (_link is null || !_capabilities.SupportsAncDirectionDial)
+            return false;
+        // 方向档位有效范围 0-8（参考 FreeBuds 3 智能降噪档位定义）。
+        if (level > 8)
+            level = 8;
+        try
+        {
+            await _link.SendFireAndForgetAsync(HuaweiConstants.SetAncDirectionLevel,
+                new byte[] { 0x01, 0x01, level }, cancellationToken);
+            _ancDirectionLevel = level;
+            _state.NotifyChanged();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Huawei", $"设置降噪方向档位失败：{exception.Message}", exception);
             return false;
         }
     }
@@ -414,6 +492,9 @@ internal sealed class HuaweiManager : IBrandManager
             {
                 foreach (var kind in SupportedGestureKinds)
                 {
+                    // 按捏为全局设置（命令字 0x2B92 不分左右耳），仅在左列渲染一次。
+                    if (kind == TapKind.Pinch && ear == EarSide.Right)
+                        continue;
                     var actions = GetGestureActions(kind);
                     if (actions.Count == 0)
                         continue;
@@ -438,6 +519,28 @@ internal sealed class HuaweiManager : IBrandManager
     {
         if (_link is null || !_capabilities.SupportsGestureConfiguration)
             return false;
+        // 按捏（Pro3/Pro5）：独立命令字 0x2B92，非单字节侧动作帧，单独编包下发。
+        if (kind == TapKind.Pinch)
+        {
+            if (_route != HuaweiRoute.FreeBudsPro3 && _route != HuaweiRoute.FreeBudsPro5)
+                return false;
+            var pinchPayload = BuildPinchSetPayload(action);
+            if (pinchPayload is null)
+                return false;
+            try
+            {
+                await _link.SendFireAndForgetAsync(HuaweiConstants.SetPinchToggle, pinchPayload, cancellationToken);
+                _pinchAction = action;
+                _gestureWriteStamps[(TapKind.Pinch, EarSide.Left)] = Environment.TickCount64;
+                _state.NotifyChanged();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                ApplicationLog.Current?.Error("Huawei", $"设置按捏手势失败：{exception.Message}", exception);
+                return false;
+            }
+        }
         var value = EncodeGestureValue(kind, action);
         if (value is null)
             return false;
@@ -459,6 +562,7 @@ internal sealed class HuaweiManager : IBrandManager
             await _link.SendFireAndForgetAsync(command, payload, cancellationToken);
             // 乐观更新内存字节，UI 通过 GestureEntries 立即反映。
             UpdateGestureMemory(kind, ear, value.Value);
+            _gestureWriteStamps[(kind, ear)] = Environment.TickCount64;
             _state.NotifyChanged();
             // TODO(真机)：华为手势写命令无通用 ACK，参考实现发送后不回读；如需确认可在延迟后
             // 查询对应状态（S01 C20/C26、S2B C17/C1F），回读失败保留乐观值。
@@ -472,12 +576,25 @@ internal sealed class HuaweiManager : IBrandManager
     }
 
     // ---- 会话建立 ----
+    // 会话握手验证：StartSession 期间收到过任何协议响应（5A 二进制回包或 AT 文本电量）即置 true。
+    // 用于防止“能建链但不是华为协议”的死通道被锁成活动会话。
+    private volatile bool _protocolResponded;
+
     public async Task StartSessionAsync(string deviceName, ConnectionLink link, CancellationToken cancellationToken)
     {
         await DisconnectAsync();
+        _protocolResponded = false; // 在任何刷新查询前重置，避免本轮回包被误清。
         _deviceName = deviceName;
         _route = HuaweiModels.DetectRoute(deviceName);
+        // 型号未命中时必须直接失败：否则能力表全空、所有 Refresh* 被能力门控跳过，
+        // 一条协议请求都不发就“成功”建会话——非华为设备（如暴露标准 SPP 00001101 的 vivo）
+        // 会被误锁进死会话，UI 永卡“识别设备中”。真机日志（vivo TWS 3e 连接后 22ms 即
+        // “已确认并直接接入设备会话”且全程无 [Protocol] 日志）即此问题。
+        if (_route == HuaweiRoute.Unsupported)
+            throw new ChannelUnusableException(
+                $"设备“{deviceName}”未命中任何已知华为型号，拒绝建立华为会话（防止误锁非华为设备）。");
         _capabilities = HuaweiModels.GetCapabilities(_route);
+        _equalizerProfile.Route = _route;
         _link = link;
         RegisterSubscriptions(link);
         if (_capabilities.SupportsRfcommBattery)
@@ -498,6 +615,19 @@ internal sealed class HuaweiManager : IBrandManager
         // 故仅发一次 AT 探测；真正的电量以设备主动推送的 +UPDATEHUAWEIBATTERY= 文本为准
         // （由 RawDataReceived 捕获并解析）。无响应时不影响既有的二进制电量路径。
         await ProbeBatteryAtAsync(link, cancellationToken);
+
+        // 会话握手验证：至少收到一条协议响应（电量/降噪二进制回包或 AT 文本电量推送）才允许
+        // SetConnected。若全部无响应，说明该 RFCOMM 通道只是“能建链但不是华为协议”（其它品牌
+        // 设备或死通道），必须抛 ChannelUnusableException 让 Discovery 切换下一品牌重试，
+        // 而不是锁死一个永不响应的空会话。AT 文本电量推送可能稍晚于查询，最多等 2s。
+        var handshakeDeadline = Environment.TickCount64 + 2_000;
+        while (!_protocolResponded && Environment.TickCount64 < handshakeDeadline)
+            await Task.Delay(100, cancellationToken);
+        if (!_protocolResponded)
+            throw new ChannelUnusableException(
+                $"华为会话握手验证失败：设备“{deviceName}”在电量/降噪查询与 AT 文本探测后均未返回任何协议帧，" +
+                "当前 RFCOMM 通道非华为协议或设备不可达。");
+
         _state.SetConnected(deviceName);
         _pollCancellation = new CancellationTokenSource();
         _pollTask = RunPollingAsync(link, _pollCancellation.Token);
@@ -545,6 +675,8 @@ internal sealed class HuaweiManager : IBrandManager
 
     private void ApplyBatteryFromAt(HuaweiBatteryParser.BatteryState state)
     {
+        // 收到 AT 文本电量行（+HUAWEIBATTERY=/+UPDATEHUAWEIBATTERY=）即证明对端是活的华为协议设备。
+        _protocolResponded = true;
         BatteryLevel? left = state.LeftPercent is { } l ? new BatteryLevel((byte)l, state.LeftCharging) : null;
         BatteryLevel? right = state.RightPercent is { } r ? new BatteryLevel((byte)r, state.RightCharging) : null;
         BatteryLevel? @case = state.CasePercent is { } c ? new BatteryLevel((byte)c, state.CaseCharging) : null;
@@ -880,6 +1012,8 @@ internal sealed class HuaweiManager : IBrandManager
     // ---- 华为解析 ----
     private void ApplyBattery(ReadOnlySpan<byte> payload)
     {
+        // 收到电量回包即证明对端是活的华为协议设备，标记会话握手验证通过。
+        _protocolResponded = true;
         // TLV 0x02=电量[左,右,盒]、0x03=充电位[左,右,盒]、0x05=佩戴状态（仅 Pro5 等型号：
         // 0=已出盒/1=已收纳入盒）。解析逻辑与华为参考 parseBattery/podAt 对齐。
         var fields = ParseTlv(payload);
@@ -901,6 +1035,8 @@ internal sealed class HuaweiManager : IBrandManager
 
     private void ApplyAncState(ReadOnlySpan<byte> payload)
     {
+        // 收到降噪回包即证明对端是活的华为协议设备，标记会话握手验证通过。
+        _protocolResponded = true;
         // TLV 0x01 两字节 [子模式, 主模式]；主模式 0=关/1=降噪/2=通透。
         var fields = ParseTlv(payload);
         if (!fields.TryGetValue(HuaweiConstants.TlvAncState, out var state) || state.Length < 2)
@@ -945,11 +1081,32 @@ internal sealed class HuaweiManager : IBrandManager
         };
         if (kind is null)
             return;
-        if (left is { } leftValue)
+        // 回读加固：写入后短暂窗口内抑制回读覆盖（Pro5/Pro3 等无通用 ACK，设备可能回显旧值造成漂移）。
+        var applied = false;
+        if (left is { } leftValue && !IsRecentGestureWrite(kind.Value, EarSide.Left))
+        {
             UpdateGestureMemory(kind.Value, EarSide.Left, leftValue);
-        if (right is { } rightValue)
+            applied = true;
+        }
+        if (right is { } rightValue && !IsRecentGestureWrite(kind.Value, EarSide.Right))
+        {
             UpdateGestureMemory(kind.Value, EarSide.Right, rightValue);
-        _state.NotifyChanged();
+            applied = true;
+        }
+        if (applied)
+            _state.NotifyChanged();
+    }
+
+    private bool IsRecentGestureWrite(TapKind kind, EarSide ear)
+    {
+        if (_gestureWriteStamps.TryGetValue((kind, ear), out var stamp))
+        {
+            var elapsed = Environment.TickCount64 - stamp;
+            if (elapsed >= 0 && elapsed < GestureReadbackSettleMs)
+                return true;
+            _gestureWriteStamps.Remove((kind, ear));
+        }
+        return false;
     }
 
     private bool? ParseWearDetection(ReadOnlySpan<byte> payload)
@@ -972,12 +1129,12 @@ internal sealed class HuaweiManager : IBrandManager
         // FreeBuds 3 走旧头 [01 01]（单字节开关）；现代款走 [01 02 mode subMode]。
         if (_route == HuaweiRoute.FreeBuds3)
         {
+            // FB3 降噪方向档位（0-8 级）由 SetNoiseCancellationAsync 在开启降噪时通过
+            // S2B C08（SetAncDirectionLevel）单独下发，此处仅负责主模式开/关。
             return mode switch
             {
                 NoiseMode.Off => new byte[] { 0x01, 0x01, 0x00 },
                 NoiseMode.NoiseCancellation => new byte[] { 0x01, 0x01, 0x01 },
-                // TODO(真机)：FB3 智能降噪档位走 S2B C08（0-8 级，SetAncDirectionLevel），
-                // 项目 NoiseMode 无直接对应，首版仅支持开/关。
                 _ => null
             };
         }
@@ -1021,6 +1178,31 @@ internal sealed class HuaweiManager : IBrandManager
         return [side, 0x01, value];
     }
 
+    private byte[]? BuildPinchSetPayload(GestureActionKind action)
+    {
+        // 0x2B92 按捏功能切换帧（参考 buildFreeBudsPro3GestureTogglePacket / FreeBudsPro3GestureToggle）。
+        // TLV 序列：(0x01,[0x01]) + (slot,[0x01,context]) + (0x03,[value]) + (0x04,[value])，
+        // slot/context/value 由具体按捏功能决定（参考 modernPinchRoutes = Pro3 / Pro5）。
+        var (slot, context, value) = action switch
+        {
+            GestureActionKind.AnswerCall => (0x00, 0x01, 0x00), // CALL_ANSWER_END
+            GestureActionKind.RejectCall => (0x01, 0x01, 0x01), // CALL_REJECT
+            GestureActionKind.PlayPause => (0x00, 0x02, 0x02),  // MEDIA_PLAY_PAUSE
+            GestureActionKind.Next => (0x01, 0x02, 0x04),       // MEDIA_NEXT
+            GestureActionKind.Previous => (0x02, 0x02, 0x03),   // MEDIA_PREVIOUS
+            _ => (-1, -1, -1)
+        };
+        if (slot < 0)
+            return null;
+        return new byte[]
+        {
+            0x01, 0x01, 0x01,
+            (byte)slot, 0x02, 0x01, (byte)context,
+            0x03, 0x01, (byte)value,
+            0x04, 0x01, (byte)value,
+        };
+    }
+
     private byte? EncodeGestureValue(TapKind kind, GestureActionKind action)
     {
         if (kind is TapKind.Double or TapKind.Triple)
@@ -1034,6 +1216,19 @@ internal sealed class HuaweiManager : IBrandManager
                     GestureActionKind.Next => HuaweiConstants.GestureFb3PlayNext,
                     GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
                     GestureActionKind.NoiseControlToggle => HuaweiConstants.GestureFb3NoiseCancellation,
+                    GestureActionKind.None => HuaweiConstants.GestureNone,
+                    _ => null
+                };
+            }
+            // FreeClip2 双击：0x07 映射为空间音频（FreeBuds 3 之外的通用双击分支里 0x07 才是上一曲）。
+            if (kind == TapKind.Double && _route == HuaweiRoute.FreeClip2)
+            {
+                return action switch
+                {
+                    GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
+                    GestureActionKind.Next => HuaweiConstants.GestureNext,
+                    GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
+                    GestureActionKind.SpatialAudio => 0x07,
                     GestureActionKind.None => HuaweiConstants.GestureNone,
                     _ => null
                 };
@@ -1097,14 +1292,26 @@ internal sealed class HuaweiManager : IBrandManager
                     _ => GestureActionKind.None
                 };
             }
+        // FreeClip2 双击：0x07 解析为空间音频（其余型号 0x07 为上一曲）。
+        if (kind == TapKind.Double && _route == HuaweiRoute.FreeClip2)
+        {
             return value switch
             {
                 HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
                 HuaweiConstants.GestureNext => GestureActionKind.Next,
-                HuaweiConstants.GesturePrevious => GestureActionKind.Previous,
                 HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
+                0x07 => GestureActionKind.SpatialAudio,
                 _ => GestureActionKind.None
             };
+        }
+        return value switch
+        {
+            HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
+            HuaweiConstants.GestureNext => GestureActionKind.Next,
+            HuaweiConstants.GesturePrevious => GestureActionKind.Previous,
+            HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
+            _ => GestureActionKind.None
+        };
         }
         if (kind == TapKind.LongPress)
         {
@@ -1145,6 +1352,9 @@ internal sealed class HuaweiManager : IBrandManager
 
     private GestureActionKind ResolveCurrentGesture(TapKind kind, EarSide ear)
     {
+        // 按捏直接记录逻辑动作（非协议字节），单独返回。
+        if (kind == TapKind.Pinch)
+            return _pinchAction ?? GestureActionKind.None;
         byte? raw = kind switch
         {
             TapKind.Double => ear == EarSide.Left ? _doubleTapLeft : _doubleTapRight,
@@ -1168,6 +1378,9 @@ internal sealed class HuaweiManager : IBrandManager
             if (SupportsTap(_route, TapKind.Triple)) kinds.Add(TapKind.Triple);
             if (SupportsTap(_route, TapKind.LongPress)) kinds.Add(TapKind.LongPress);
             if (SupportsTap(_route, TapKind.Slide)) kinds.Add(TapKind.Slide);
+            // 按捏仅 Pro3/Pro5 支持（参考 modernPinchRoutes）。
+            if (_route == HuaweiRoute.FreeBudsPro3 || _route == HuaweiRoute.FreeBudsPro5)
+                kinds.Add(TapKind.Pinch);
             return kinds;
         }
     }
@@ -1192,6 +1405,14 @@ internal sealed class HuaweiManager : IBrandManager
 
     private IReadOnlyList<GestureActionKind> GetGestureActions(TapKind kind)
     {
+        if (kind == TapKind.Pinch)
+        {
+            // 按捏功能：Pro3/Pro5 支持 接听/拒接/播放暂停/上一曲/下一曲（参考 FreeBudsPro3GestureToggle）。
+            if (_route == HuaweiRoute.FreeBudsPro3 || _route == HuaweiRoute.FreeBudsPro5)
+                return [GestureActionKind.AnswerCall, GestureActionKind.RejectCall,
+                    GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.Previous];
+            return [];
+        }
         if (kind == TapKind.LongPress)
         {
             return _route switch
@@ -1230,10 +1451,11 @@ internal sealed class HuaweiManager : IBrandManager
             (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc, TapKind.Double)
                 => [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.Previous,
                     GestureActionKind.VoiceAssistant, GestureActionKind.None],
-            // FreeClip2 双击：播放/暂停 + 下一曲 + 语音助手 + 无（空间音频 0x07 与上一曲同值且无项目动作，省略）
+            // FreeClip2 双击：播放/暂停 + 下一曲 + 语音助手 + 空间音频(0x07) + 无。
+            // 注：0x07 同时是「上一曲」协议值，但 FreeClip2 双击不提供上一曲，故此处映射为空间音频（与参考一致）。
             (HuaweiRoute.FreeClip2, TapKind.Double)
                 => [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.VoiceAssistant,
-                    GestureActionKind.None],
+                    GestureActionKind.SpatialAudio, GestureActionKind.None],
             // Eyewear2 双击：播放/暂停 + 语音助手 + 无
             (HuaweiRoute.Eyewear2, TapKind.Double)
                 => [GestureActionKind.PlayPause, GestureActionKind.VoiceAssistant, GestureActionKind.None],
@@ -1326,12 +1548,13 @@ internal sealed class HuaweiManager : IBrandManager
             modelName,
             HuaweiModels.IsKnown(_route),
             false,                                  // SupportsSpatialAudio
-            _capabilities.SupportsEqualizer,        // SupportsCustomEqualizer（仅内置预设，自定义编辑暂缓）
+            HuaweiEqualizerProfile.SupportsCustomEqualizer(_route), // SupportsCustomEqualizer（6i/Pro5/7i/FreeArc 支持 10 段自定义）
             RuntimeAncSupported,                    // SupportsNoiseCancellation
             _capabilities.SupportsDualConnect,      // CanManageMultiDevice
-            [],                                     // CustomEqFrequencies
-            BrandPresentation.DefaultCustomEqMinimumGain,
-            BrandPresentation.DefaultCustomEqMaximumGain,
+            HuaweiEqualizerProfile.SupportsCustomEqualizer(_route)
+                ? HuaweiEqualizerProfile.BandFrequencies : [],  // CustomEqFrequencies
+            HuaweiEqualizerProfile.CustomEqMinimumGain,
+            HuaweiEqualizerProfile.CustomEqMaximumGain,
             _capabilities.SupportsEqualizer ? HuaweiConstants.EqPresetList : [],  // EqualizerPresets
             visibleControls,
             controlStates,

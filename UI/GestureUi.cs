@@ -261,6 +261,7 @@ internal static class GestureUi
         TapKind.Slide => "DeviceInfo_Slide",
         TapKind.LongPress => "DeviceInfo_LongPress",
         TapKind.Press => "DeviceInfo_PressTap",
+        TapKind.Pinch => "DeviceInfo_Pinch",
         _ => "DeviceInfo_DoubleTap",
     };
 

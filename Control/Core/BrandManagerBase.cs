@@ -31,4 +31,8 @@ public abstract class BrandManagerBase
     }
 
     private volatile bool _interactivePolling;
+
+    // 会话活性：委托 ConnectionLink 的收发打点，供控制层看门狗判定死会话。
+    public (long LastSendTicks, long LastReceiveTicks)? SessionLiveness
+        => Link is { } link ? (link.LastSendTicks, link.LastReceiveTicks) : null;
 }

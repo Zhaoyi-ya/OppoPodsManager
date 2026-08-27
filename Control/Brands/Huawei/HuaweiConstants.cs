@@ -47,6 +47,7 @@ public static class HuaweiConstants
     public const ushort SetAncMode = 0x2B04;
 
     // FreeBuds 3 智能降噪档位：S2B C08（fire-and-forget，TLV 0x01 单字节 0-8 级）。
+    // 启用降噪时附带下发，使 FB3 方向感档位（SupportsAncDirectionDial）真正生效。
     public const ushort SetAncDirectionLevel = 0x2B08;
 
     // 佩戴检测：写 S2B C10（fire-and-forget）/ 查 S2B C11（响应同命令，TLV 0x01 单字节 0/1）。
@@ -73,6 +74,12 @@ public static class HuaweiConstants
     public const ushort SetLongPress = 0x2B16;
     public const ushort QueryLongPressState = 0x2B17;
     public const ushort ReportLongPressState = 0x2B17;
+
+    // 按捏（pinch）功能切换：写 S2B C92（fire-and-forget）。
+    // 来源：HuaweiGestureController.buildFreeBudsPro3GestureTogglePacket（modernPinchRoutes = Pro3 / Pro5）。
+    // 负载为四段 TLV：(0x01,[0x01]) + (slot,[0x01,context]) + (0x03,[action]) + (0x04,[action])，
+    // slot/context/action 由具体按捏功能（接听/拒接/播放暂停/上一曲/下一曲）决定。
+    public const ushort SetPinchToggle = 0x2B92;
 
     // 均衡器（EQ）：读 S2B C4A / 写 S2B C49（fire-and-forget）。
     // 来源：OpenFreebuds config_equalizer.py（CMD_EQ_READ=0x2b4a / CMD_EQ_WRITE=0x2b49）。

@@ -39,6 +39,11 @@ internal sealed class EdifierManager : IBrandManager
     public ModelCatalogLocation? FindModelLocation(string? modelName) => null;
     public BrandPresentation Presentation => BuildPresentation();
     public bool CanManageMultiDevice => false;
+
+    // 会话活性：委托 ConnectionLink 的收发打点，供控制层看门狗判定死会话。
+    public (long LastSendTicks, long LastReceiveTicks)? SessionLiveness
+        => _link is { } link ? (link.LastSendTicks, link.LastReceiveTicks) : null;
+
     public void SetInteractivePolling(bool enabled)
     {
         // 电量/降噪轮询始终运行，不依赖交互状态。

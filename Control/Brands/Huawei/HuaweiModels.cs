@@ -55,6 +55,10 @@ public static class HuaweiModels
     // SupportsEqualizer / SupportsLowLatency / SupportsDualConnect 来自 OpenFreebuds per_model handler 注册：
     //   buds_5i/6i: EQ + 低延迟 + 双设备；buds_pro_3/5: EQ + 低延迟 + 双设备（含自定义 EQ）；
     //   free_clip_2: EQ + 低延迟 + 双设备。其余型号无明确 handler 映射，保守置 false。
+    // 2026-08-27 对齐修正（来源 DeviceCapabilities.kt）：
+    //   FreeBuds 5 / Eyewear 2 的 SupportsLowLatency 修正为 true；
+    //   FreeBuds Pro 5 的 SupportsGestureConfiguration / SupportsDiscreteAncLevels / SupportsWearDetection 修正为 true。
+    // 佩戴检测：4E/5/5i/Pro 5/7i 参考 README 已确认；6i/Pro 3 来自 OpenFreebuds 声明，尚未实机验证。
     private static readonly IReadOnlyDictionary<HuaweiRoute, HuaweiCapabilities> Capabilities =
         new Dictionary<HuaweiRoute, HuaweiCapabilities>
         {
@@ -74,7 +78,7 @@ public static class HuaweiModels
                 SupportsAnc: true, SupportsTransparency: false, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: false,
-                SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: true, SupportsDualConnect: false,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false),
             [HuaweiRoute.FreeBuds5I] = new("HUAWEI FreeBuds 5i",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
@@ -102,15 +106,15 @@ public static class HuaweiModels
                 HasChargingCase: true, UsesReportedEarbudAvailability: false),
             [HuaweiRoute.FreeBudsPro5] = new("HUAWEI FreeBuds Pro 5",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
-                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
-                SupportsRfcommBattery: true, SupportsGestureConfiguration: false,
-                SupportsWearDetection: false, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
+                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
                 HasChargingCase: true, UsesReportedEarbudAvailability: true),
             [HuaweiRoute.FreeBuds7I] = new("HUAWEI FreeBuds 7i",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
-                SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: false, SupportsDualConnect: false,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false),
             [HuaweiRoute.FreeClip] = new("HUAWEI FreeClip",
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
@@ -128,7 +132,7 @@ public static class HuaweiModels
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
                 SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
-                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                SupportsWearDetection: false, SupportsEqualizer: true, SupportsLowLatency: false, SupportsDualConnect: false,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false),
             [HuaweiRoute.Eyewear] = new("HUAWEI Eyewear",
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
@@ -140,7 +144,7 @@ public static class HuaweiModels
                 SupportsAnc: false, SupportsTransparency: false, SupportsAncStateReadback: false,
                 SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
-                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: true, SupportsDualConnect: false,
                 HasChargingCase: false, UsesReportedEarbudAvailability: false),
         };
 

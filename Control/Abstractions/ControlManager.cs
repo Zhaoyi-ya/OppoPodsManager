@@ -19,6 +19,17 @@ public sealed class ControlManager : IAsyncDisposable
     private IReadOnlyDictionary<string, DeviceConnectionPlan> _availableDevices = new Dictionary<string, DeviceConnectionPlan>();
     private readonly HashSet<string> _confirmedDeviceIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _probingDeviceIds = new(StringComparer.Ordinal);
+    // 品牌探测负结果缓存：StableId → (Brand → 失败时间戳 TickCount64)。TTL 内 Discovery
+    // 确认循环跳过该品牌，防止 DeviceWatcher 每次重新上报设备都重跑 10-20 秒的全品牌探测。
+    // 手动/自动连接（ConnectPlanAsync）不受缓存限制，用户显式重试总是全品牌再试一遍。
+    private readonly Dictionary<string, Dictionary<string, long>> _brandProbeFailures = new(StringComparer.Ordinal);
+    private static readonly TimeSpan BrandProbeFailureTtl = TimeSpan.FromMinutes(10);
+    // 单设备单轮品牌探测总预算：所有品牌加起来超过该时限即终止本轮（避免极端情况下 UI 长时间无反馈）。
+    private const int ProbeBudgetMs = 30_000;
+    // 会话看门狗参数：最后一次发送已超过单请求超时窗口（4s）仍无接收，且距最后接收超过阈值 ⇒ 判死。
+    private static readonly TimeSpan WatchdogInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan SessionDeadAfter = TimeSpan.FromSeconds(15);
+    private const int SendGraceMs = 5_000;
     private IBrandManager? _activeManager;
     private string? _activeDeviceId;
     private string? _manualDisconnectDeviceId;
@@ -99,6 +110,9 @@ public sealed class ControlManager : IAsyncDisposable
                 : null;
             _availableDevices = next;
             _confirmedDeviceIds.RemoveWhere(id => !next.ContainsKey(id));
+            // 设备已从蓝牙列表消失：清除其品牌探测负结果缓存，重新出现时从完整品牌序列重新探测。
+            foreach (var removedId in _brandProbeFailures.Keys.Where(id => !next.ContainsKey(id)).ToArray())
+                _brandProbeFailures.Remove(removedId);
             if (_manualDisconnectDeviceId is not null && !next.ContainsKey(_manualDisconnectDeviceId))
                 _manualDisconnectDeviceId = null;
         }
@@ -144,16 +158,33 @@ public sealed class ControlManager : IAsyncDisposable
         {
         }
     }
-    // Windows 与原项目一致：连接失败后不按固定间隔盲重试，只等待下一次设备状态变化或用户请求。
+    // Windows 与原项目一致：连接失败后不按固定间隔盲重试，只等待下一次设备状态变化或用户请求；
+    // 循环同时以 5 秒周期醒来做会话活性检查（看门狗）。发送后持续无接收的死会话会被拆除并
+    // 清空负结果缓存、触发重新探测——这是“会话已建立但设备永不再响应”（误锁/被手机抢连/
+    // 耳机异常休眠）的最后防线。空闲但健康的会话（无发送）不会被误判。
     private async Task RunReconnectLoopAsync()
     {
         try
         {
             while (!Volatile.Read(ref _disposed).Equals(1))
             {
-                await _reconnectWake.WaitAsync(_lifetimeCancellation.Token);
+                var signaled = await _reconnectWake.WaitAsync(WatchdogInterval, _lifetimeCancellation.Token);
                 while (_reconnectWake.CurrentCount > 0)
                     await _reconnectWake.WaitAsync(_lifetimeCancellation.Token);
+                if (ActiveManager is { } manager && IsSessionDead(manager))
+                {
+                    var deadDeviceId = _activeDeviceId;
+                    ApplicationLog.Current?.Info("Control",
+                        $"会话看门狗：活动会话长时间无协议响应，已拆除并触发重新探测。device={deadDeviceId}，manager={manager.GetType().Name}。");
+                    await ClearActiveManagerAsync();
+                    if (deadDeviceId is not null)
+                        ClearProbeFailures(deadDeviceId);
+                    SignalReconnect("会话活性超时");
+                    continue;
+                }
+                // 仅由真实信号（设备变化/用户请求/看门狗拆除）驱动自动连接，周期性醒来只做看门狗检查。
+                if (!signaled)
+                    continue;
                 if (ActiveManager is not null || _manualDisconnectDeviceId is not null)
                     continue;
                 await ConnectFirstAvailableAsync(_lifetimeCancellation.Token);
@@ -167,6 +198,20 @@ public sealed class ControlManager : IAsyncDisposable
             ApplicationLog.Current?.Error("Control", "自动连接循环异常终止。", exception);
         }
     }
+
+    // 死会话判定：最后一次活动是发送（存在未得到响应的轮询），最后一次发送已超过单请求
+    // 4s 超时窗口仍无任何接收，且距最后接收已超过 SessionDeadAfter。不发送的空闲会话
+    // （LastSend <= LastReceive）以及不适用链路活性的品牌（如 BLE 广播型 Apple，返回 null）
+    // 一律不判死，避免误拆健康会话。
+    private static bool IsSessionDead(IBrandManager manager)
+    {
+        if (manager.SessionLiveness is not { } liveness)
+            return false;
+        var now = Environment.TickCount64;
+        return liveness.LastSendTicks > liveness.LastReceiveTicks
+            && now - liveness.LastSendTicks > SendGraceMs
+            && now - liveness.LastReceiveTicks > SessionDeadAfter.TotalMilliseconds;
+    }
     // 所有已连接蓝牙设备都进入控制层；名称命中的品牌优先验证，其余品牌仅在前者失败后尝试。
     private IReadOnlyList<DeviceConnectionPlan> ResolveSupportedPlans(IEnumerable<DeviceConnectionPlan> plans)
     {
@@ -177,8 +222,12 @@ public sealed class ControlManager : IAsyncDisposable
             // 此时品牌识别不可靠——名字命中和服务命中全为 false，回退到字母序让 Edifier 排第一，
             // 用其 edf00000 UUID 去连根本没有该服务的 vivo/OPPO，必然超时崩溃。
             var infoIncomplete = IsFallbackDeviceName(plan.Candidate.DisplayName);
+            // 排序：名称命中 > 专属服务 UUID（强证据）> 服务 UUID 命中 > 通用 SPP 兜底（弱证据，
+            // 如华为的标准 00001101——几乎所有串口蓝牙设备都会应答其 RFCOMM 建链，必须最后尝试
+            // 且依赖握手验证兜底，否则会把 vivo 等其它品牌误锁成华为会话）。
             var factories = _managerFactories.Values
                 .OrderByDescending(factory => factory.IsCandidateName(plan.Candidate.DisplayName))
+                .ThenByDescending(factory => factory.ProbeEvidence == BrandProbeEvidence.DedicatedService)
                 .ThenByDescending(factory => plan.Candidate.ServiceIds.Contains(factory.ServiceId))
                 .ThenBy(factory => factory.Brand, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
@@ -224,17 +273,57 @@ public sealed class ControlManager : IAsyncDisposable
         => string.IsNullOrWhiteSpace(displayName)
             || displayName.StartsWith("耳机 ", StringComparison.Ordinal);
     // 按计划保留的稳定顺序取得可验证品牌，避免监控刷新时重排连接尝试。
-    private IReadOnlyList<IBrandManagerFactory> GetCandidateFactories(DeviceConnectionPlan plan)
+    // ignoreProbeFailures=false（Discovery 确认循环）时跳过负结果缓存中未过期的品牌；
+    // true（用户/自动连接）时总是全品牌重试。
+    private IReadOnlyList<IBrandManagerFactory> GetCandidateFactories(DeviceConnectionPlan plan, bool ignoreProbeFailures)
     {
         var brands = plan.CandidateBrands is { Count: > 0 }
             ? plan.CandidateBrands
             : string.IsNullOrWhiteSpace(plan.Brand) ? [] : [plan.Brand];
+        HashSet<string>? failedBrands = null;
+        if (!ignoreProbeFailures)
+        {
+            lock (_availableDevicesLock)
+                failedBrands = GetActiveProbeFailures(plan.Candidate.StableId);
+        }
         return brands
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(brand => failedBrands is null || !failedBrands.Contains(brand))
             .Select(brand => _managerFactories.TryGetValue(brand, out var factory) ? factory : null)
             .Where(factory => factory is not null)
             .Cast<IBrandManagerFactory>()
             .ToArray();
+    }
+
+    // 读取某设备当前仍在 TTL 内的品牌探测负结果（调用方需持有 _availableDevicesLock）。
+    private HashSet<string> GetActiveProbeFailures(string stableId)
+    {
+        if (!_brandProbeFailures.TryGetValue(stableId, out var failures))
+            return [];
+        var now = Environment.TickCount64;
+        var active = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (brand, stamp) in failures)
+        {
+            if (now - stamp < BrandProbeFailureTtl.TotalMilliseconds)
+                active.Add(brand);
+        }
+        return active;
+    }
+
+    private void RecordProbeFailure(string stableId, string brand)
+    {
+        lock (_availableDevicesLock)
+        {
+            if (!_brandProbeFailures.TryGetValue(stableId, out var failures))
+                _brandProbeFailures[stableId] = failures = new(StringComparer.OrdinalIgnoreCase);
+            failures[brand] = Environment.TickCount64;
+        }
+    }
+
+    private void ClearProbeFailures(string stableId)
+    {
+        lock (_availableDevicesLock)
+            _brandProbeFailures.Remove(stableId);
     }
     // 将已验证的工厂写回计划，后续用户连接会从成功的协议开始。
     private void MarkConfirmed(DeviceConnectionPlan plan)
@@ -245,6 +334,8 @@ public sealed class ControlManager : IAsyncDisposable
             devices[plan.Candidate.StableId] = plan;
             _availableDevices = devices;
             _confirmedDeviceIds.Add(plan.Candidate.StableId);
+            // 协议验证成功：清除该设备的品牌探测负结果缓存。
+            _brandProbeFailures.Remove(plan.Candidate.StableId);
         }
     }
     private IReadOnlyList<DeviceConnectionOption> GetAvailableDeviceOptions()
@@ -276,20 +367,34 @@ public sealed class ControlManager : IAsyncDisposable
                         return;
                 }
                 var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
-                foreach (var factory in GetCandidateFactories(plan))
+                var budgetDeadline = Environment.TickCount64 + ProbeBudgetMs;
+                foreach (var factory in GetCandidateFactories(plan, ignoreProbeFailures: false))
                 {
+                    var remaining = budgetDeadline - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        ApplicationLog.Current?.Info("Discovery", $"品牌探测预算耗尽（{ProbeBudgetMs / 1000}s），本轮确认终止：device={plan.Candidate.DisplayName}。");
+                        return;
+                    }
                     var candidatePlan = plan with
                     {
                         Brand = factory.Brand,
-                        Options = plan.Options with { ServiceId = factory.ServiceId }
+                        // 品牌探测阶段禁用裸通道 1/15 兜底：设备刚上线（SPP 服务未就绪）时，Service-UUID
+                        // 端口 0 会超时；若退回裸通道则能建链但必是死通道，随后每个品牌各自握手超时白等
+                        // （真机案例：vivo 重新上线后 Vivo 4s + Edifier 8s + OPPO 11s ≈ 25s，还误确认成
+                        // OPPO）。禁裸通道后探测在端口 0 阶段即快速失败（~500ms/品牌），待设备就绪后由
+                        // 下一次设备发现重触发、再用端口 0 直连成功。手动连接路径仍保留裸通道兜底。
+                        Options = plan.Options with { ServiceId = factory.ServiceId, AllowBareChannels = false }
                     };
                     IBrandManager? manager = null;
                     IRawConnection? connection = null;
                     try
                     {
                         ApplicationLog.Current?.Debug("Discovery", $"确认设备协议：device={plan.Candidate.DisplayName}，brand={factory.Brand}，service={factory.ServiceId}。");
-                        connection = await scanner.OpenAsync(candidatePlan, cancellationToken);
-                        manager = await factory.CreateAsync(candidatePlan, connection, cancellationToken);
+                        using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        attemptCts.CancelAfter(TimeSpan.FromMilliseconds(remaining));
+                        connection = await scanner.OpenAsync(candidatePlan, attemptCts.Token);
+                        manager = await factory.CreateAsync(candidatePlan, connection, attemptCts.Token);
                         // 确认阶段已经完整初始化会话（身份/能力/通知/初始读取），若当前尚无活动会话，
                         // 直接将其提升为活动会话，省去随后自动连接对同一设备再开一条重复会话的代价。
                         // 依据真机日志：OPPO/vivo 在“设备被发现”后会先确认协议再自动连接，导致同设备
@@ -313,6 +418,26 @@ public sealed class ControlManager : IAsyncDisposable
                     {
                         throw;
                     }
+                    catch (OperationCanceledException)
+                    {
+                        // 探测预算超时（内部 token 触发而外部未取消）：终止本轮，不记品牌负结果。
+                        ApplicationLog.Current?.Info("Discovery", $"品牌探测预算耗尽：device={plan.Candidate.DisplayName}，brand={factory.Brand}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                        return;
+                    }
+                    catch (BluetoothConnectException exception)
+                    {
+                        // 设备暂不可达属瞬态问题（未真正连上 Windows/在范围外）：不记品牌负结果，
+                        // 避免设备恢复后被缓存跳过；本轮继续尝试下一品牌。
+                        ApplicationLog.Current?.Debug("Discovery", $"设备协议确认失败（设备暂不可达）：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                    }
                     catch (Exception exception)
                     {
                         ApplicationLog.Current?.Debug("Discovery", $"设备协议确认失败：device={plan.Candidate.DisplayName}，brand={factory.Brand}，reason={exception.Message}。");
@@ -320,6 +445,8 @@ public sealed class ControlManager : IAsyncDisposable
                             await manager.DisposeAsync();
                         else if (connection is not null)
                             await connection.DisposeAsync();
+                        // 握手验证失败/超时等：记入负结果缓存，TTL 内 Discovery 不再重复探测该品牌。
+                        RecordProbeFailure(plan.Candidate.StableId, factory.Brand);
                     }
                 }
             }
@@ -519,7 +646,8 @@ public sealed class ControlManager : IAsyncDisposable
     // 通过已确认的扫描计划打开 RFCOMM 链接；异常时按计划顺序验证下一个品牌协议。
     private async Task<bool> ConnectPlanAsync(DeviceConnectionPlan plan, CancellationToken cancellationToken)
     {
-        var factories = GetCandidateFactories(plan);
+        // 用户显式连接（含自动连接）：不受负结果缓存限制，总是全品牌重试一遍。
+        var factories = GetCandidateFactories(plan, ignoreProbeFailures: true);
         if (factories.Count == 0)
         {
             ApplicationLog.Current?.Info("Control", $"跳过没有可用品牌协议的设备：device={plan.Candidate.DisplayName}。");
@@ -533,6 +661,7 @@ public sealed class ControlManager : IAsyncDisposable
                 && string.Equals(_activeDeviceId, plan.Candidate.StableId, StringComparison.Ordinal))
                 return true;
             var scanner = _deviceScanner ?? throw new InvalidOperationException("Device scanning is unavailable.");
+            var budgetDeadline = Environment.TickCount64 + ProbeBudgetMs;
             foreach (var factory in factories)
             {
                 var candidatePlan = plan with
@@ -546,6 +675,12 @@ public sealed class ControlManager : IAsyncDisposable
                 var allowBare = true;
                 for (var attempt = 0; attempt < 2; attempt++)
                 {
+                    var remaining = budgetDeadline - Environment.TickCount64;
+                    if (remaining <= 0)
+                    {
+                        ApplicationLog.Current?.Info("Control", $"品牌探测预算耗尽（{ProbeBudgetMs / 1000}s），本轮连接终止：device={plan.Candidate.DisplayName}。");
+                        return false;
+                    }
                     var attemptPlan = candidatePlan with
                     {
                         Options = candidatePlan.Options with { AllowBareChannels = allowBare }
@@ -555,8 +690,10 @@ public sealed class ControlManager : IAsyncDisposable
                     try
                     {
                         ApplicationLog.Current?.Info("Control", $"正在打开 {plan.Candidate.DisplayName} 的 {factory.Brand} 会话：service={factory.ServiceId}，allowBare={allowBare}。");
-                        connection = await scanner.OpenAsync(attemptPlan, cancellationToken);
-                        manager = await factory.CreateAsync(attemptPlan, connection, cancellationToken);
+                        using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        attemptCts.CancelAfter(TimeSpan.FromMilliseconds(remaining));
+                        connection = await scanner.OpenAsync(attemptPlan, attemptCts.Token);
+                        manager = await factory.CreateAsync(attemptPlan, connection, attemptCts.Token);
                         await SelectManagerAsync(manager);
                         manager = null;
                         _activeDeviceId = plan.Candidate.StableId;
@@ -566,6 +703,16 @@ public sealed class ControlManager : IAsyncDisposable
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
                         throw;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // 探测预算超时（内部 token 触发而外部未取消）：终止本轮，不记品牌负结果。
+                        ApplicationLog.Current?.Info("Control", $"品牌探测预算耗尽：device={plan.Candidate.DisplayName}，brand={factory.Brand}。");
+                        if (manager is not null)
+                            await manager.DisposeAsync();
+                        else if (connection is not null)
+                            await connection.DisposeAsync();
+                        return false;
                     }
                     catch (ChannelUnusableException ex) when (allowBare)
                     {
@@ -602,6 +749,8 @@ public sealed class ControlManager : IAsyncDisposable
                             await manager.DisposeAsync();
                         else if (connection is not null)
                             await connection.DisposeAsync();
+                        // 握手验证失败/超时等：记入负结果缓存，供 Discovery 确认循环在 TTL 内跳过该品牌。
+                        RecordProbeFailure(plan.Candidate.StableId, factory.Brand);
                         break;
                     }
                 }
