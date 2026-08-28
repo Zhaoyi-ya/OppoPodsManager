@@ -471,8 +471,9 @@ public partial class MainWindow : SukiWindow
             RefreshSmallWindowAppearance();
         };
 
-        // Acrylic 模糊开关
-        CbAcrylicBlur.IsChecked = SettingsManager.GetBool("AcrylicBlur", false);
+        // Acrylic 模糊开关（仅 Windows 支持；Linux 上无 DWM 毛玻璃，禁用该选项避免渲染异常）
+        CbAcrylicBlur.IsChecked = OperatingSystem.IsWindows() && SettingsManager.GetBool("AcrylicBlur", false);
+        CbAcrylicBlur.IsEnabled = OperatingSystem.IsWindows();
         if (CbAcrylicBlur.IsChecked == true)
             SelectBackground("default");
         UpdateBackgroundSettingsAvailability(CbAcrylicBlur.IsChecked == true);
@@ -2166,8 +2167,13 @@ public partial class MainWindow : SukiWindow
 
     private static bool DetectSystemLightTheme()
     {
-        var actualTheme = Application.Current?.ActualThemeVariant;
-        return actualTheme == Avalonia.Styling.ThemeVariant.Light;
+        // 背景板跟随 SukiTheme 的背景主题：Default 时取系统实际主题，显式 Dark/Light 时取显式值。
+        // 与 SmallWindow/ToastWindow 的解析逻辑保持一致，避免背景板与窗口背景用不同来源导致色差。
+        var theme = SukiTheme.GetInstance();
+        var activeTheme = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Default
+            ? Application.Current?.ActualThemeVariant
+            : theme.ActiveBaseTheme;
+        return activeTheme == Avalonia.Styling.ThemeVariant.Light;
     }
 
     private IBrush GetCircleGray() => _isLightTheme ? _brushCircleGrayLight : _brushCircleGrayDark;
@@ -2437,7 +2443,10 @@ public partial class MainWindow : SukiWindow
     /// <summary>平台适配：根据保存的设置，在构造阶段应用渲染管线配置。</summary>
     private void AdaptToPlatform()
     {
-        if (SettingsManager.GetBool("AcrylicBlur", false))
+        // AcrylicBlur 仅 Windows 有 DWM 毛玻璃；Linux(X11/Wayland) 上 Avalonia 会把
+        // WindowTransparencyLevel.AcrylicBlur 退化成半透明灰 + 深色背景透出，效果差，
+        // 故 Linux 直接跳过整个分支（即使 settings 里存了 true 也不应用）。
+        if (OperatingSystem.IsWindows() && SettingsManager.GetBool("AcrylicBlur", false))
         {
             TransparencyLevelHint = new List<WindowTransparencyLevel>
             {
@@ -2447,9 +2456,7 @@ public partial class MainWindow : SukiWindow
             Background = Avalonia.Media.Brushes.Transparent;
             SidebarFullBg.IsVisible = true;
             SidebarBorder.Background = Avalonia.Media.Brushes.Transparent;
-
-            if (OperatingSystem.IsWindows())
-                BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
+            BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
         }
         if (SettingsManager.GetBool("AdvancedRender", false))
             EnableAdvancedRender();
