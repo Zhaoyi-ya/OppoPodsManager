@@ -147,6 +147,29 @@ internal sealed class VivoManager : BrandManagerBase, IBrandManager
         => Link is null ? Task.FromResult(false) : SetWearDetectionCoreAsync(enabled, cancellationToken);
     public Task<bool> SetHearingEnhancementAsync(bool enabled, CancellationToken cancellationToken)
         => Link is null ? Task.FromResult(false) : SetHearingProtectionCoreAsync(enabled, cancellationToken);
+    // 通话操作：来电时「双击=接听/挂断、长按=拒接」的独立触控开关（0x0150 set_touch_operation_button，
+    // 与双击手势 0x0102 的 0x04/0x14「接听/挂断通话」是两套功能，此处为 ScrewVivoTWS AcceptCallMaker 同款）。
+    public async Task<bool> SetCallControlAsync(bool doubleTapAnswer, bool longPressReject, CancellationToken cancellationToken)
+    {
+        if (Link is null)
+            return false;
+        try
+        {
+            var mode = (byte)((doubleTapAnswer ? VivoConstants.CallOpDoubleTapAnswer : 0)
+                            | (longPressReject ? VivoConstants.CallOpLongPressReject : 0));
+            var response = await Link.RequestAsync(
+                VivoConstants.SetTouchOperationButton,
+                VivoConstants.AckTouchOperationButton,
+                new byte[] { VivoConstants.CallOpPrefix, mode },
+                cancellationToken);
+            return response is not null;
+        }
+        catch (Exception exception)
+        {
+            ApplicationLog.Current?.Error("Vivo", $"设置通话操作失败：{exception.Message}", exception);
+            return false;
+        }
+    }
     public Task<bool> SetDualDeviceAsync(bool enabled, CancellationToken cancellationToken)
         => SetDualDeviceCoreAsync(enabled, cancellationToken);
     // ---- dszsu: 完整实现（带 capability 检查 + 错误处理）----

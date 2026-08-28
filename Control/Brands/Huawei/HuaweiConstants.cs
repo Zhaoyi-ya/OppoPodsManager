@@ -156,6 +156,10 @@ public static class HuaweiConstants
     // FreeBuds 3 双击动作值（HuaweiGestureAction 旧枚举，勿复用于其他型号）。
     public const byte GestureFb3PlayNext = 0x04;
     public const byte GestureFb3NoiseCancellation = 0x03;
+    // FreeBuds 3i 双击动作值（FreeBuddy _FB3iDoubleTap：voice=0/playPause=1/next=4/previous=8/nothing=255，
+    // 位掩码风格，与 modern 型号 next=2/previous=7 不同，勿混用）。
+    public const byte Gesture3iNext = 0x04;
+    public const byte Gesture3iPrevious = 0x08;
 
     // ---- 滑动动作值（SwipeAction）----
     public const byte SwipeVolumeControl = 0x00;

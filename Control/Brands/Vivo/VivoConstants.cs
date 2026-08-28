@@ -118,6 +118,15 @@ internal static class VivoConstants
     public const ushort QueryLongPressFunc = 0x0231;
     public const ushort AckLongPressFunc = 0x8131;
     public const ushort ReportLongPressFunc = 0x8231;
+    // ---- 通话操作（set_touch_operation_button，ScrewVivoTWS AcceptCallMaker 同款；与双击手势 0x0102 互补）----
+    // 这是「来电时」的独立触控开关（双击=接听/挂断、长按=拒接），与「双击/长按手势做什么」是两套功能。
+    // SET 0x0150 payload = [0x03, mode]（mode 位域：bit1(0x02)=双击接听/挂断来电，bit0(0x01)=长按拒接来电）。
+    // 仅 SET 实锤（ScrewVivoTWS 写命令）；QUERY/REPORT 未确认，按 GAIA 约定暂留占位。
+    public const ushort SetTouchOperationButton = 0x0150;
+    public const ushort AckTouchOperationButton  = 0x8150;
+    public const byte CallOpPrefix          = 0x03; // payload 首字节固定前缀
+    public const byte CallOpDoubleTapAnswer = 0x02; // bit1：双击接听/挂断
+    public const byte CallOpLongPressReject = 0x01; // bit0：长按拒接
     // ---- 查找耳机（两耳同时响铃）----
     // SET   0x0120 payload = [01] 启动 / [00] 关闭
     // ACK   0x8120 payload = [00 01] 响铃中 / [00 00] 关闭
@@ -203,6 +212,7 @@ internal static class VivoConstants
         [0x01] = "播放/暂停",
         [0x02] = "上一首",
         [0x03] = "下一首",
+        [0x04] = "接听/挂断通话",
         [0x05] = "翻译",
         [0x06] = "无",
     };
@@ -212,6 +222,7 @@ internal static class VivoConstants
         [0x11] = "播放/暂停",
         [0x12] = "上一首",
         [0x13] = "下一首",
+        [0x14] = "接听/挂断通话",
         [0x15] = "翻译",
         [0x16] = "无",
     };

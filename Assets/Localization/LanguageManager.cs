@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 
 namespace OppoPodsManager.Assets.Localization;
 
@@ -74,6 +75,13 @@ public sealed class LanguageManager
             return configured;
         }
 
+        // 「自动」：优先用 Win32 GetUserDefaultUILanguage 读 Windows 显示语言。
+        // NativeAOT 下 CultureInfo.CurrentUICulture 可能因全球化数据初始化问题返回 en-US/invariant，
+        // 导致「跟随系统」失效；直接读 API 不依赖 .NET 的地域初始化，更可靠。
+        var uiLangId = GetUserDefaultUILanguage();
+        if (uiLangId != 0 && TryCreateCulture(uiLangId, out var byUiLang))
+            return byUiLang;
+
         var systemCulture = CultureInfo.CurrentUICulture;
         if (TryCreateCulture(systemCulture.Name, out var exact))
             return exact;
@@ -83,6 +91,10 @@ public sealed class LanguageManager
 
         return CultureInfo.GetCultureInfo(DefaultCultureCode);
     }
+
+    // Windows 显示语言 LANGID（如 0x0804=zh-CN、0x0409=en-US）。
+    [DllImport("kernel32.dll")]
+    private static extern int GetUserDefaultUILanguage();
 
     // 应用语言设置，并刷新所有已登记的界面文案。
     public static void ApplyConfiguredCulture(string? configuredCulture)
@@ -214,6 +226,21 @@ public sealed class LanguageManager
         {
             culture = CultureInfo.GetCultureInfo(name);
             return true;
+        }
+        catch (CultureNotFoundException)
+        {
+            culture = CultureInfo.InvariantCulture;
+            return false;
+        }
+    }
+
+    // 用 LANGID/LCID 创建文化；返回的文化名必须非空（排除 invariant 兜底）。
+    private static bool TryCreateCulture(int lcid, out CultureInfo culture)
+    {
+        try
+        {
+            culture = CultureInfo.GetCultureInfo(lcid);
+            return !string.IsNullOrEmpty(culture.Name);
         }
         catch (CultureNotFoundException)
         {

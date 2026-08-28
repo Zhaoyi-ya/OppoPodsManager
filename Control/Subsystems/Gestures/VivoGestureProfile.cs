@@ -20,6 +20,9 @@ public sealed class VivoGestureProfile : IGestureProfile
         [0x01] = GestureActionKind.PlayPause,
         [0x02] = GestureActionKind.Previous,
         [0x03] = GestureActionKind.Next,
+        // 0x04 = 来电接听/挂断通话（官方 App 双击选项的空档，App 描述文案明确"双击接听/挂断通话"，
+        // 与 ScrewVivoTWS 的 0x0150 通话操作开关互补；待真机抓包最终确认）。
+        [0x04] = GestureActionKind.AnswerCall,
         [0x05] = GestureActionKind.Translate,
         [0x06] = GestureActionKind.None,
     };
@@ -31,6 +34,7 @@ public sealed class VivoGestureProfile : IGestureProfile
         [0x11] = GestureActionKind.PlayPause,
         [0x12] = GestureActionKind.Previous,
         [0x13] = GestureActionKind.Next,
+        [0x14] = GestureActionKind.AnswerCall,
         [0x15] = GestureActionKind.Translate,
         [0x16] = GestureActionKind.None,
     };

@@ -17,6 +17,16 @@ internal static class AppleModels
         [0x1B20] = "AirPods 4 (ANC)",
         [0x1F20] = "AirPods Max (USB-C)",
         [0x2420] = "AirPods Pro 2 (USB-C)",
+        // 以下型号补自 AirPodsDesktop GetModel（0x2027=Pro3、0x2012=Beats Fit Pro）
+        // 与 OpenPods PodsStatus（idFull 为 big-endian 四字符，如 "2720"=Pro3）互证。
+        [0x2720] = "AirPods Pro 3",
+        [0x1220] = "Beats Fit Pro",
+        [0x0B20] = "Powerbeats Pro",
+        [0x0520] = "Beats X",
+        [0x1020] = "Beats Flex",
+        [0x0620] = "Beats Solo 3",
+        [0x0920] = "Beats Studio 3",
+        [0x0320] = "Powerbeats 3",
     };
 
     private static readonly IReadOnlyDictionary<byte, string> ColorNames = new Dictionary<byte, string>

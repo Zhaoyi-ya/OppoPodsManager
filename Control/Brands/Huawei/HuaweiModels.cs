@@ -9,6 +9,7 @@ namespace OppoPodsManager.Control.Brands.Huawei;
 public enum HuaweiRoute
 {
     FreeBuds3,
+    FreeBuds3I,
     FreeBuds4E,
     FreeBuds4I,
     FreeBuds5,
@@ -147,6 +148,13 @@ public static class HuaweiModels
                 SupportsWearDetection: true, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false,
                 SupportsVoiceLanguage: true, SupportsInEarState: true),
+            // FreeBuds 3i：FreeBuddy 仅实现 电量/ANC(含通透)/双击/长按 四项，无 EQ/低延迟/双设备/佩戴检测。
+            [HuaweiRoute.FreeBuds3I] = new("HUAWEI FreeBuds 3i",
+                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
+                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
+                SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
+                SupportsWearDetection: false, SupportsEqualizer: false, SupportsLowLatency: false, SupportsDualConnect: false,
+                HasChargingCase: true, UsesReportedEarbudAvailability: false),
             [HuaweiRoute.FreeBudsPro] = new("HUAWEI FreeBuds Pro",
                 SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
                 SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
@@ -248,6 +256,8 @@ public static class HuaweiModels
         Add(HuaweiRoute.FreeBuds4E, "FreeBuds 4E");
         Add(HuaweiRoute.FreeBuds4I, "HUAWEI FreeBuds 4i");
         Add(HuaweiRoute.FreeBuds4I, "FreeBuds 4i");
+        Add(HuaweiRoute.FreeBuds3I, "HUAWEI FreeBuds 3i");
+        Add(HuaweiRoute.FreeBuds3I, "FreeBuds 3i");
         Add(HuaweiRoute.FreeBudsPro, "HUAWEI FreeBuds Pro");
         Add(HuaweiRoute.FreeBudsPro, "FreeBuds Pro");
         Add(HuaweiRoute.FreeBudsPro2, "HUAWEI FreeBuds Pro 2");

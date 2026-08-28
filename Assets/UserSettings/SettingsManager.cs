@@ -106,7 +106,9 @@ public sealed record AppSettings(
 
     public static AppSettings Default { get; } = new(
         "System",
-        "en",
+        // 语言默认「自动」（空串 = 跟随系统语言，见 LanguageManager.AutomaticCultureCode）。
+        // 之前误写成 "en"，导致首次启动强制英文、且「自动」选项形同虚设。
+        "",
         true,
         false,
         true,

@@ -1291,6 +1291,19 @@ internal sealed class HuaweiManager : IBrandManager
                     _ => null
                 };
             }
+            // FreeBuds 3i 双击为位掩码值集（FreeBuddy 实测：next=4/previous=8，非 modern 的 2/7）。
+            if (_route == HuaweiRoute.FreeBuds3I)
+            {
+                return action switch
+                {
+                    GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
+                    GestureActionKind.Next => HuaweiConstants.Gesture3iNext,
+                    GestureActionKind.Previous => HuaweiConstants.Gesture3iPrevious,
+                    GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
+                    GestureActionKind.None => HuaweiConstants.GestureNone,
+                    _ => null
+                };
+            }
             // FreeClip2 双击：0x07 映射为空间音频（FreeBuds 3 之外的通用双击分支里 0x07 才是上一曲）。
             if (kind == TapKind.Double && _route == HuaweiRoute.FreeClip2)
             {
@@ -1360,6 +1373,17 @@ internal sealed class HuaweiManager : IBrandManager
                     HuaweiConstants.GestureFb3PlayNext => GestureActionKind.Next,
                     HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
                     HuaweiConstants.GestureFb3NoiseCancellation => GestureActionKind.NoiseControlToggle,
+                    _ => GestureActionKind.None
+                };
+            }
+            if (_route == HuaweiRoute.FreeBuds3I)
+            {
+                return value switch
+                {
+                    HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
+                    HuaweiConstants.Gesture3iNext => GestureActionKind.Next,
+                    HuaweiConstants.Gesture3iPrevious => GestureActionKind.Previous,
+                    HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
                     _ => GestureActionKind.None
                 };
             }
@@ -1458,10 +1482,10 @@ internal sealed class HuaweiManager : IBrandManager
 
     private static bool SupportsTap(HuaweiRoute route, TapKind kind) => (route, kind) switch
     {
-        // 双击：4E/5I/6I/7I/CLIP2/FREEARC/EYEWEAR2
+        // 双击：4E/5I/6I/7I/CLIP2/FREEARC/EYEWEAR2/3I
         (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds6I
             or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeClip2 or HuaweiRoute.FreeArc
-            or HuaweiRoute.Eyewear2, TapKind.Double) => true,
+            or HuaweiRoute.Eyewear2 or HuaweiRoute.FreeBuds3I, TapKind.Double) => true,
         // 三击：6I/7I/CLIP2/FREEARC
         (HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeClip2
             or HuaweiRoute.FreeArc, TapKind.Triple) => true,
@@ -1519,7 +1543,8 @@ internal sealed class HuaweiManager : IBrandManager
             // 6i 双击：播放/暂停 + 下一曲（官方 App 仅两档）
             (HuaweiRoute.FreeBuds6I, TapKind.Double) => [GestureActionKind.PlayPause, GestureActionKind.Next],
             // 4E/5I/7I/FREEARC 双击：播放/暂停 + 下一曲 + 上一曲 + 语音助手 + 无
-            (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc, TapKind.Double)
+            (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc
+                or HuaweiRoute.FreeBuds3I, TapKind.Double)
                 => [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.Previous,
                     GestureActionKind.VoiceAssistant, GestureActionKind.None],
             // FreeClip2 双击：播放/暂停 + 下一曲 + 语音助手 + 空间音频(0x07) + 无。
