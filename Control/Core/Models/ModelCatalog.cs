@@ -1,6 +1,6 @@
 ﻿using OppoPodsManager.Control.Core.Models;
 
-namespace OppoPodsManager.Control.Brands.Oppo.Models;
+namespace OppoPodsManager.Control.Core.Models;
 
 public sealed class ModelCatalog
 {

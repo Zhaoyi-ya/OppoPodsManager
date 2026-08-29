@@ -205,6 +205,8 @@ internal sealed class LinuxRfcommConnection : IRawConnection
     private const int FSetFl = 4;
     private const int ONonBlock = 2048;
     private const int EAgain = 11;
+    private const int SolSocket = 1;
+    private const int SoRcvTimeout = 20;
 
     private readonly DeviceCandidate _candidate;
     private readonly object _socketGate = new();
@@ -331,10 +333,16 @@ internal sealed class LinuxRfcommConnection : IRawConnection
             var endpoint = BuildAddress(address, channel);
             if (connect(socket, ref endpoint, (uint)Marshal.SizeOf<SockAddrRc>()) == 0)
             {
-                fcntl(socket, FSetFl, fcntl(socket, FGetFl) | ONonBlock);
-                return socket;
+                // 死通道探测：connect 成功 ≠ 通道可用。某些 RFCOMM 通道（例如其它设备的 SPP 服务）能建链但
+                // 不回任何 GAIA 帧，会让上层握手永远收不到应答。沿用 main 分支 LinuxRfcommStreamTransport 的探测逻辑：
+                // 连上后发一次查询帧，仅当收到以 GAIA 帧头（OPPO=0xAA / Vivo=0xFF）开头的应答时才确认是活通道。
+                if (ProbeChannel(socket))
+                {
+                    fcntl(socket, FSetFl, fcntl(socket, FGetFl) | ONonBlock);
+                    return socket;
+                }
+                close(socket);
             }
-            close(socket);
         }
         throw new IOException("No RFCOMM channel is available.");
     }
@@ -374,4 +382,31 @@ internal sealed class LinuxRfcommConnection : IRawConnection
     [DllImport(Libc, SetLastError = true)] private static extern int close(int socket);
     [DllImport(Libc, SetLastError = true)] private static extern int fcntl(int socket, int command);
     [DllImport(Libc, SetLastError = true)] private static extern int fcntl(int socket, int command, int value);
+
+    [DllImport(Libc, SetLastError = true)]
+    private static extern int setsockopt(int socket, int level, int optname, ref TimeVal optval, uint optlen);
+
+    // RFCOMM 通道探测：已 connect 成功的通道未必能通信——有些裸 SPP 通道建链却不回 GAIA 帧。
+    // 这里发一次 OPPO ProductId(0x0103) 查询帧（与 OPPO FrameCodec 编码一致），若设备在超时内回以
+    // 0xAA(OPPO)/0xFF(Vivo) 帧头即视为活通道。沿用 main 分支的修复，避免“连上但握不上手”的死通道。
+    private static bool ProbeChannel(int socket)
+    {
+        // 0xAA 07 00 00 03 01 F0 00 00 —— Header(0xAA) + len(7) + cmd(0x0103 LE) + 0xF0 + payloadLen(0)。
+        var probe = new byte[] { 0xAA, 0x07, 0x00, 0x00, 0x03, 0x01, 0xF0, 0x00, 0x00 };
+        var recv = new byte[64];
+        var recvTimeout = new TimeVal { tv_sec = 0, tv_usec = 200000 };
+        setsockopt(socket, SolSocket, SoRcvTimeout, ref recvTimeout, (uint)Marshal.SizeOf<TimeVal>());
+        if (write(socket, probe, (IntPtr)probe.Length).ToInt64() <= 0)
+            return false;
+        IntPtr got = read(socket, recv, (IntPtr)recv.Length);
+        var n = (int)(long)got;
+        // 活通道：应答首字节为 GAIA 帧头（OPPO 0xAA 或 Vivo 0xFF）；死通道通常无应答（read 超时 <=0）或回非 GAIA 数据。
+        return n > 0 && (recv[0] == 0xAA || recv[0] == 0xFF);
+    }
+
+    private struct TimeVal
+    {
+        public long tv_sec;
+        public long tv_usec;
+    }
 }

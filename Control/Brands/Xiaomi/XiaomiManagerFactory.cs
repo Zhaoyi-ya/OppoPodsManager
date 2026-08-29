@@ -1,6 +1,5 @@
 using OppoPodsManager.Communication.Abstractions;
 using OppoPodsManager.Control.Abstractions;
-using OppoPodsManager.Control.Brands.Oppo.Models;
 using OppoPodsManager.Control.Core.Transport;
 
 namespace OppoPodsManager.Control.Brands.Xiaomi;
@@ -13,11 +12,8 @@ public sealed class XiaomiManagerFactory : IBrandManagerFactory
     // 小米 XIAOAI SPP 服务的真实 SDP UUID（非标准 SPP，底座为 008584D01810）。
     public static readonly Guid XiaomiServiceId = new("00001101-0000-1000-8000-008584D01810");
 
-    private readonly ModelCatalog? _modelCatalog;
-
-    public XiaomiManagerFactory(ModelCatalog? modelCatalog = null)
+    public XiaomiManagerFactory()
     {
-        _modelCatalog = modelCatalog;
     }
 
     public string Brand => "XIAOMI";
@@ -43,7 +39,7 @@ public sealed class XiaomiManagerFactory : IBrandManagerFactory
         CancellationToken cancellationToken)
     {
         var link = new ConnectionLink(connection, new XiaomiFrameCodec(), new FrameRouter());
-        var manager = new XiaomiManager(_modelCatalog);
+        var manager = new XiaomiManager();
         try
         {
             await manager.StartSessionAsync(plan.Candidate.DisplayName, link, cancellationToken);

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using OppoPodsManager.Control.Abstractions;
-using OppoPodsManager.Control.Brands.Oppo.Models;
 using OppoPodsManager.Control.Core;
 using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Models;
@@ -20,13 +19,11 @@ namespace OppoPodsManager.Control.Brands.Xiaomi;
 // 认证握手、降噪、EQ、手势等协议在真机验证后逐步补全。
 public sealed class XiaomiManager : BrandManagerBase, IBrandManager
 {
-    private readonly ModelCatalog? _modelCatalog;
     private DeviceCapability _capability = DeviceCapability.Unknown;
     private ConnectionLink? _link;
 
-    public XiaomiManager(ModelCatalog? modelCatalog = null)
+    public XiaomiManager()
     {
-        _modelCatalog = modelCatalog;
         State.Changed += PublishState;
     }
 
