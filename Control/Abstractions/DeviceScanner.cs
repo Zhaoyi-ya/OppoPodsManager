@@ -54,21 +54,29 @@ public sealed class DeviceScanner : IDisposable
     }
 
     private static IReadOnlyList<DeviceConnectionPlan> CreatePlans(IEnumerable<DeviceCandidate> candidates)
-        => candidates
-            .Select(CreatePlan)
-            .Where(plan => plan is not null)
-            .Cast<DeviceConnectionPlan>()
-            .ToArray();
-
-    private static DeviceConnectionPlan? CreatePlan(DeviceCandidate candidate)
     {
-        var transport = candidate.Transports.FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(transport))
-            return null;
+        // 控制层数据模型为「一设备一个 plan」：_availableDevices / ApplyPlansCoreAsync 的
+        // ToDictionary 都以 Candidate.StableId 为唯一键。因此每个候选只生成一个 plan，
+        // 传输层按优先级取主链路（rfcomm 优先，gatt 兜底）。若设备只暴露 GATT（无 rfcomm
+        // 候选），则主传输回退为 gatt，保证 GATT 链路仍可用。
+        // 注：RFCOMM→GATT 的「自动回退触发」后续需在连接层（ConnectPlanAsync）实现，
+        // 此处先保证不重复键崩溃且主链路可用，不破坏既有的裸通道回退/瞬态不可达判断。
+        var plans = new List<DeviceConnectionPlan>();
+        foreach (var candidate in candidates)
+        {
+            var ordered = candidate.Transports
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .OrderBy(t => t.Equals("rfcomm", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ToArray();
+            if (ordered.Length == 0)
+                continue;
 
-        return new DeviceConnectionPlan(
-            candidate,
-            new ConnectionOptions(transport, null, 0));
+            plans.Add(new DeviceConnectionPlan(
+                candidate,
+                new ConnectionOptions(ordered[0], null, 0)));
+        }
+
+        return plans.ToArray();
     }
 }
 

@@ -120,6 +120,8 @@ public partial class MainWindow : SukiWindow, IViewHost
     private SolidColorBrush BrushCircleStrokeInactive => _isLightTheme ? _brushCircleStrokeInactiveLight : _brushCircleStrokeInactiveDark;
     private bool _themeResourceBrushesRegistered;
     private bool _isLightTheme;
+    // 当前用户选择的主题模式：0=系统(跟随) 1=深色 2=浅色。用于决定是否跟随系统自动切换。
+    private int _currentThemeIndex;
     private readonly List<IDisposable> _linguaSubs = new();
     // 复用控制层更新协调器，窗口只负责更新结果的显示和用户操作。
     private readonly UpdateCoordinator? _updateCoordinator;
@@ -182,6 +184,10 @@ public partial class MainWindow : SukiWindow, IViewHost
         // 主题：默认跟随系统（CbTheme 选中项由 PersonalView 在 Attach 时设置）
         var themeIndex = NextThemeIndex();
         ApplyTheme(themeIndex);
+
+        // 绑定背景板到窗口背景：订阅 SukiUI 主题变更（含 Linux 上系统主题自动切换），
+        // 让卡片/文字按钮等背景板与 SukiBackground 窗口背景始终走同一来源，避免分叉。
+        SukiTheme.GetInstance().OnBaseThemeChanged += OnSukiBaseThemeChanged;
 
         BackgroundAnimationEnabled = false;
 

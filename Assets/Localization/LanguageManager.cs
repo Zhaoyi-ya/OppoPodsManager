@@ -93,8 +93,15 @@ public sealed class LanguageManager
     }
 
     // Windows 显示语言 LANGID（如 0x0804=zh-CN、0x0409=en-US）。
+#if WINDOWS
     [DllImport("kernel32.dll")]
     private static extern int GetUserDefaultUILanguage();
+#else
+    // 非 Windows 平台没有 kernel32；返回 0 让 ResolveCulture 回退到
+    // CultureInfo.CurrentUICulture（.NET 在 Linux 上会按 LANG/LC_ALL 初始化，
+    // 「跟随系统」依旧生效）。
+    private static int GetUserDefaultUILanguage() => 0;
+#endif
 
     // 应用语言设置，并刷新所有已登记的界面文案。
     public static void ApplyConfiguredCulture(string? configuredCulture)

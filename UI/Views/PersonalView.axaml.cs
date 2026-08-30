@@ -100,7 +100,9 @@ public partial class PersonalView : PageView
             TbBgBlur.Text = SlBgBlur.Value.ToString();
 
             CbAdvancedRender.IsChecked = UiSettings.GetBool("AdvancedRender", false);
-            CbAcrylicBlur.IsChecked = UiSettings.GetBool("AcrylicBlur", false);
+            // Acrylic 模糊开关（仅 Windows 支持；Linux 上无 DWM 毛玻璃，禁用该选项避免渲染异常）
+            CbAcrylicBlur.IsChecked = OperatingSystem.IsWindows() && UiSettings.GetBool("AcrylicBlur", false);
+            CbAcrylicBlur.IsEnabled = OperatingSystem.IsWindows();
             // 启动期静默应用 Acrylic：窗口已在 AdaptToPlatform 按设置应用，这里只同步背景设置可用状态，
             // 不弹提示（提示只在用户手动拨动 CbAcrylicBlur 开关时由 IsCheckedChanged 触发）。
             Host?.SetAcrylicBlurSilent(CbAcrylicBlur.IsChecked == true);

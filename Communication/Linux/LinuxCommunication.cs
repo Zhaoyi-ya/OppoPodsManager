@@ -119,7 +119,7 @@ public sealed class LinuxBluetoothDiscovery : IDeviceDiscoveryMonitor
                 address.ToString("X12"),
                 name,
                 serviceIds,
-                [LinuxConnectionFactory.TransportName]));
+                [LinuxConnectionFactory.TransportName, LinuxGattConnectionFactory.TransportName]));
         }
         return result
             .GroupBy(candidate => candidate.StableId, StringComparer.Ordinal)

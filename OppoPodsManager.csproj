@@ -42,6 +42,9 @@
 
   <ItemGroup Condition="'$(EnableWindowsBackend)' != 'true'">
     <PackageReference Include="Tmds.DBus" Version="0.94.2" />
+    <!-- 裁剪保护：Tmds.DBus 用反射动态生成 D-Bus 代理（IGattCharacteristic1 等），
+         不标记为 root 会被 IL 裁切器删掉代理生成路径，导致 Linux GATT 链路运行期失效。 -->
+    <TrimmerRootAssembly Include="Tmds.DBus" />
     <Compile Remove="Communication\Transport\Windows\**\*.cs" />
     <Compile Remove="Communication\Windows\**\*.cs" />
   </ItemGroup>
@@ -56,6 +59,9 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.5" />
     <PackageReference Include="SukiUI" Version="7.0.1" />
+    <!-- 裁剪保护：SukiUI 含主题/样式反射与动态资源解析，是深浅色模式读取的核心依赖，
+         不标记为 root 可能被裁切器误删导致主题系统运行期异常。 -->
+    <TrimmerRootAssembly Include="SukiUI" />
   </ItemGroup>
 
   <ItemGroup>

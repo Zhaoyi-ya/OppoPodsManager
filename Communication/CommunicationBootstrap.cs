@@ -14,7 +14,7 @@ public static class CommunicationBootstrap
             [new Windows.WindowsBluetoothDiscovery(), new Windows.WindowsBleAdvertisementDiscovery(bleHub)]);
 #elif LINUX
         return new CommunicationController(
-            [new Linux.LinuxConnectionFactory()],
+            [new Linux.LinuxConnectionFactory(), new Linux.LinuxGattConnectionFactory()],
             [new Linux.LinuxBluetoothDiscovery()]);
 #else
         return new CommunicationController([], []);

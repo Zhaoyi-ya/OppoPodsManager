@@ -9,7 +9,8 @@ using Avalonia.Threading;
 using OppoPodsManager.Control.Brands.Oppo.Models;
 using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Assets.Localization;
-using OppoPodsManager.Assets.UserSettings;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    /// <summary>
+using OppoPodsManager.Assets.UserSettings;
+using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    /// <summary>
     /// 切换界面语言并刷新所有本地化敏感的控件与状态（由 PersonalView 经 IViewHost 调用）。
     /// </summary>
     internal void ApplyLanguage(LanguageOption option)
@@ -49,6 +50,7 @@ using OppoPodsManager.Assets.UserSettings;namespace OppoPodsManager.UI.MainWindo
 
     private void ApplyTheme(int index)
     {
+        _currentThemeIndex = index;
         var theme = SukiTheme.GetInstance();
         switch (index)
         {
@@ -70,8 +72,24 @@ using OppoPodsManager.Assets.UserSettings;namespace OppoPodsManager.UI.MainWindo
 
     private static bool DetectSystemLightTheme()
     {
-        var actualTheme = Application.Current?.ActualThemeVariant;
-        return actualTheme == Avalonia.Styling.ThemeVariant.Light;
+        // 背景板跟随 SukiTheme 的背景主题：Default 时取系统实际主题，显式 Dark/Light 时取显式值。
+        // 与 SmallWindow/ToastWindow 的解析逻辑保持一致，避免背景板与窗口背景用不同来源导致色差。
+        var theme = SukiTheme.GetInstance();
+        var activeTheme = theme.ActiveBaseTheme == Avalonia.Styling.ThemeVariant.Default
+            ? Application.Current?.ActualThemeVariant
+            : theme.ActiveBaseTheme;
+        return activeTheme == Avalonia.Styling.ThemeVariant.Light;
+    }
+
+    // 背景板绑定窗口背景：SukiUI 主题变化（含 Linux 系统主题自动切换）时触发。
+    // 仅"系统"模式下跟随解析结果，显式深/浅保持用户选择，避免被系统覆盖。
+    // 这样背景板(卡片/文字按钮)与 SukiBackground 窗口背景始终源自同一主题，不会分叉。
+    private void OnSukiBaseThemeChanged(Avalonia.Styling.ThemeVariant variant)
+    {
+        if (_currentThemeIndex != 0)
+            return;
+        _isLightTheme = variant == Avalonia.Styling.ThemeVariant.Light;
+        RefreshThemeColors();
     }
     private void RefreshThemeColors(bool refreshState = true)
     {

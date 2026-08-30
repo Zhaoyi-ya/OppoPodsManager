@@ -6,7 +6,10 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private void AdaptToPlatform()
     {
-        if (ReadUiBool("AcrylicBlur", false))
+        // AcrylicBlur 仅 Windows 有 DWM 毛玻璃；Linux(X11/Wayland) 上 Avalonia 会把
+        // WindowTransparencyLevel.AcrylicBlur 退化成半透明灰 + 深色背景透出，效果差，
+        // 故 Linux 直接跳过整个分支（即使 settings 里存了 true 也不应用）。
+        if (OperatingSystem.IsWindows() && ReadUiBool("AcrylicBlur", false))
         {
             TransparencyLevelHint = new List<WindowTransparencyLevel>
             {
@@ -16,9 +19,7 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
             Background = Avalonia.Media.Brushes.Transparent;
             SidebarFullBg.IsVisible = true;
             SidebarBorder.Background = Avalonia.Media.Brushes.Transparent;
-
-            if (OperatingSystem.IsWindows())
-                BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
+            BackgroundShaderCode = "vec4 main(vec2 fragCoord) { return vec4(0.0); }";
         }
         if (ReadUiBool("AdvancedRender", false))
             EnableAdvancedRender();

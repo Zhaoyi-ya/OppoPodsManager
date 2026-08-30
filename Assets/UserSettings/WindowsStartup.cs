@@ -1,5 +1,5 @@
-﻿using Microsoft.Win32;
-using System.Diagnostics;
+﻿using System.Diagnostics;
+using Microsoft.Win32;
 using OppoPodsManager.Control.Subsystems.Logging;
 
 namespace OppoPodsManager.Assets.UserSettings;
@@ -7,6 +7,7 @@ namespace OppoPodsManager.Assets.UserSettings;
 // 负责将应用写入或移出当前用户的 Windows 登录启动项。
 public static class WindowsStartup
 {
+#if WINDOWS
     private const string RunKey = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
     private const string ValueName = "OppoPodsManager";
 
@@ -46,4 +47,8 @@ public static class WindowsStartup
             return false;
         }
     }
+#else
+    // 非 Windows 平台没有登录启动项机制，no-op。
+    public static bool TrySetEnabled(bool enabled) => false;
+#endif
 }
