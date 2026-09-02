@@ -201,6 +201,9 @@ public sealed class LanguageManager
     public IObservable<string?> Personal_EarphoneCase => Text(nameof(Personal_EarphoneCase));
     public IObservable<string?> Personal_EarphoneLeft => Text(nameof(Personal_EarphoneLeft));
     public IObservable<string?> Personal_EarphoneRight => Text(nameof(Personal_EarphoneRight));
+    public IObservable<string?> Personal_EarphoneSelect => Text(nameof(Personal_EarphoneSelect));
+    public IObservable<string?> Personal_EarphoneReset => Text(nameof(Personal_EarphoneReset));
+    public IObservable<string?> Personal_EarphonePickTitle => Text(nameof(Personal_EarphonePickTitle));
     public IObservable<string?> Personal_LanguageAuto => Text(nameof(Personal_LanguageAuto));
     public IObservable<string?> Settings_AllModels => Text(nameof(Settings_AllModels));
     public IObservable<string?> Settings_AllSeries => Text(nameof(Settings_AllSeries));

@@ -21,27 +21,47 @@ public sealed class NoiseCancellation : IDisposable
         _notifier.NotificationReceived += OnNotificationReceived;
     }
 
+    // 响应/通知 (v1,v2) → 逻辑降噪模式，对齐 main 分支的 AncValues 反向表。
+    // 关键：响应编码与写入编码不同（如通透响应为 (0,1)、写入为 protocolIndex 2），
+    // 故必须用此表，不能直接用 NoiseModes 做位图扫描。
+    private static readonly Dictionary<(byte, byte), NoiseMode> AncReverse = new()
+    {
+        [(8, 0)] = NoiseMode.Off,
+        [(2, 0)] = NoiseMode.Smart,
+        [(0x80, 0)] = NoiseMode.Smart,
+        [(0x40, 0)] = NoiseMode.Light,
+        [(0x20, 0)] = NoiseMode.Medium,
+        [(0x10, 0)] = NoiseMode.Deep,
+        [(0, 1)] = NoiseMode.Transparency,
+        [(4, 0)] = NoiseMode.Transparency,
+        [(0, 8)] = NoiseMode.Adaptive,
+    };
+
+    // 对齐 main 分支 ParseAnc / ParseNoiseChange：
+    // 0x0204 通知 payload[0]=0x03(EvtNoiseMode)，其后 body=[kind][mType=0x01][v1][v2]。
+    // 0x810C 查询响应 payload[0]=0x00(status)，其后 body 结构相同。
+    // kind=1 手动切换：直接设主模式；kind=4 智能实时档：主模式固定 Smart、子档=解析值。
     public void Apply(ReadOnlySpan<byte> payload)
     {
         var data = payload;
-        // 查询响应使用 [status][query-kind][sub-kind][bitmap...]，通知没有 status。
-        if (data.Length >= 2 && data[0] == 0)
+        // 剥离状态/事件字节（查询 0x00 或通知 0x03）。
+        if (data.Length >= 1 && (data[0] == 0x00 || data[0] == 0x03))
             data = data[1..];
-        if (data.Length == 0)
+        // body 至少需 [kind][mType][v1][v2] 四字节；0x8404 设置回执仅 1 字节 0x00，直接忽略。
+        if (data.Length < 4)
             return;
 
-        var isSmartLevel = data.Length >= 2
-            && (data[0] == 4 && data[1] == 1 || data[0] == 1 && data[1] == 4);
-        var bitmap = data.Length >= 4 && data[0] == 1 && (data[1] == 1 || data[1] == 4)
-            ? data[2..]
-            : data.Length > 1 ? data[1..] : data;
-        var mode = ResolveBitmap(bitmap);
-        if (mode == NoiseMode.Unknown && data.Length > 1)
-            mode = ResolveMode(data[1]);
-        var current = _state.Snapshot().Noise;
-        _state.SetNoise(isSmartLevel
-            ? current with { Mode = NoiseMode.Smart, SmartLevel = mode }
-            : new NoiseSnapshot(mode, null));
+        var kind = data[0];
+        var v1 = data[2];
+        var v2 = data[3];
+
+        if (!AncReverse.TryGetValue((v1, v2), out var mode))
+            return;
+
+        if (kind == 4)
+            _state.SetNoise(new NoiseSnapshot(NoiseMode.Smart, mode));
+        else
+            _state.SetNoise(new NoiseSnapshot(mode, null));
     }
 
     // 根据型号能力构造降噪父子模式，统一处理官方 childrenMode 分组规则。
@@ -59,10 +79,22 @@ public sealed class NoiseCancellation : IDisposable
             var children = group.Children
                 .Select(child => new NoiseOptionModel(GetKey(child.Mode), child.Mode, child.ProtocolIndex, []))
                 .ToArray();
-            var parentProtocol = children.Length == 0
-                ? capability.NoiseModes.FirstOrDefault(item => item.Value == group.Parent).Key
-                : (byte)0;
-            options.Add(new NoiseOptionModel(GetKey(group.Parent), group.Parent, parentProtocol, children));
+            var parentProtocol = group.ParentProtocolIndex != 0
+                ? group.ParentProtocolIndex
+                : capability.NoiseModes.FirstOrDefault(item => item.Value == group.Parent).Key;
+            var parentKey = GetKey(group.Parent);
+
+            // 对齐 main 分支 BuildAncOptions：
+            // 单子且子模式与主模式同键（通透/关闭）折叠为可直接发送的主模式，使用父码
+            // protocolIndex（与 main 的 AncTransparency=01 01 04 / AncOff=01 01 01 一致），不展开子框。
+            // 多子模式（降噪）保留父容器 + 子模式列表，由 UI 展开后下发具体子模式位。
+            if (children.Length == 1 && GetKey(children[0].Mode) == parentKey)
+            {
+                options.Add(new NoiseOptionModel(parentKey, group.Parent, parentProtocol, []));
+                continue;
+            }
+
+            options.Add(new NoiseOptionModel(parentKey, group.Parent, parentProtocol, children));
         }
 
         options.AddRange(capability.NoiseModes
@@ -82,6 +114,7 @@ public sealed class NoiseCancellation : IDisposable
         NoiseMode.Light => "Light",
         NoiseMode.Medium => "Medium",
         NoiseMode.Deep => "Deep",
+        NoiseMode.Adaptive => "Adaptive",
         _ => "Adaptive"
     };
 
@@ -93,7 +126,8 @@ public sealed class NoiseCancellation : IDisposable
             "Off" => NoiseMode.Off,
             "NC" or "NoiseCancellation" => NoiseMode.NoiseCancellation,
             "Transparency" => NoiseMode.Transparency,
-            "Smart" or "Adaptive" => NoiseMode.Smart,
+            "Smart" => NoiseMode.Smart,
+            "Adaptive" => NoiseMode.Adaptive,
             "Light" => NoiseMode.Light,
             "Medium" => NoiseMode.Medium,
             "Deep" => NoiseMode.Deep,
@@ -108,42 +142,6 @@ public sealed class NoiseCancellation : IDisposable
     {
         if (notification.EventId == Notifier.NoiseCancellationEvent)
             Apply(notification.Data.Span);
-    }
-
-    private NoiseMode ResolveMode(byte encodedMode)
-    {
-        if (_capability.NoiseModes.TryGetValue(encodedMode, out var mode))
-            return mode;
-
-        return encodedMode switch
-        {
-            0 => NoiseMode.Off,
-            1 => NoiseMode.NoiseCancellation,
-            2 => NoiseMode.Transparency,
-            3 => NoiseMode.Smart,
-            _ => NoiseMode.Unknown
-        };
-    }
-
-    // 从小端位图找出当前协议位，并根据型号映射为逻辑降噪模式。
-    private NoiseMode ResolveBitmap(ReadOnlySpan<byte> bitmap)
-    {
-        for (var byteIndex = 0; byteIndex < bitmap.Length && byteIndex < 4; byteIndex++)
-        {
-            for (var bit = 0; bit < 8; bit++)
-            {
-                if ((bitmap[byteIndex] & (1 << bit)) == 0)
-                    continue;
-
-                var protocolIndex = (byte)(byteIndex * 8 + bit);
-                if (_capability.NoiseModes.TryGetValue(protocolIndex, out var mode))
-                    return mode;
-
-                return ResolveMode(protocolIndex);
-            }
-        }
-
-        return NoiseMode.Unknown;
     }
 }
 

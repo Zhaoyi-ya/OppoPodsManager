@@ -145,7 +145,7 @@
      <Button x:Name="NavEq" Content="{l10n:Translate Sidebar_NavEq}" Height="38" FontSize="13"
        Click="NavEq_Click" Classes="SidebarNav"/>
      <Button x:Name="NavGesture" Content="{l10n:Translate Sidebar_NavGesture}" Height="38" FontSize="13"
-       Click="NavGesture_Click" Classes="SidebarNav"/>
+       Click="NavGesture_Click" Classes="SidebarNav" IsVisible="False"/>
      <Button x:Name="NavPersonal" Content="{l10n:Translate Sidebar_NavPersonal}" Height="38" FontSize="13"
        Click="NavPersonal_Click" Classes="SidebarNav"/>
     </StackPanel>

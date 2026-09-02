@@ -42,6 +42,7 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
     {
         (NoiseMode.NoiseCancellation, "Anc_ModeNoiseCancellation"),
         (NoiseMode.Smart, "Anc_ModeAdaptive"),
+        (NoiseMode.Adaptive, "Anc_ModeAdaptive"),
         (NoiseMode.Transparency, "Anc_ModeTransparency"),
         (NoiseMode.Off, "Anc_ModeOff"),
     };
@@ -100,7 +101,8 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
                 FeatureSwitches.ResolveControlStates(featureStates),
                 FeatureSwitches.ResolveControlEnabledStates(Capability, featureStates, State.Snapshot().Game),
                 NoiseCancellation.BuildOptions(Capability),
-                NoiseCancellation.GetKey(State.Snapshot().Noise.SmartLevel ?? State.Snapshot().Noise.Mode));
+                NoiseCancellation.GetKey(State.Snapshot().Noise.SmartLevel ?? State.Snapshot().Noise.Mode),
+                Capability.BatteryLayout);
         }
     }
     // 判断当前型号是否具备多设备策略管理所需的任一协议能力。
@@ -269,6 +271,24 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
         }
         foreach (var group in Capability.NoiseGroups)
         {
+            if (group.Parent == mode)
+            {
+                // 单子同模式（通透/关闭）：发送父码 protocolIndex，与 main 的 AncTransparency=01 01 04 /
+                // AncOff=01 01 01 一致，UI 折叠为直接发送的主模式。
+                // 多子模式（降噪）：父码 01 01 02 不被 main 使用且会引发回弹，改发首个子模式位，
+                // 与 main 将 NC 父项视为 Sendable=false（仅子模式可下发）对齐。
+                if (group.Children.Count <= 1 && group.ParentProtocolIndex != 0)
+                {
+                    ApplicationLog.Current?.Debug("Noise.Protocol", $"按模式键切换父模式：key={modeKey}，protocolIndex={group.ParentProtocolIndex}。");
+                    return SetNoiseCancellationProtocolAsync(group.ParentProtocolIndex, cancellationToken);
+                }
+                var firstChild = group.Children.FirstOrDefault();
+                if (firstChild is not null)
+                {
+                    ApplicationLog.Current?.Debug("Noise.Protocol", $"按模式键切换首子模式（父容器不可直接下发）：key={modeKey}，protocolIndex={firstChild.ProtocolIndex}。");
+                    return SetNoiseCancellationProtocolAsync(firstChild.ProtocolIndex, cancellationToken);
+                }
+            }
             var child = group.Children.FirstOrDefault(option => option.Mode == mode);
             if (child is not null)
             {

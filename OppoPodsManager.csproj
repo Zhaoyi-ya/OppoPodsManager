@@ -6,6 +6,12 @@
     <EnableWindowsBackend Condition="'$(EnableWindowsBackend)' == ''">false</EnableWindowsBackend>
   </PropertyGroup>
 
+  <!-- 调试模式启用 apphost，使 bin 下生成 OppoPodsManager.exe（而非仅 dll），
+       VS Code 调试时进程名即为 OppoPodsManager，而不是 dotnet。 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>OppoPodsManager</AssemblyName>

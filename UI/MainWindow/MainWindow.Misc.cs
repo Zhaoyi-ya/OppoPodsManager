@@ -87,6 +87,39 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
                 Source = EarphoneImageProvider.GetBitmap(slot)
             };
             _earphonePreviews[slot] = preview;
+
+            var border = new Border
+            {
+                Width = 56,
+                Height = 56,
+                CornerRadius = new CornerRadius(8),
+                Background = _textPanelButtonBgBrush,
+                Child = preview,
+                Cursor = new Cursor(StandardCursorType.Hand)
+            };
+
+            // 点击耳机图案弹出选项菜单：选择图片 / 恢复默认
+            var menu = new ContextMenu();
+            var pickItem = new MenuItem
+            {
+                Header = LanguageManager.Instance.GetString(LanguageManager.Instance.Personal_EarphoneSelect)
+            };
+            pickItem.Click += async (_, _) => await PickAndSaveEarphoneImage(slot);
+            var resetItem = new MenuItem
+            {
+                Header = LanguageManager.Instance.GetString(LanguageManager.Instance.Personal_EarphoneReset)
+            };
+            resetItem.Click += (_, _) =>
+            {
+                EarphoneImageProvider.ResetCustom(slot);
+                RefreshEarphoneImages();
+                BuildEarphoneCustomUi();
+            };
+            menu.Items.Add(pickItem);
+            menu.Items.Add(resetItem);
+            border.ContextMenu = menu;
+            border.Tapped += (_, _) => menu.Open(border);
+
             PersonalView.EarphoneCustomContent.Children.Add(new StackPanel
             {
                 Width = 108,
@@ -94,14 +127,7 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
                 Margin = new Thickness(8, 4),
                 Children =
                 {
-                    new Border
-                    {
-                        Width = 56,
-                        Height = 56,
-                        CornerRadius = new CornerRadius(8),
-                        Background = _textPanelButtonBgBrush,
-                        Child = preview
-                    },
+                    border,
                     new TextBlock
                     {
                         Text = LanguageManager.Instance.GetString(slot switch
@@ -115,6 +141,40 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
                     }
                 }
             });
+        }
+    }
+    private async Task PickAndSaveEarphoneImage(EarphoneSlot slot)
+    {
+        var storage = TopLevel.GetTopLevel(this)?.StorageProvider;
+        if (storage is null)
+            return;
+
+        var files = await storage.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+        {
+            Title = LanguageManager.Instance.GetString(LanguageManager.Instance.Personal_EarphonePickTitle),
+            AllowMultiple = false,
+            FileTypeFilter = new List<Avalonia.Platform.Storage.FilePickerFileType>
+            {
+                new(LanguageManager.Instance.GetString(LanguageManager.Instance.ImagePicker_FilterName))
+                {
+                    Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" }
+                }
+            }
+        });
+
+        if (files is not { Count: > 0 })
+            return;
+
+        var path = files[0].Path.LocalPath;
+        try
+        {
+            EarphoneImageProvider.SaveCustom(slot, path);
+            RefreshEarphoneImages();
+            BuildEarphoneCustomUi();
+        }
+        catch (Exception ex)
+        {
+            _logManager?.Error("UI", $"保存自定义耳机图案失败：{slot}", ex);
         }
     }
     private static void DisposeEarphoneImage(Image image)

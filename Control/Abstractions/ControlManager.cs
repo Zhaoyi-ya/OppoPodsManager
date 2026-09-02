@@ -225,8 +225,12 @@ public sealed class ControlManager : IAsyncDisposable
             // 排序：名称命中 > 专属服务 UUID（强证据）> 服务 UUID 命中 > 通用 SPP 兜底（弱证据，
             // 如华为的标准 00001101——几乎所有串口蓝牙设备都会应答其 RFCOMM 建链，必须最后尝试
             // 且依赖握手验证兜底，否则会把 vivo 等其它品牌误锁成华为会话）。
+            // 同 MAC 已确认过品牌时，将其置顶优先，跳过全品牌探测，减少首次识别等待。
+            var cachedBrand = plan.Candidate.BluetoothAddress is { } mac ? _settings?.GetBrandForMac(mac) : null;
             var factories = _managerFactories.Values
-                .OrderByDescending(factory => factory.IsCandidateName(plan.Candidate.DisplayName))
+                .OrderByDescending(factory => cachedBrand is not null
+                    && string.Equals(factory.Brand, cachedBrand, StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(factory => factory.IsCandidateName(plan.Candidate.DisplayName))
                 .ThenByDescending(factory => factory.ProbeEvidence == BrandProbeEvidence.DedicatedService)
                 .ThenByDescending(factory => plan.Candidate.ServiceIds.Contains(factory.ServiceId))
                 .ThenBy(factory => factory.Brand, StringComparer.OrdinalIgnoreCase)
@@ -331,6 +335,9 @@ public sealed class ControlManager : IAsyncDisposable
     // 将已验证的工厂写回计划，后续用户连接会从成功的协议开始。
     private void MarkConfirmed(DeviceConnectionPlan plan)
     {
+        // 在锁外记录 MAC → 品牌缓存，避免文件持久化阻塞设备字典锁。
+        var cacheMac = plan.Candidate.BluetoothAddress;
+        var cacheBrand = plan.Brand;
         lock (_availableDevicesLock)
         {
             var devices = new Dictionary<string, DeviceConnectionPlan>(_availableDevices, StringComparer.Ordinal);
@@ -340,6 +347,8 @@ public sealed class ControlManager : IAsyncDisposable
             // 协议验证成功：清除该设备的品牌探测负结果缓存。
             _brandProbeFailures.Remove(plan.Candidate.StableId);
         }
+        if (!string.IsNullOrWhiteSpace(cacheMac) && !string.IsNullOrWhiteSpace(cacheBrand))
+            _settings?.RecordBrandForMac(cacheMac, cacheBrand);
     }
     private IReadOnlyList<DeviceConnectionOption> GetAvailableDeviceOptions()
     {

@@ -825,8 +825,9 @@ public partial class SmallWindow : SukiWindow
             AncSubRow.IsVisible = true;
             var target = opt.Children.Any(c => c.Key == _ancLevel) ? _ancLevel : opt.Children[0].Key;
             _ancLevel = target;
-            ApplicationLog.Current?.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 发送子模式 {target}");
-            _ = SetNextAncAsync(target, "ANC 子模式");
+            ApplicationLog.Current?.Debug("UI", $"SmallWindow: ANC 主模式 -> {opt.Key}, 下发子模式 {target}");
+            // 对齐 main 分支：容器型（降噪）下发子模式位，而非父码 01 01 02（不被欢律使用且会回弹）。
+            _ = SetNextAncAsync(target, "ANC 主模式");
         }
         else
         {

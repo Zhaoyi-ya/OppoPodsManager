@@ -122,8 +122,8 @@ public static class HuaweiModels
                 HasChargingCase: true, UsesReportedEarbudAvailability: false,
                 SupportsVoiceLanguage: true, SupportsSoundQuality: true, SupportsInEarState: true, PreferredSppChannel: 1),
             [HuaweiRoute.FreeBudsPro4] = new("HUAWEI FreeBuds Pro 4",
-                SupportsAnc: true, SupportsTransparency: true, SupportsAncStateReadback: true,
-                SupportsDiscreteAncLevels: true, SupportsAncDirectionDial: false,
+                SupportsAnc: true, SupportsTransparency: false, SupportsAncStateReadback: false,
+                SupportsDiscreteAncLevels: false, SupportsAncDirectionDial: false,
                 SupportsRfcommBattery: true, SupportsGestureConfiguration: true,
                 SupportsWearDetection: true, SupportsEqualizer: true, SupportsLowLatency: true, SupportsDualConnect: true,
                 HasChargingCase: true, UsesReportedEarbudAvailability: false,
@@ -440,7 +440,7 @@ public static class HuaweiAncLevels
             // 智慧动态(dynamic)=3、轻度(comfort)=1、均衡(normal)=0、深度(ultra)=2。
             // 此前 Pro3/7i 单独映射(1/0/2/3)与 OpenFreebuds 冲突，已按权威源统一；5i/6i 实机抓包一致。
             HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds6I or
-            HuaweiRoute.FreeBudsPro or HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBudsPro4 or
+            HuaweiRoute.FreeBudsPro or HuaweiRoute.FreeBudsPro3 or
             HuaweiRoute.FreeBudsPro5 or HuaweiRoute.FreeBuds7I or
             HuaweiRoute.FreeBudsSe4 or HuaweiRoute.FreeBudsStudio or HuaweiRoute.FreeLacePro2 =>
                 [(HuaweiAncLevel.Adaptive, (byte)0x03), (HuaweiAncLevel.Light, (byte)0x01),

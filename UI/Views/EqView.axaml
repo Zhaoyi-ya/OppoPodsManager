@@ -168,7 +168,7 @@
      </StackPanel>
     </Border>
 
-    <TextBlock x:Name="EqHintText" Text="{l10n:Translate Eq_HintSelect}"
+    <TextBlock x:Name="EqHintText"
        FontSize="11" HorizontalAlignment="Center"
        Opacity="0.45" Foreground="{DynamicResource SukiText}"/>
     <Border Height="24" Background="Transparent"/>

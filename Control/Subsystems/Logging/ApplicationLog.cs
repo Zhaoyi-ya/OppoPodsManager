@@ -9,12 +9,19 @@ namespace OppoPodsManager.Control.Subsystems.Logging;
 public sealed class ApplicationLog : TraceListener, IDisposable
 {
     private const int MaximumEntries = 2_000;
+    private const int BatchSize = 100;
+    private const int FlushIntervalMs = 5_000;
+    private const long MaxFileSizeBytes = 50 * 1024 * 1024;
+    private const int MaxBackupFiles = 2;
+
     private readonly object _gate = new();
     private readonly ConcurrentQueue<LogEntry> _entries = new();
     private readonly string _directory;
     private readonly string _filePath;
+    private readonly Timer _flushTimer;
     private StreamWriter? _writer;
     private bool _disposed;
+    private int _pendingCount;
 
     // 提供给未采用依赖注入的底层模块使用的当前应用日志实例。
     public static ApplicationLog? Current { get; private set; }
@@ -26,7 +33,9 @@ public sealed class ApplicationLog : TraceListener, IDisposable
         _directory = directory;
         Directory.CreateDirectory(directory);
         _filePath = Path.Combine(directory, "OppoPodsManager.log");
+        CleanupOldBackups();
         _writer = CreateWriter(_filePath);
+        _flushTimer = new Timer(_ => Flush(), null, FlushIntervalMs, FlushIntervalMs);
         Current = this;
         Trace.Listeners.Add(this);
         Write(LogLevel.Information, "App", "日志服务已启动。");
@@ -112,25 +121,84 @@ public sealed class ApplicationLog : TraceListener, IDisposable
         _entries.Enqueue(entry);
         while (_entries.Count > MaximumEntries && _entries.TryDequeue(out _)) { }
 
+        var shouldFlush = false;
         lock (_gate)
         {
             _writer?.WriteLine(entry.ToString());
-            _writer?.Flush();
+            shouldFlush = Interlocked.Increment(ref _pendingCount) >= BatchSize;
+            if (shouldFlush)
+                Interlocked.Exchange(ref _pendingCount, 0);
         }
         // 同步输出到 stderr，便于在 VS Code 中看到后端协议和控制层日志。
         Console.Error.WriteLine(entry.ToString());
         EntryAdded?.Invoke(this, entry);
+
+        if (shouldFlush)
+            Flush();
     }
 
     // 强制写入缓冲区，导出前调用可确保最新事件不会遗漏。
     public override void Flush()
     {
+        if (_disposed)
+            return;
         lock (_gate)
-            _writer?.Flush();
+        {
+            if (_writer is null)
+                return;
+            _writer.Flush();
+            RotateIfNeeded();
+        }
+    }
+
+    private void RotateIfNeeded()
+    {
+        try
+        {
+            var fileInfo = new FileInfo(_filePath);
+            if (!fileInfo.Exists || fileInfo.Length <= MaxFileSizeBytes)
+                return;
+
+            _writer?.Dispose();
+            _writer = null;
+
+            for (var i = MaxBackupFiles - 1; i >= 1; i--)
+            {
+                var older = $"{_filePath}.{i}";
+                var newer = $"{_filePath}.{i + 1}";
+                if (File.Exists(older))
+                    File.Move(older, newer, true);
+            }
+            File.Move(_filePath, $"{_filePath}.1", true);
+            _writer = CreateWriter(_filePath);
+        }
+        catch (Exception exception)
+        {
+            // 旋转失败时不阻断后续写入，避免日志服务完全失效。
+            Trace.WriteLine($"日志轮转失败：{exception}");
+        }
+    }
+
+    private void CleanupOldBackups()
+    {
+        try
+        {
+            for (var i = MaxBackupFiles + 1; ; i++)
+            {
+                var backup = $"{_filePath}.{i}";
+                if (!File.Exists(backup))
+                    break;
+                File.Delete(backup);
+            }
+        }
+        catch
+        {
+            // 启动清理失败不影响主流程。
+        }
     }
 
     private static StreamWriter CreateWriter(string path)
-        => new(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = true };
+        => new(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite), new UTF8Encoding(false)) { AutoFlush = false };
 
     // 将重定向到 VSCode 的标准输出和错误输出固定为 UTF-8。
     private static void ConfigureConsoleEncoding()
@@ -160,11 +228,13 @@ public sealed class ApplicationLog : TraceListener, IDisposable
         }
         Write(LogLevel.Information, "App", "日志服务已停止。");
         _disposed = true;
+        _flushTimer.Dispose();
         Trace.Listeners.Remove(this);
         if (ReferenceEquals(Current, this))
             Current = null;
         lock (_gate)
         {
+            _writer?.Flush();
             _writer?.Dispose();
             _writer = null;
         }

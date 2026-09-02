@@ -55,6 +55,39 @@ public sealed class SettingsStore
         => _settings?.Current.HiddenMultiDeviceAddresses
             ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    // 按 MAC 地址查询已缓存的品牌（命中则优先尝试，减少识别等待）。MAC 格式不统一，
+    // 此处归一化后再查，调用方无需关心分隔符/大小写。
+    public string? GetBrandForMac(string? mac)
+    {
+        if (string.IsNullOrWhiteSpace(mac))
+            return null;
+        var key = NormalizeMac(mac);
+        var cache = _settings?.Current.BrandByMac;
+        return cache is not null && cache.TryGetValue(key, out var brand) ? brand : null;
+    }
+
+    // 设备协议确认成功后记录其 MAC → 品牌映射，供后续同设备优先命中。
+    public void RecordBrandForMac(string? mac, string? brand)
+    {
+        if (string.IsNullOrWhiteSpace(mac) || string.IsNullOrWhiteSpace(brand))
+            return;
+        var key = NormalizeMac(mac);
+        _settings?.Update(settings =>
+        {
+            var current = settings.BrandByMac ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (current.TryGetValue(key, out var existing)
+                && string.Equals(existing, brand, StringComparison.OrdinalIgnoreCase))
+                return settings;
+            var copy = new Dictionary<string, string>(current, StringComparer.OrdinalIgnoreCase);
+            copy[key] = brand!;
+            return settings with { BrandByMac = copy };
+        });
+    }
+
+    // 把 "AA:BB:CC:DD:EE:FF" / "aa-bb-..." 等统一成无分隔符大写形式，作为缓存键。
+    private static string NormalizeMac(string mac)
+        => new string(mac.Where(ch => ch != ':' && ch != '-').ToArray()).ToUpperInvariant();
+
     // 保存用户隐藏的多设备地址集合。
     public void SetHiddenMultiDevices(IEnumerable<string> addresses)
     {

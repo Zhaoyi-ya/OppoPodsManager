@@ -58,7 +58,8 @@ public sealed class SettingsManager
                 return AppSettings.Default;
 
             using var stream = File.OpenRead(path);
-            return JsonSerializer.Deserialize(stream, SettingsJsonContext.Default.AppSettings) ?? AppSettings.Default;
+            var loaded = JsonSerializer.Deserialize(stream, SettingsJsonContext.Default.AppSettings);
+            return loaded is null ? AppSettings.Default : Normalize(loaded);
         }
         catch (JsonException)
         {
@@ -68,6 +69,30 @@ public sealed class SettingsManager
         {
             return AppSettings.Default;
         }
+    }
+
+    // 旧版设置文件可能缺少新增字段（如 BrandByMac），反序列化后为 null。
+    // 这里用默认值补齐所有可空集合，避免后续读取（如 GetBrandForMac）触发 NRE。
+    private static AppSettings Normalize(AppSettings s)
+    {
+        var modelOverrides = s.ModelOverrides ?? new Dictionary<string, string>();
+        var deviceNames = s.DeviceNames ?? new Dictionary<string, string>();
+        var hidden = s.HiddenMultiDeviceAddresses ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var brandByMac = s.BrandByMac ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (modelOverrides == s.ModelOverrides
+            && deviceNames == s.DeviceNames
+            && hidden == s.HiddenMultiDeviceAddresses
+            && brandByMac == s.BrandByMac)
+            return s;
+
+        return s with
+        {
+            ModelOverrides = modelOverrides,
+            DeviceNames = deviceNames,
+            HiddenMultiDeviceAddresses = hidden,
+            BrandByMac = brandByMac
+        };
     }
 
     private static void Save(string path, AppSettings settings)
@@ -94,7 +119,10 @@ public sealed record AppSettings(
     int ToastDurationSeconds,
     Dictionary<string, string> ModelOverrides,
     Dictionary<string, string> DeviceNames,
-    HashSet<string> HiddenMultiDeviceAddresses)
+    HashSet<string> HiddenMultiDeviceAddresses,
+    // 按蓝牙 MAC 地址缓存已确认的品牌，使同一耳机再次被发现/连接时优先命中该品牌，
+    // 跳过全品牌探测，减少首次识别等待。键为归一化（去分隔符、大写）的 MAC。
+    Dictionary<string, string> BrandByMac)
 {
     // 保存个性化页的背景和窗口渲染选项。
     public string BackgroundPath { get; init; } = string.Empty;
@@ -116,7 +144,8 @@ public sealed record AppSettings(
         5,
         new Dictionary<string, string>(),
         new Dictionary<string, string>(),
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 }
 
 [JsonSourceGenerationOptions(WriteIndented = true)]

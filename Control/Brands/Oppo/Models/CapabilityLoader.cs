@@ -61,7 +61,8 @@ public sealed class CapabilityLoader
             model.CustomEqMaxPresets,
             model.CustomEqUiVersion,
             model.PreferredGameSoundType,
-            model.GameSoundMutexes);
+            model.GameSoundMutexes,
+            model.BatteryLayout);
     }
 
     // 设备最终只暴露“官方白名单声明且能力位图实际支持”的功能。

@@ -48,6 +48,7 @@ public static class DeviceModelData
         var customEqUiVersion = 0;
         byte? preferredGameSoundType = null;
         var gameSoundMutexes = new HashSet<int>();
+        var batteryLayout = BatteryLayout.DualEarWithCase;
         if (entry.TryGetProperty("function", out var function) && function.ValueKind == JsonValueKind.Object)
         {
             AddEnabledFeature(function, "wearDetection", "wear-detection", features);
@@ -70,6 +71,12 @@ public static class DeviceModelData
             AddCustomEqualizer(function, customEqFrequencies, ref customEqMaxPresets, ref customEqUiVersion, features);
             preferredGameSoundType = FindPreferredGameSoundType(function);
             AddGameSoundMutexes(function, gameSoundMutexes);
+            if (function.TryGetProperty("batteryLayout", out var blElement) && blElement.ValueKind == JsonValueKind.String)
+                batteryLayout = blElement.GetString() switch
+                {
+                    "SingleBattery" => BatteryLayout.SingleBattery,
+                    _ => BatteryLayout.DualEarWithCase
+                };
 
             if (noiseModes.Count > 0)
                 features.Add("noise-cancellation");
@@ -87,7 +94,7 @@ public static class DeviceModelData
                 features.Add("multi-device");
         }
 
-        model = new ModelDefinition(productId, name, brand, series, [], features, noiseModes, noiseGroups, equalizerPresets, customEqFrequencies, customEqMaxPresets, customEqUiVersion, preferredGameSoundType, gameSoundMutexes);
+        model = new ModelDefinition(productId, name, brand, series, [], features, noiseModes, noiseGroups, equalizerPresets, customEqFrequencies, customEqMaxPresets, customEqUiVersion, preferredGameSoundType, gameSoundMutexes, batteryLayout);
         return true;
     }
 
@@ -139,7 +146,8 @@ public static class DeviceModelData
         {
             AddNoiseMode(value, modes);
             if (TryGetNoiseMode(value, out var parentMode)
-                && parentMode == NoiseMode.NoiseCancellation
+                && value.TryGetProperty("protocolIndex", out var parentIndex)
+                && parentIndex.TryGetByte(out var parentProtocolIndex)
                 && value.TryGetProperty("childrenMode", out var childValues)
                 && childValues.ValueKind == JsonValueKind.Array)
             {
@@ -150,7 +158,7 @@ public static class DeviceModelData
                     .Cast<NoiseModeOption>()
                     .ToArray();
                 if (children.Length > 0)
-                    groups.Add(new NoiseModeGroup(parentMode, children));
+                    groups.Add(new NoiseModeGroup(parentMode, parentProtocolIndex, children));
             }
             if (value.TryGetProperty("childrenMode", out var nestedChildren)
                 && nestedChildren.ValueKind == JsonValueKind.Array)
@@ -183,8 +191,9 @@ public static class DeviceModelData
             3 => NoiseMode.Light,
             4 => NoiseMode.Deep,
             5 => NoiseMode.NoiseCancellation,
-            6 or 7 or 10 => NoiseMode.Smart,
+            6 or 7 => NoiseMode.Smart,
             8 => NoiseMode.Medium,
+            10 => NoiseMode.Adaptive,
             _ => NoiseMode.NoiseCancellation
         };
         return true;
@@ -205,8 +214,9 @@ public static class DeviceModelData
             3 => NoiseMode.Light,
             4 => NoiseMode.Deep,
             5 => NoiseMode.NoiseCancellation,
-            6 or 7 or 10 => NoiseMode.Smart,
+            6 or 7 => NoiseMode.Smart,
             8 => NoiseMode.Medium,
+            10 => NoiseMode.Adaptive,
             _ => NoiseMode.NoiseCancellation
         };
     }

@@ -17,6 +17,7 @@ internal static class DeviceText
             NoiseMode.NoiseCancellation => "AncMode_NoiseCancellation",
             NoiseMode.Transparency => "AncMode_Transparency",
             NoiseMode.Smart => "AncMode_Adaptive",
+            NoiseMode.Adaptive => "AncMode_Adaptive",
             NoiseMode.Light => "Anc_SubLight",
             NoiseMode.Medium => "Anc_SubMedium",
             NoiseMode.Deep => "Anc_SubDeep",

@@ -79,9 +79,8 @@ public partial class HomeView : PageView
             return;
 
         UpdateNextConnectionStatus(snapshot);
-        SetNextBattery(LeftLabel, LeftChargeBolt, LeftBatteryProgress, snapshot.LeftBattery);
-        SetNextBattery(RightLabel, RightChargeBolt, RightBatteryProgress, snapshot.RightBattery);
-        SetNextBattery(CaseLabel, CaseChargeBolt, CaseBatteryProgress, snapshot.CaseBattery);
+        var batteryLayout = ControlManager?.ActiveManager?.Presentation?.BatteryLayout ?? BatteryLayout.DualEarWithCase;
+        ApplyBatteryLayout(batteryLayout, snapshot);
         WearStatus.Text = string.Join("  ",
             new[]
             {
@@ -358,7 +357,9 @@ public partial class HomeView : PageView
                 && opt.Children.Any(c => c.Key == last)
                 ? last : opt.Children[0].Key;
             _ancLevel = target;
-            _ = CommandDispatcher?.RunAsync("ANC 子模式", manager => manager.SetNoiseCancellationByKeyAsync(target, CancellationToken.None));
+            // 对齐 main 分支：容器型（降噪）下发“上次子模式/首子模式”位，而非父码 01 01 02。
+            // 父码不被欢律使用，且会让耳机恢复上次子模式导致 UI 回弹；具体子模式位由耳机回报同步。
+            _ = CommandDispatcher?.RunAsync("ANC 主模式", manager => manager.SetNoiseCancellationByKeyAsync(target, CancellationToken.None));
         }
         else
         {
@@ -725,6 +726,42 @@ public partial class HomeView : PageView
         }
     }
 
+
+    #region 电量布局（双耳+充电盒 / 单电量）
+
+    /// <summary>
+    /// 按设备电量布局渲染电量区。
+    /// 双耳+充电盒：三列并排；单电量：仅展示唯一非空电量并居中，隐藏其余面板。
+    /// </summary>
+    private void ApplyBatteryLayout(BatteryLayout layout, BusinessSnapshot snapshot)
+    {
+        if (layout == BatteryLayout.SingleBattery)
+        {
+            // 单电量设备：取唯一非空电量（左→右→盒 fallback），居中到中间列，其余面板隐藏。
+            RightBatteryPanel.IsVisible = false;
+            CaseBatteryPanel.IsVisible = false;
+            LeftBatteryPanel.IsVisible = true;
+            Grid.SetColumn(LeftBatteryPanel, 1);
+            LeftBatteryTitle.Text = TranslationCatalog.Get("Battery_Title");
+            var single = snapshot.LeftBattery ?? snapshot.RightBattery ?? snapshot.CaseBattery;
+            SetNextBattery(LeftLabel, LeftChargeBolt, LeftBatteryProgress, single);
+            return;
+        }
+
+        // 双耳+充电盒：复原默认标题、可见性与列位置。
+        RightBatteryPanel.IsVisible = true;
+        CaseBatteryPanel.IsVisible = true;
+        LeftBatteryPanel.IsVisible = true;
+        Grid.SetColumn(LeftBatteryPanel, 0);
+        LeftBatteryTitle.Text = TranslationCatalog.Get("Battery_Left");
+        RightBatteryTitle.Text = TranslationCatalog.Get("Battery_Right");
+        CaseBatteryTitle.Text = TranslationCatalog.Get("Battery_Case");
+        SetNextBattery(LeftLabel, LeftChargeBolt, LeftBatteryProgress, snapshot.LeftBattery);
+        SetNextBattery(RightLabel, RightChargeBolt, RightBatteryProgress, snapshot.RightBattery);
+        SetNextBattery(CaseLabel, CaseChargeBolt, CaseBatteryProgress, snapshot.CaseBattery);
+    }
+
+    #endregion
 
     private static void SetNextBattery(TextBlock label, AvaloniaControl bolt, ProgressBar progress, BatteryLevel? battery)
     {

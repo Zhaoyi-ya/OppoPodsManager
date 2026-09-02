@@ -13,7 +13,8 @@ public sealed record DeviceCapability(
     int CustomEqMaxPresets,
     int CustomEqUiVersion,
     byte? PreferredGameSoundType,
-    IReadOnlySet<int> GameSoundMutexes)
+    IReadOnlySet<int> GameSoundMutexes,
+    BatteryLayout BatteryLayout = BatteryLayout.DualEarWithCase)
 {
     public bool SupportsCommand(ushort command) => SupportedCommands.Contains(command);
     public bool SupportsFeature(string feature) => SupportedFeatures.Contains(feature);
@@ -68,9 +69,19 @@ public enum NoiseMode
     Smart,
     Light,
     Medium,
-    Deep
+    Deep,
+    Adaptive
 }
 // 表示原项目中的降噪父模式及其可选子模式。
-public sealed record NoiseModeGroup(NoiseMode Parent, IReadOnlyList<NoiseModeOption> Children);
+public sealed record NoiseModeGroup(NoiseMode Parent, byte ParentProtocolIndex, IReadOnlyList<NoiseModeOption> Children)
+{
+    public NoiseModeGroup(NoiseMode Parent, IReadOnlyList<NoiseModeOption> Children) : this(Parent, 0, Children) { }
+}
+// 电量面板布局：双耳+充电盒（默认）或单电池设备（颈挂式等只有一块电池）。
+public enum BatteryLayout
+{
+    DualEarWithCase,
+    SingleBattery
+}
 // 保存子模式协议索引，保证 UI 选择后能发送准确的设备值。
 public sealed record NoiseModeOption(byte ProtocolIndex, NoiseMode Mode);
