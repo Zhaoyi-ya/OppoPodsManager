@@ -1659,7 +1659,12 @@ internal sealed class HuaweiManager : IBrandManager
             controlStates,
             controlEnabledStates,
             noiseOptions,
-            NoiseKey(_state.Snapshot().Noise.Mode));
+            NoiseKey(_state.Snapshot().Noise.Mode),
+            // 电量栏数：无充电盒形态固定单栏。该判定与官方 config_<productId>.json 里
+            // battery.isSupportBox / battery.isSupportDoubleEar = false 的清单一致
+            // （FreeBuds Studio / FreeLace Pro / FreeLace Pro 2 / Eyewear / Eyewear 2 共 5 个 route），
+            // 即头戴式、颈挂与眼镜只有整机电量；真无线（有盒）交给数据推导（3 栏）。
+            _capabilities.HasChargingCase ? BatteryLayout.Auto : BatteryLayout.SingleBattery);
     }
 
     private IReadOnlyList<NoiseOptionModel> BuildNoiseOptions()
