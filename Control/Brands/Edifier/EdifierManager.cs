@@ -243,8 +243,10 @@ internal sealed class EdifierManager : IBrandManager
         if (percent > 100)
             return;
         var level = new BatteryLevel(percent, false);
-        // 单电池设备：左/右/充电盒统一显示该值，确保界面有可见电量。
-        _state.SetBattery(level, level, level);
+        // 单电量设备（头戴式 / 双耳共用一个值）：只填左槽，其余留空。
+        // 电量卡按非空槽位数量推导栏数，1 个槽位即渲染为单栏整机布局，
+        // 不再需要把同一个值填满三格来保证界面可见。
+        _state.SetBattery(level, null, null);
     }
     private void ApplyNoise(ReadOnlySpan<byte> payload)
     {

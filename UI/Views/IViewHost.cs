@@ -1,5 +1,7 @@
 using System.Threading.Tasks;
+using Avalonia.Controls;
 using OppoPodsManager.Assets.Localization;
+using OppoPodsManager.Assets.VisualAssets;
 
 namespace OppoPodsManager.UI.Views;
 
@@ -54,6 +56,11 @@ public interface IViewHost
     // ---- 主页视图外壳级能力 ----
     /// <summary>启用/禁用 EQ 页控件（由主页视图按快照的 equalizer 可用状态驱动）。</summary>
     void SetEqControlsEnabled(bool enabled);
+    /// <summary>
+    /// 按指定图案槽位刷新电量区图片。电量栏数由数据推导，单栏布局（头戴式 / 颈挂）
+    /// 需要使用整机图案槽位，故由外壳统一负责位图创建与释放。
+    /// </summary>
+    void ApplyEarphoneImage(Image target, EarphoneSlot slot);
     /// <summary>弹出「查找耳机」安全警告，返回用户是否确认继续。</summary>
     Task<bool> ShowFindWarningDialogAsync();
 }

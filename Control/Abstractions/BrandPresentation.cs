@@ -18,7 +18,7 @@ public sealed record BrandPresentation(
     IReadOnlyDictionary<string, bool> ControlEnabledStates,
     IReadOnlyList<NoiseOptionModel> NoiseOptions,
     string CurrentNoiseModeKey,
-    BatteryLayout BatteryLayout = BatteryLayout.DualEarWithCase)
+    BatteryLayout BatteryLayout = BatteryLayout.Auto)
 {
     // 提供未连接设备时用于初始化界面控件的默认 EQ 范围。
     public const sbyte DefaultCustomEqMinimumGain = -6;

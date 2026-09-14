@@ -16,6 +16,7 @@
 //                                 选 ADD/XOR 的密钥混合) + 终混
 // ---------------------------------------------------------------------------
 using System;
+using System.Security.Cryptography;
 
 namespace OppoPodsManager.Control.Brands.Xiaomi
 {
@@ -261,6 +262,73 @@ namespace OppoPodsManager.Control.Brands.Xiaomi
             ksInp[15] = (byte)(ksInp[15] ^ 6);
             var rk = KeySchedule(ksInp);
             return RoundFunc(outp, rk);
+        }
+
+        // ------------------------------------------------------------------
+        // 认证报文编解码
+        //
+        // 以下两个方法与官方 APK 的实现逐指令等价（反汇编来源见下），不是推测：
+        //
+        //   AuthCheckParam.getParamData()      @ classes11.dex 0x48a734
+        //     byte[0] = (byte) version;  out[1..16] = randomFactor   → 17 字节
+        //
+        //   AuthCheckResponse.parsePacket([B)  @ classes11.dex 0x48de88
+        //     versionResponse = p[0];  arraycopy(p, 1, result, 0, 16) → 17 字节
+        //
+        // 时序（与 libxm_bluetooth.so 的导出符号对应）：
+        //   1. 本机用 getRandomAuthCheckData 生成 randomFactor(16B)
+        //   2. 发 CMD_AUTH_CHECK(80)，负载 = BuildAuthCheckPayload(randomFactor)
+        //   3. 设备回 17 字节，TryParseAuthCheckResponse 取出 result(16B)
+        //   4. VerifyAuthResponse 用 GetEncryptedAuthCheckData(randomFactor) 比对 result
+        // ------------------------------------------------------------------
+
+        /// <summary>认证负载版本号。官方实现取常量 1（与「手机发 0x01 || random(16B)」一致）。</summary>
+        public const byte AuthVersion = 0x01;
+
+        /// <summary>挑战随机数长度。</summary>
+        public const int AuthRandomLength = 16;
+
+        /// <summary>认证请求负载：[version(1)] || randomFactor(16)，共 17 字节。</summary>
+        public static byte[] BuildAuthCheckPayload(ReadOnlySpan<byte> randomFactor, byte version = AuthVersion)
+        {
+            if (randomFactor.Length != AuthRandomLength)
+                throw new ArgumentException($"randomFactor 必须为 {AuthRandomLength} 字节", nameof(randomFactor));
+
+            var payload = new byte[1 + AuthRandomLength];
+            payload[0] = version;
+            randomFactor.CopyTo(payload.AsSpan(1));
+            return payload;
+        }
+
+        /// <summary>解析认证应答负载：[versionResponse(1)] || result(16)，共 17 字节。</summary>
+        public static bool TryParseAuthCheckResponse(ReadOnlySpan<byte> payload, out int versionResponse, out byte[] result)
+        {
+            versionResponse = 0;
+            result = [];
+            if (payload.Length < 1 + AuthRandomLength)
+                return false;
+
+            versionResponse = payload[0];
+            result = payload.Slice(1, AuthRandomLength).ToArray();
+            return true;
+        }
+
+        /// <summary>生成认证挑战随机数（对应 native 的 getRandomAuthCheckData）。</summary>
+        public static byte[] CreateRandomFactor()
+        {
+            var buffer = new byte[AuthRandomLength];
+            RandomNumberGenerator.Fill(buffer);
+            return buffer;
+        }
+
+        /// <summary>校验设备应答：result 是否等于 GetEncryptedAuthCheckData(randomFactor)。</summary>
+        public static bool VerifyAuthResponse(ReadOnlySpan<byte> randomFactor, ReadOnlySpan<byte> deviceResult)
+        {
+            if (deviceResult.Length != AuthRandomLength)
+                return false;
+
+            var expected = GetEncryptedAuthCheckData(randomFactor.ToArray());
+            return CryptographicOperations.FixedTimeEquals(expected, deviceResult);
         }
 
     }

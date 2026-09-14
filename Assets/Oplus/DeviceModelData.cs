@@ -48,7 +48,9 @@ public static class DeviceModelData
         var customEqUiVersion = 0;
         byte? preferredGameSoundType = null;
         var gameSoundMutexes = new HashSet<int>();
-        var batteryLayout = BatteryLayout.DualEarWithCase;
+        // 默认 Auto：栏数由设备实际上报的电量槽位决定（头戴式只有 1 个 → 单栏）。
+        // 仅当型号库显式声明 batteryLayout 时才覆盖，用于个别需要强制形态的机型。
+        var batteryLayout = BatteryLayout.Auto;
         if (entry.TryGetProperty("function", out var function) && function.ValueKind == JsonValueKind.Object)
         {
             AddEnabledFeature(function, "wearDetection", "wear-detection", features);
@@ -75,7 +77,8 @@ public static class DeviceModelData
                 batteryLayout = blElement.GetString() switch
                 {
                     "SingleBattery" => BatteryLayout.SingleBattery,
-                    _ => BatteryLayout.DualEarWithCase
+                    "DualEarWithCase" => BatteryLayout.DualEarWithCase,
+                    _ => BatteryLayout.Auto
                 };
 
             if (noiseModes.Count > 0)

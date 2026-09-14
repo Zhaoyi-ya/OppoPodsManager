@@ -18,7 +18,7 @@ public sealed record ModelDefinition(
     int CustomEqUiVersion,
     byte? PreferredGameSoundType,
     IReadOnlySet<int> GameSoundMutexes,
-    BatteryLayout BatteryLayout = BatteryLayout.DualEarWithCase)
+    BatteryLayout BatteryLayout = BatteryLayout.Auto)
 {
     public IEnumerable<string> Names => new[] { DisplayName }.Concat(Aliases);
 }

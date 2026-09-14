@@ -56,12 +56,14 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
 
     private void RefreshEarphoneImages()
     {
-        if (HomeView is not null)
-        {
-            ReplaceEarphoneImage(HomeView.BatteryLeftImage, EarphoneSlot.HomeLeft);
-            ReplaceEarphoneImage(HomeView.BatteryRightImage, EarphoneSlot.HomeRight);
-            ReplaceEarphoneImage(HomeView.BatteryCaseImage, EarphoneSlot.Case);
-        }
+        if (HomeView is null)
+            return;
+        ReplaceEarphoneImage(HomeView.BatteryLeftImage, EarphoneSlot.HomeLeft);
+        ReplaceEarphoneImage(HomeView.BatteryRightImage, EarphoneSlot.HomeRight);
+        ReplaceEarphoneImage(HomeView.BatteryCaseImage, EarphoneSlot.Case);
+        // 电量栏数由实际上报的槽位推导，单栏布局要用整机图案；
+        // 重设默认三张后让主页按当前布局再覆盖一次（内部有签名去重，不会重复建位图）。
+        HomeView.RefreshBatteryImages();
     }
     private static void ReplaceEarphoneImage(Image image, EarphoneSlot slot)
     {
@@ -77,7 +79,8 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
 
         PersonalView.EarphoneCustomContent.Children.Clear();
         _earphonePreviews.Clear();
-        foreach (var slot in new[] { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight })
+        foreach (var slot in new[]
+                 { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight, EarphoneSlot.Headphone })
         {
             var preview = new Image
             {
@@ -134,6 +137,7 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
                         {
                             EarphoneSlot.HomeLeft => LanguageManager.Instance.Personal_EarphoneLeft,
                             EarphoneSlot.HomeRight => LanguageManager.Instance.Personal_EarphoneRight,
+                            EarphoneSlot.Headphone => LanguageManager.Instance.Personal_EarphoneHeadphone,
                             _ => LanguageManager.Instance.Personal_EarphoneCase
                         }),
                         HorizontalAlignment = HorizontalAlignment.Center,

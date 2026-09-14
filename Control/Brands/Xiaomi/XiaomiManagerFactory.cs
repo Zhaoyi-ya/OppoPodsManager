@@ -20,17 +20,28 @@ public sealed class XiaomiManagerFactory : IBrandManagerFactory
 
     public Guid ServiceId => XiaomiServiceId;
 
+    // 判断规则刻意收窄：原先的 Contains("Air") 会命中 AirPods 及任何含 "Air" 的第三方设备
+    // （如 Soundcore Liberty Air），虽然品牌排序里 APPLE 在前而暂时未暴雷，但属依赖排序偶然性。
+    // 官方包内的识别依据是 BLE 广播（公司 ID 0x2717 / 过滤串 "XM" "XMSMART"），
+    // 名称仅作辅助；此处只保留确属小米系的名称片段。
+    private static readonly string[] NameMarkers =
+    {
+        "Xiaomi", "Redmi", "Mi Buds", "Mi True", "FlipBuds",
+        "Mi Air", "Xiaomi Air", "Redmi Air", "Air2 SE", "Air2 Pro",
+    };
+
     public bool IsCandidateName(string? deviceName)
     {
         if (string.IsNullOrWhiteSpace(deviceName))
             return false;
 
-        return deviceName.Contains("Xiaomi", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("Redmi", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("Mi Buds", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("Mi True", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("FlipBuds", StringComparison.OrdinalIgnoreCase)
-            || deviceName.Contains("Air", StringComparison.OrdinalIgnoreCase);
+        foreach (var marker in NameMarkers)
+        {
+            if (deviceName.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public async Task<IBrandManager> CreateAsync(

@@ -1088,12 +1088,15 @@ internal sealed class HuaweiManager : IBrandManager
         // TLV 0x02=电量[左,右,盒]、0x03=充电位[左,右,盒]、0x05=佩戴状态（仅 Pro5 等型号：
         // 0=已出盒/1=已收纳入盒）。解析逻辑与华为参考 parseBattery/podAt 对齐。
         var fields = ParseTlv(payload);
-        if (!fields.TryGetValue(HuaweiConstants.TlvBatteryLevels, out var levels) || levels.Length < 2)
+        // 允许单元素电量包：头戴式 / 颈挂只上报 1 个值，此时电量卡渲染为单栏整机布局。
+        if (!fields.TryGetValue(HuaweiConstants.TlvBatteryLevels, out var levels) || levels.Length < 1)
             return;
         var charging = fields.TryGetValue(HuaweiConstants.TlvChargingStates, out var states) ? states : ReadOnlyMemory<byte>.Empty;
 
         BatteryLevel? Parse(int index)
         {
+            if (index >= levels.Length)
+                return null;
             var percent = levels.Span[index];
             if (percent > 100)
                 return null;
@@ -1101,7 +1104,7 @@ internal sealed class HuaweiManager : IBrandManager
             return new BatteryLevel(percent, isCharging);
         }
 
-        _state.SetBattery(Parse(0), Parse(1), levels.Length > 2 ? Parse(2) : null);
+        _state.SetBattery(Parse(0), Parse(1), Parse(2));
     }
 
     private void ApplyAncState(ReadOnlySpan<byte> payload)

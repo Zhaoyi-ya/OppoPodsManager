@@ -1,4 +1,5 @@
 ﻿using Avalonia.Controls.Shapes;
+using OppoPodsManager.Assets.VisualAssets;
 using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Brands.Oppo.Features;
 using OppoPodsManager.UI.MainWindow;
@@ -79,8 +80,9 @@ public partial class HomeView : PageView
             return;
 
         UpdateNextConnectionStatus(snapshot);
-        var batteryLayout = ControlManager?.ActiveManager?.Presentation?.BatteryLayout ?? BatteryLayout.DualEarWithCase;
-        ApplyBatteryLayout(batteryLayout, snapshot);
+        ApplyBatteryLayout(
+            ControlManager?.ActiveManager?.Presentation?.BatteryLayout ?? BatteryLayout.Auto,
+            snapshot);
         WearStatus.Text = string.Join("  ",
             new[]
             {
@@ -727,38 +729,93 @@ public partial class HomeView : PageView
     }
 
 
-    #region 电量布局（双耳+充电盒 / 单电量）
+    #region 电量布局（按实际上报的槽位推导栏数）
+
+    // 上一次应用的「面板→耳机图案槽位」映射签名，避免每次快照都重建位图。
+    private string _batteryImageSignature = "";
 
     /// <summary>
-    /// 按设备电量布局渲染电量区。
-    /// 双耳+充电盒：三列并排；单电量：仅展示唯一非空电量并居中，隐藏其余面板。
+    /// 按设备实际上报的电量槽位渲染电量区：1 个槽位→单栏居中（头戴式 / 颈挂）、
+    /// 2 个→两栏、3 个→三栏（真无线带盒）。栏数、每栏承载的槽位、标题与耳机图案全部随数据走，
+    /// 不依赖型号白名单声明；<see cref="BatteryLayout.SingleBattery"/> 与
+    /// <see cref="BatteryLayout.DualEarWithCase"/> 仅作为个别型号的显式覆盖。
+    /// 未上报任何电量时按三栏占位，避免连接过程中布局跳变。
     /// </summary>
-    private void ApplyBatteryLayout(BatteryLayout layout, BusinessSnapshot snapshot)
+    private void ApplyBatteryLayout(BatteryLayout declared, BusinessSnapshot snapshot)
     {
-        if (layout == BatteryLayout.SingleBattery)
+        // 下标约定固定为 左(0) → 右(1) → 盒(2)，与下面的面板 / 标题 / 图案数组一一对应。
+        var levels = new[] { snapshot.LeftBattery, snapshot.RightBattery, snapshot.CaseBattery };
+        var titleKeys = new[] { "Battery_Left", "Battery_Right", "Battery_Case" };
+        var defaultSlots = new[] { EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight, EarphoneSlot.Case };
+        var panels = new[] { LeftBatteryPanel, RightBatteryPanel, CaseBatteryPanel };
+        var titles = new[] { LeftBatteryTitle, RightBatteryTitle, CaseBatteryTitle };
+        var labels = new[] { LeftLabel, RightLabel, CaseLabel };
+        var bolts = new[] { LeftChargeBolt, RightChargeBolt, CaseChargeBolt };
+        var progresses = new[] { LeftBatteryProgress, RightBatteryProgress, CaseBatteryProgress };
+
+        var active = new List<int>();
+        for (var i = 0; i < levels.Length; i++)
         {
-            // 单电量设备：取唯一非空电量（左→右→盒 fallback），居中到中间列，其余面板隐藏。
-            RightBatteryPanel.IsVisible = false;
-            CaseBatteryPanel.IsVisible = false;
-            LeftBatteryPanel.IsVisible = true;
-            Grid.SetColumn(LeftBatteryPanel, 1);
-            LeftBatteryTitle.Text = TranslationCatalog.Get("Battery_Title");
-            var single = snapshot.LeftBattery ?? snapshot.RightBattery ?? snapshot.CaseBattery;
-            SetNextBattery(LeftLabel, LeftChargeBolt, LeftBatteryProgress, single);
+            if (levels[i] is not null)
+                active.Add(i);
+        }
+
+        // 显式声明优先；Auto 时由非空槽位数量推导（0 个 → 三栏占位，1 个 → 单栏，2/3 个 → 多栏）。
+        var single = declared == BatteryLayout.SingleBattery
+            || (declared == BatteryLayout.Auto && active.Count == 1);
+
+        if (single)
+        {
+            // 单栏：取唯一非空槽位（无数据时用左槽占位）居中显示，图案换成整机图。
+            var source = active.Count > 0 ? active[0] : 0;
+            for (var i = 0; i < panels.Length; i++)
+                panels[i].IsVisible = i == source;
+            BatteryGrid.ColumnDefinitions = new ColumnDefinitions("*");
+            Grid.SetColumn(panels[source], 0);
+            titles[source].Text = TranslationCatalog.Get("Battery_Title");
+            SetNextBattery(labels[source], bolts[source], progresses[source], levels[source]);
+            ApplyBatteryImages(new[] { (source, EarphoneSlot.Headphone) });
             return;
         }
 
-        // 双耳+充电盒：复原默认标题、可见性与列位置。
-        RightBatteryPanel.IsVisible = true;
-        CaseBatteryPanel.IsVisible = true;
-        LeftBatteryPanel.IsVisible = true;
-        Grid.SetColumn(LeftBatteryPanel, 0);
-        LeftBatteryTitle.Text = TranslationCatalog.Get("Battery_Left");
-        RightBatteryTitle.Text = TranslationCatalog.Get("Battery_Right");
-        CaseBatteryTitle.Text = TranslationCatalog.Get("Battery_Case");
-        SetNextBattery(LeftLabel, LeftChargeBolt, LeftBatteryProgress, snapshot.LeftBattery);
-        SetNextBattery(RightLabel, RightChargeBolt, RightBatteryProgress, snapshot.RightBattery);
-        SetNextBattery(CaseLabel, CaseChargeBolt, CaseBatteryProgress, snapshot.CaseBattery);
+        // 多栏：按激活槽位顺序依次占据各列；无数据时三栏占位。
+        var shown = active.Count > 0 ? active : new List<int> { 0, 1, 2 };
+        for (var i = 0; i < panels.Length; i++)
+        {
+            var isShown = shown.Contains(i);
+            panels[i].IsVisible = isShown;
+            if (!isShown)
+                continue;
+            Grid.SetColumn(panels[i], shown.IndexOf(i));
+            titles[i].Text = TranslationCatalog.Get(titleKeys[i]);
+            SetNextBattery(labels[i], bolts[i], progresses[i], levels[i]);
+        }
+        BatteryGrid.ColumnDefinitions = new ColumnDefinitions(string.Join(",", Enumerable.Repeat("*", shown.Count)));
+        ApplyBatteryImages(shown.Select(index => (index, defaultSlots[index])).ToArray());
+    }
+
+    /// <summary>用户更换自定义耳机图案后由外壳调用，强制重设电量区图案。</summary>
+    public void RefreshBatteryImages()
+    {
+        _batteryImageSignature = "";
+        if (FrontendState?.Snapshot is { } snapshot)
+            ApplyBatteryLayout(
+                ControlManager?.ActiveManager?.Presentation?.BatteryLayout ?? BatteryLayout.Auto,
+                snapshot);
+    }
+
+    // 仅在「面板→图案槽位」映射变化时重设图片，避免每次快照都重建位图（泄漏与闪烁）。
+    private void ApplyBatteryImages((int Panel, EarphoneSlot Slot)[] mapping)
+    {
+        var signature = string.Join(",", mapping.Select(entry => $"{entry.Panel}:{entry.Slot}"));
+        if (signature == _batteryImageSignature)
+            return;
+        _batteryImageSignature = signature;
+        if (Host is null)
+            return;
+        var images = new[] { LeftBatteryImage, RightBatteryImage, CaseBatteryImage };
+        foreach (var (panel, slot) in mapping)
+            Host.ApplyEarphoneImage(images[panel], slot);
     }
 
     #endregion

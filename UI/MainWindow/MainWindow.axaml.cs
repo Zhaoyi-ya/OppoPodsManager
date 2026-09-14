@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using OppoPodsManager.Assets.Localization;
 using OppoPodsManager.Assets.UserSettings;
+using OppoPodsManager.Assets.VisualAssets;
 using Avalonia.Animation;
 using Avalonia.Animation.Easings;
 using Avalonia.Controls;
@@ -130,8 +131,8 @@ public partial class MainWindow : SukiWindow, IViewHost
     private readonly Action? _requestApplicationExit;
     private readonly Func<bool>? _shouldKeepWindowAlive;
 
-    // 三级联动数据由 SettingsView 持有；此处仅保留机型目录供注入。
-    private readonly ModelCatalog? _modelCatalog;
+    // 说明：机型目录（ModelCatalog）此前用于向 SettingsView 注入「设备型号」三级联动数据，
+    // 该选择块已暂时移除，故不再保留字段；构造函数仍接收机型目录，便于后续恢复注入。
 
     // 为 Avalonia/AOT 提供无参入口，不创建设备连接层。
     public MainWindow() : this(null)
@@ -148,7 +149,6 @@ public partial class MainWindow : SukiWindow, IViewHost
         Action? requestApplicationExit = null,
         Func<bool>? shouldKeepWindowAlive = null)
     {
-        _modelCatalog = modelCatalog;
         // 窗口只保存应用层注入的调度器，不在 UI 内部创建控制逻辑。
         _commandDispatcher = commandDispatcher;
         // 更新协调器由应用生命周期注入；AOT 无参构造只负责加载视图资源。
@@ -207,7 +207,7 @@ public partial class MainWindow : SukiWindow, IViewHost
 
         // 背景/自定义耳机图案/高级渲染/Acrylic 等个性化初始化由 PersonalView.Attach
         // 经 IViewHost 回调完成（外壳级副作用保持在外壳）。
-        // 设备型号三级联动初始化由 SettingsView.Attach 完成（外壳仅保留窗口标题所需的纯数据）。
+        // 设备型号选择块已暂时移除，其三级联动初始化随之从 SettingsView 撤除。
 
         // 自定义设备名由 PersonalView 在 Attach 时写入 TbCustomName；外壳仅保留用于窗口标题的纯数据。
         _customDeviceName = _uiSettings.GetString("CustomName");
@@ -341,7 +341,6 @@ public partial class MainWindow : SukiWindow, IViewHost
         EqView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
         PersonalView.Host = this;
         PersonalView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
-        SettingsView.ModelCatalog = _modelCatalog;
         SettingsView.Host = this;
         SettingsView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
         DeviceInfoView.Host = this;
@@ -401,6 +400,7 @@ public partial class MainWindow : SukiWindow, IViewHost
     Task IViewHost.OpenFeedbackAsync() => ShowFeedbackDialogAsync();
     void IViewHost.ResyncMultiDeviceList() => SyncNextMultiDeviceList(_frontendState?.Snapshot);
     void IViewHost.SetEqControlsEnabled(bool enabled) => EqView?.SetControlsEnabled(enabled);
+    void IViewHost.ApplyEarphoneImage(Image target, EarphoneSlot slot) => ReplaceEarphoneImage(target, slot);
     Task<bool> IViewHost.ShowFindWarningDialogAsync() => ShowFindWarningDialog();
 
     private async Task ShowFeedbackDialogAsync()

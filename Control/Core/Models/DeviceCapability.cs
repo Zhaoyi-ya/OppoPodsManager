@@ -14,7 +14,7 @@ public sealed record DeviceCapability(
     int CustomEqUiVersion,
     byte? PreferredGameSoundType,
     IReadOnlySet<int> GameSoundMutexes,
-    BatteryLayout BatteryLayout = BatteryLayout.DualEarWithCase)
+    BatteryLayout BatteryLayout = BatteryLayout.Auto)
 {
     public bool SupportsCommand(ushort command) => SupportedCommands.Contains(command);
     public bool SupportsFeature(string feature) => SupportedFeatures.Contains(feature);
@@ -78,8 +78,11 @@ public sealed record NoiseModeGroup(NoiseMode Parent, byte ParentProtocolIndex, 
     public NoiseModeGroup(NoiseMode Parent, IReadOnlyList<NoiseModeOption> Children) : this(Parent, 0, Children) { }
 }
 // 电量面板布局：双耳+充电盒（默认）或单电池设备（颈挂式等只有一块电池）。
+// 电量栏位布局。Auto（默认）表示由实际上报的电量槽位数量推导栏数：
+// 1 个槽位→单栏、2 个→两栏、3 个→三栏；显式声明仅用于个别型号需要强制展示形态的场景。
 public enum BatteryLayout
 {
+    Auto,
     DualEarWithCase,
     SingleBattery
 }

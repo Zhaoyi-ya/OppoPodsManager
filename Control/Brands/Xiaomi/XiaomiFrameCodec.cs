@@ -4,46 +4,58 @@ using OppoPodsManager.Control.Core.Transport;
 
 namespace OppoPodsManager.Control.Brands.Xiaomi;
 
-// 小米 XIAOAI SPP 帧编解码（与 MiBudsClient 协议对齐）。
-// 帧结构：Magic(4) + Flag(1) + Length(2,BE, = 命令1 + 负载N) + Command(1) + Payload(N) + Checksum(2)。
-// 已知验证过的电池请求帧（MiBudsClient 硬编码发送）直接复用；其余命令走通用封装，校验待真机验证。
+// 小米耳机帧编解码。
+//
+// 帧格式：
+//   [FE DC BA] 帧头(3) + [类型 1] + [命令 1] + [长度 2, 大端] + [命令字 1 + 负载 N] + [EF] 帧尾(1)
+//   长度 = 1 + 负载长度（即「命令字 + 负载」的字节数）
+//
+// 修正记录（2026-09-14）：
+//   原实现把帧头当成 4 字节 `FE DC BA C4`，并在帧尾追加 2 字节 CRC16-CCITT；二者均不成立：
+//   · 官网 APK（小米耳机 1.38.0）的 12 个 dex 中不存在任何 CRC16 查表（poly 0x1021 / 0x8005 /
+//     0xA001 三种变体逐一验证），而 RCSP 类中确有 byte[]{0xFE,0xDC,0xBA} 常量 → 帧头 3 字节。
+//   · 原 CRC 实现无法复现已知真值帧的尾部字节（算出 0x88A9，帧里是 0xEF4F）；对 80,652 组
+//     「连续区间 × 常见 CRC/求和/异或变体」暴力搜索亦无解 → 该 2 字节不是校验，帧尾是单字节 0xEF。
+//
+//   原实现把第 4 字节（本处 0xC4）当作帧头的一部分，导致解码器只认类型字节恰为 0xC4 的帧。
+//   实测抓包中降噪帧的类型字节为 0xC7，其它命令各不相同 —— 这些帧会被逐字节滑过而丢弃。
+//   现在帧头只匹配 3 字节，类型字节不再参与识别。
+//
+// 已知真值帧（电量查询，MiBudsClient 实测）：
+//   FE DC BA C4 02 00 05 0B FF FF FF FF EF   （13 字节）
+// 本编解码器的通用路径 Encode(0x0B, {FF,FF,FF,FF}) 可逐字节复现该帧，故不再需要硬编码常量。
 public sealed class XiaomiFrameCodec : IFrameCodec
 {
-    private static readonly byte[] Magic = { 0xFE, 0xDC, 0xBA, 0xC4 };
-    private const byte Flag = 0x02;
-
-    // fedcbac4 02 0005 0b ffffffff ef4f  —— MiBudsClient 实测电池请求真值帧。
-    private static readonly byte[] KnownBatteryRequest =
-        { 0xFE, 0xDC, 0xBA, 0xC4, 0x02, 0x00, 0x05, 0x0B, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0x4F };
+    private static readonly byte[] Header =
+        { XiaomiConstants.Header0, XiaomiConstants.Header1, XiaomiConstants.Header2 };
 
     public byte[] Encode(ushort command, ReadOnlySpan<byte> payload)
     {
-        // MVP：仅电池请求（0x0b + 4×0xff）有真值，直接复用已知帧以保证连接期可读电量。
-        if (command == 0x0B && payload.Length == 4 &&
-            payload[0] == 0xFF && payload[1] == 0xFF && payload[2] == 0xFF && payload[3] == 0xFF)
-            return (byte[])KnownBatteryRequest.Clone();
-
-        var body = new List<byte>(Magic);
-        body.Add(Flag);
         int length = 1 + payload.Length;
-        body.Add((byte)(length >> 8));
-        body.Add((byte)(length & 0xFF));
-        body.Add((byte)(command & 0xFF));
-        body.AddRange(payload.ToArray());
-        ushort crc = Crc16Ccitt(body, 4, body.Count - 4); // 校验区间：Flag 起到 Payload 末尾
-        body.Add((byte)(crc >> 8));
-        body.Add((byte)(crc & 0xFF));
-        return body.ToArray();
+        var body = new byte[XiaomiConstants.Overhead + payload.Length];
+
+        body[0] = XiaomiConstants.Header0;
+        body[1] = XiaomiConstants.Header1;
+        body[2] = XiaomiConstants.Header2;
+        body[3] = XiaomiConstants.TypeRequest;
+        body[4] = XiaomiConstants.OpCodeDefault;
+        body[5] = (byte)(length >> 8);
+        body[6] = (byte)(length & 0xFF);
+        body[7] = (byte)(command & 0xFF);
+        payload.CopyTo(body.AsSpan(XiaomiConstants.PayloadOffset));
+        body[body.Length - 1] = XiaomiConstants.Footer;
+
+        return body;
     }
 
     public IEnumerable<ProtocolFrame> Decode(ReadOnlySpan<byte> bytes)
     {
         var frames = new List<ProtocolFrame>();
         int i = 0;
-        while (i + 7 <= bytes.Length)
+        while (i + XiaomiConstants.Overhead <= bytes.Length)
         {
-            if (bytes[i] != Magic[0] || bytes[i + 1] != Magic[1] ||
-                bytes[i + 2] != Magic[2] || bytes[i + 3] != Magic[3])
+            // 帧头只比 3 字节：类型字节随命令变化（0xC4 / 0xC7 / …），不能纳入识别条件。
+            if (bytes[i] != Header[0] || bytes[i + 1] != Header[1] || bytes[i + 2] != Header[2])
             {
                 i++;
                 continue;
@@ -51,34 +63,30 @@ public sealed class XiaomiFrameCodec : IFrameCodec
 
             int length = (bytes[i + 5] << 8) | bytes[i + 6];
             int payloadLen = length - 1;
-            int frameSize = 4 + 1 + 2 + 1 + payloadLen + 2; // magic + flag + len + cmd + payload + checksum
+            if (payloadLen < 0)
+            {
+                i++;
+                continue;
+            }
+
+            int frameSize = XiaomiConstants.Overhead + payloadLen;
             if (i + frameSize > bytes.Length)
                 break; // 分片，等下一块数据补齐
 
-            ushort command = bytes[i + 7];
+            // 帧尾必须是 0xEF；不匹配说明是噪声里偶然出现的 FE DC BA，继续滑动。
+            if (bytes[i + frameSize - 1] != XiaomiConstants.Footer)
+            {
+                i++;
+                continue;
+            }
+
+            ushort command = bytes[i + XiaomiConstants.CommandOffset];
             var payload = new byte[payloadLen];
-            bytes.Slice(i + 8, payloadLen).CopyTo(payload);
+            bytes.Slice(i + XiaomiConstants.PayloadOffset, payloadLen).CopyTo(payload);
             frames.Add(new ProtocolFrame(command, payload));
             i += frameSize;
         }
 
         return frames;
-    }
-
-    // CRC16-CCITT (poly 0x1021, init 0xFFFF, 不反射, 无 XOR)——小米 XIAOAI SPP 的推测校验实现，
-    // 需用真机验证（电池命令已硬编码为已知真值帧，不依赖此算法）。
-    private static ushort Crc16Ccitt(List<byte> data, int start, int count)
-    {
-        ushort crc = 0xFFFF;
-        for (int k = start; k < start + count; k++)
-        {
-            crc ^= (ushort)(data[k] << 8);
-            for (int b = 0; b < 8; b++)
-                crc = (crc & 0x8000) != 0
-                    ? (ushort)(((crc << 1) ^ 0x1021) & 0xFFFF)
-                    : (ushort)((crc << 1) & 0xFFFF);
-        }
-
-        return crc;
     }
 }
