@@ -2,6 +2,7 @@
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using OppoPodsManager.Communication;
 using OppoPodsManager.Control.Abstractions;
 using OppoPodsManager.Control.Subsystems.Desktop;
@@ -141,7 +142,8 @@ public sealed partial class App : Application
             _desktopLinks,
             _feedbackExporter,
             RequestApplicationExit,
-            ShouldKeepMainWindowAlive);
+            ShouldKeepMainWindowAlive,
+            ReloadMainWindow);
         window.Opened += OnMainWindowOpened;
         window.Closed += OnMainWindowClosed;
         return window;
@@ -180,6 +182,51 @@ public sealed partial class App : Application
         }
 
         return _mainWindow;
+    }
+
+    // 主窗口「重新加载」：关闭当前窗口后重建（与托盘唤起同一条路径）。
+    // 供仅在窗口构造期应用的设置使用——目前是「窗口模糊（Acrylic）」，
+    // 因为 DWM 透明提示/背景着色器在运行期就地改写不可靠，重建窗口才能保证全部界面内容按新设置加载。
+    private void ReloadMainWindow()
+    {
+        // 一次性回调：等旧窗口真正关闭（Closed 已触发、本类的窗口引用已在 OnMainWindowClosed 中清空）
+        // 之后再重建，避免受 Closed/_mainWindow 清理的先后时序影响而拿到已关闭的实例。
+        void OnClosed(object? sender, EventArgs e)
+        {
+            if (sender is Window closed)
+                closed.Closed -= OnClosed;
+
+            // 延后到下一个 UI 调度周期：不在旧窗口的 Closed 事件栈内创建新窗口，
+            // 避免与旧窗口的视觉树拆除、资源回收过程交叠。
+            Dispatcher.UIThread.Post(ReopenMainWindow);
+        }
+
+        var previous = _mainWindow;
+        if (previous is null)
+        {
+            ReopenMainWindow();
+            return;
+        }
+
+        _log?.Info("App", "重新加载主窗口：关闭旧窗口后重建。");
+        previous.Closed += OnClosed;
+        previous.Close();
+    }
+
+    // 创建并显示新的主窗口（仅在窗口重载路径上调用）。
+    private void ReopenMainWindow()
+    {
+        if (_startupCancellation?.IsCancellationRequested == true)
+            return;
+
+        var window = GetOrCreateMainWindow();
+        if (window is null)
+            return;
+
+        window.Show();
+        window.Activate();
+        // 不在这里弹 Toast：窗口刚重建时入队会命中 SukiUI 宿主/管理器的时序问题
+        // （新旧宿主争抢同一个 Toast 控件，抛 already has a visual parent，真机已复现）。
     }
 
     // 响应未启用关闭到托盘时的主窗口关闭请求。

@@ -90,9 +90,6 @@ public sealed class CapabilityLoader
                     => commands.Contains(CommandId.SetFeature),
                 // JADX/实验项目确认：低音引擎使用 0x041B 专用设置命令。
                 "bass-engine" => commands.Contains(CommandId.SetBassEngine),
-                // 「柄」按压/按捏：白名单 supportPinch 声明 + 设备支持手势表命令。
-                // 与主触控区共用 KeyFunction 0x0108/0x0408，命令任一存在即视为可显示。
-                "stem" => HasAny(commands, CommandId.KeyFunction, CommandId.SetKeyFunction),
                 // 听力增强必须同时有数据查询和检测流程命令。
                 "hearing-enhancement" => commands.Contains(CommandId.HearingEnhancement)
                     && commands.Contains(CommandId.SetHearingEnhancement),

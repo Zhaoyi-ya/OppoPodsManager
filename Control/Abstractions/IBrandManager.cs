@@ -1,6 +1,5 @@
 ﻿
 using OppoPodsManager.Control.Core.Models;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 using OppoPodsManager.Control.Core.Features;
 namespace OppoPodsManager.Control.Abstractions;
@@ -49,13 +48,6 @@ public interface IBrandManager : IAsyncDisposable
     MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses);
     Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken);
     Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken);
-    // 触控手势：品牌无关的展示与下发入口。UI 通过 GestureEntries 动态渲染，不感知品牌差异。
-    IReadOnlyList<GestureEntry> GestureEntries { get; }
-    Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken);
-    /// <summary>设置长按「切换噪声控制」循环的模式集合（MultiCheckbox 勾选结果）。
-    /// 默认实现返回 false（协议编码未实现的品牌不下发，仅由覆写的品牌保存状态）。</summary>
-    Task<bool> SetLongPressCycleAsync(EarSide ear, GestureSource source, IReadOnlyList<NoiseMode> modes, CancellationToken cancellationToken)
-        => Task.FromResult(false);
     /// <summary>设置降噪方向档位（如 FreeBuds 3 的 0-8 级智能降噪方向感）。
     /// 默认实现返回 false（无该能力的品牌不下发）。</summary>
     Task<bool> SetAncDirectionLevelAsync(byte level, CancellationToken cancellationToken)

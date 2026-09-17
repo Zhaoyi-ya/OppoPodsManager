@@ -5,7 +5,6 @@ using OppoPodsManager.Control.Abstractions;
 using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Control.Subsystems.Equalizers;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
 
 namespace OppoPodsManager.Control.Brands.Apple;
@@ -96,11 +95,6 @@ internal sealed class AppleManager : IBrandManager
     public Task<bool> SetNoiseCancellationAsync(NoiseMode mode, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetNoiseCancellationByKeyAsync(string modeKey, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetNoiseCancellationProtocolAsync(byte protocolIndex, CancellationToken cancellationToken) => Task.FromResult(false);
-
-    // ---- 触控手势：AirPods 手势经 AACP（L2CAP）配置，Windows 未实现 ----
-    public IReadOnlyList<GestureEntry> GestureEntries => [];
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
-        => Task.FromResult(false);
 
     // ---- 均衡器：AirPods 无 EQ 写通道 ----
     public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;

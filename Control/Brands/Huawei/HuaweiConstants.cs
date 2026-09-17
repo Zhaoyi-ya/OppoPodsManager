@@ -55,32 +55,6 @@ public static class HuaweiConstants
     public const ushort QueryWearDetection = 0x2B11;
     public const ushort ReportWearDetection = 0x2B11;
 
-    // 双击：写 S01 C1F（fire-and-forget）/ 查 S01 C20（TLV 0x01=左 0x02=右）。
-    public const ushort SetDoubleTap = 0x011F;
-    public const ushort QueryDoubleTapState = 0x0120;
-    public const ushort ReportDoubleTapState = 0x0120;
-
-    // 三击：写 S01 C25 / 查 S01 C26。
-    public const ushort SetTripleTap = 0x0125;
-    public const ushort QueryTripleTapState = 0x0126;
-    public const ushort ReportTripleTapState = 0x0126;
-
-    // 滑动：写 S2B C1E / 查 S2B C1F。
-    public const ushort SetSwipe = 0x2B1E;
-    public const ushort QuerySwipeState = 0x2B1F;
-    public const ushort ReportSwipeState = 0x2B1F;
-
-    // 长按：写 S2B C16 / 查 S2B C17。
-    public const ushort SetLongPress = 0x2B16;
-    public const ushort QueryLongPressState = 0x2B17;
-    public const ushort ReportLongPressState = 0x2B17;
-
-    // 按捏（pinch）功能切换：写 S2B C92（fire-and-forget）。
-    // 来源：HuaweiGestureController.buildFreeBudsPro3GestureTogglePacket（modernPinchRoutes = Pro3 / Pro5）。
-    // 负载为四段 TLV：(0x01,[0x01]) + (slot,[0x01,context]) + (0x03,[action]) + (0x04,[action])，
-    // slot/context/action 由具体按捏功能（接听/拒接/播放暂停/上一曲/下一曲）决定。
-    public const ushort SetPinchToggle = 0x2B92;
-
     // 均衡器（EQ）：读 S2B C4A / 写 S2B C49（fire-and-forget）。
     // 来源：OpenFreebuds config_equalizer.py（CMD_EQ_READ=0x2b4a / CMD_EQ_WRITE=0x2b49）。
     // 内置预设写负载 TLV (1, presetId)；读响应 param2=当前预设 ID、param3=可用预设列表。
@@ -132,8 +106,6 @@ public static class HuaweiConstants
     public const byte TlvChargingStates = 0x03;
     public const byte TlvReportedAvailability = 0x05;
     public const byte TlvAncState = 0x01;
-    public const byte TlvLeftGesture = 0x01;
-    public const byte TlvRightGesture = 0x02;
 
     // ---- ANC 主模式字节（TLV 0x01 两字节的 value[0]，与回读 C2A 的 [子,主] 低位一致）----
     public const byte AncModeOff = 0x00;
@@ -146,22 +118,4 @@ public static class HuaweiConstants
     // FreeBuds 6i 通透默认子模式 0x02，其余型号 0xFF。
     public const byte TransparencyDefault6i = 0x02;
 
-    // ---- 手势动作值（modern 型号；FreeBuds 3 双击有独立映射）----
-    public const byte GestureNone = 0xFF;
-    public const byte GestureVoiceAssistant = 0x00;
-    public const byte GesturePlayPause = 0x01;
-    public const byte GestureNext = 0x02;
-    public const byte GesturePrevious = 0x07;
-    public const byte GestureNoiseControl = 0x0A;
-    // FreeBuds 3 双击动作值（HuaweiGestureAction 旧枚举，勿复用于其他型号）。
-    public const byte GestureFb3PlayNext = 0x04;
-    public const byte GestureFb3NoiseCancellation = 0x03;
-    // FreeBuds 3i 双击动作值（FreeBuddy _FB3iDoubleTap：voice=0/playPause=1/next=4/previous=8/nothing=255，
-    // 位掩码风格，与 modern 型号 next=2/previous=7 不同，勿混用）。
-    public const byte Gesture3iNext = 0x04;
-    public const byte Gesture3iPrevious = 0x08;
-
-    // ---- 滑动动作值（SwipeAction）----
-    public const byte SwipeVolumeControl = 0x00;
-    public const byte SwipeTrackControl = 0x01;
 }

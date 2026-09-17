@@ -4,7 +4,11 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    private void AdaptToPlatform()
+using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{
+    // 标记本次关闭是「窗口重载（应用层面重建）」而非退出应用：关闭策略不得把它当成退出请求。
+    private bool _reloadingWindow;
+
+    private void AdaptToPlatform()
     {
         // AcrylicBlur 仅 Windows 有 DWM 毛玻璃；Linux(X11/Wayland) 上 Avalonia 会把
         // WindowTransparencyLevel.AcrylicBlur 退化成半透明灰 + 深色背景透出，效果差，
@@ -24,10 +28,39 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
         if (ReadUiBool("AdvancedRender", false))
             EnableAdvancedRender();
     }
+
+    // 用户拨动「窗口模糊」开关。
+    // Acrylic 是窗口级表现，只在窗口构造期（AdaptToPlatform）应用：DWM 透明提示与背景着色器
+    // 在运行期就地改写并不总能可靠生效，因此这里直接**关闭并重建主窗口**，
+    // 等价于「关到托盘再唤起」那条已验证可行的路径，保证全部界面内容按新设置重新加载。
     private void ToggleAcrylicBlur(bool on)
     {
         ApplyAcrylicBlurSilently(on);
-        ToastManager.CreateToast()
+        RequestWindowReload();
+    }
+
+    // 请求应用层关闭当前窗口并重建。
+    // 注意：此处**不弹 Toast**。窗口重建后立刻入队的 Toast 会命中 SukiUI 宿主/管理器的时序问题：
+    // 新旧窗口的宿主争抢同一个 SukiToast 控件，抛 "already has a visual parent"（真机已复现）。
+    // ToastManager 虽已改为每窗口一份，但「重建瞬间入队」这一时机本身仍不可靠，故不在此弹提示。
+    // 重载本身即是最直观的反馈，设置效果由新窗口的 AdaptToPlatform 直接体现。
+    private void RequestWindowReload()
+    {
+        if (_requestWindowReload is null)
+        {
+            // 未接入应用层（AOT 无参构造 / 设计期）：单窗口、不重建，保持原有的提示行为，下次启动生效。
+            _logManager?.Debug("UI", "窗口未接入重载回调，Acrylic 设置将在下次启动生效。");
+            ShowAcrylicToast(ReadUiBool("AcrylicBlur", false));
+            return;
+        }
+
+        _logManager?.Debug("UI", "重新加载主窗口以应用 Acrylic 设置。");
+        _reloadingWindow = true;
+        _requestWindowReload();
+    }
+
+    private void ShowAcrylicToast(bool on)
+        => ToastManager.CreateToast()
             .WithTitle(on
                 ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabled)
                 : LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicDisabled))
@@ -35,9 +68,9 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
                 ? LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicEnabledMsg)
                 : LanguageManager.Instance.GetString(LanguageManager.Instance.Dialog_AcrylicDisabledMsg))
             .Dismiss().After(TimeSpan.FromSeconds(3)).Queue();
-    }
 
-    // 启动期静默应用 Acrylic：只写设置、复位背景、同步背景设置可用状态，不弹提示。
+    // Acrylic 开关的持久化与背景联动：写设置、复位背景、同步背景设置可用状态，不弹提示。
+    // 窗口级表现由窗口重建后的 AdaptToPlatform 应用（见 ToggleAcrylicBlur）。
     internal void ApplyAcrylicBlurSilently(bool on)
     {
         WriteUiBool("AcrylicBlur", on);
@@ -102,7 +135,10 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
         HomeView?.MarkClosed();
 
         // 未启用关闭到托盘时，主窗口关闭请求直接交给应用生命周期处理。
-        if (_shouldKeepWindowAlive?.Invoke() != true && _requestApplicationExit is not null)
+        // 例外：窗口重载（如切换 Acrylic 模糊）是应用内部的关闭+重建，不代表用户要退出，
+        // 因此跳过退出分支，按下方正常路径关闭，由应用层随后重建窗口。
+        if (!_reloadingWindow
+            && _shouldKeepWindowAlive?.Invoke() != true && _requestApplicationExit is not null)
         {
             e.Cancel = true;
             _realClose = true;
@@ -111,7 +147,7 @@ using SukiUI;namespace OppoPodsManager.UI.MainWindow;public partial class MainWi
             return;
         }
 
-        // 启用关闭到托盘时，关闭主窗口本身但保留托盘和设备会话。
+        // 启用关闭到托盘（或窗口重载）时，关闭主窗口本身但保留托盘和设备会话。
         _realClose = true;
         DisposeRuntimeUiResources();
     }

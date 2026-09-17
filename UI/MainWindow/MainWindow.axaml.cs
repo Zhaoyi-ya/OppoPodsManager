@@ -74,8 +74,10 @@ public partial class MainWindow : SukiWindow, IViewHost
     // 统一管理主窗口和小窗使用的自定义背景资源。
     private readonly BackgroundImageManager _backgroundImages = new();
     private readonly BackgroundSelectionService _backgroundSelection;
-    /// <summary>托盘 ANC 菜单项 → (发送键, 父键, 是否子模式)，避免闭包捕获。</summary>
-    internal static ISukiToastManager ToastManager = new SukiToastManager();
+    // Toast 管理器必须与窗口一一对应：Toast 宿主（Hosts）挂在窗口上，若共用静态实例，
+    // 窗口重建后新旧宿主会同时收到 ToastQueued，对同一个 SukiToast 控件重复添加并抛
+    // "already has a visual parent"（主窗口重载时已真机复现）。仅本窗口内部使用。
+    private readonly ISukiToastManager ToastManager = new SukiToastManager();
     private string? _customDeviceName;
 
     // 缓存画刷
@@ -130,6 +132,9 @@ public partial class MainWindow : SukiWindow, IViewHost
     private readonly FeedbackExportService? _feedbackExporter;
     private readonly Action? _requestApplicationExit;
     private readonly Func<bool>? _shouldKeepWindowAlive;
+    // 应用层提供的「关闭并重建主窗口」入口：仅窗口构造期能应用的设置（如 Acrylic 毛玻璃）
+    // 靠它即时生效，见 MainWindow.Chrome.cs 的 ToggleAcrylicBlur。
+    private readonly Action? _requestWindowReload;
 
     // 说明：机型目录（ModelCatalog）此前用于向 SettingsView 注入「设备型号」三级联动数据，
     // 该选择块已暂时移除，故不再保留字段；构造函数仍接收机型目录，便于后续恢复注入。
@@ -147,7 +152,8 @@ public partial class MainWindow : SukiWindow, IViewHost
         DesktopLinkService? desktopLinks = null,
         FeedbackExportService? feedbackExporter = null,
         Action? requestApplicationExit = null,
-        Func<bool>? shouldKeepWindowAlive = null)
+        Func<bool>? shouldKeepWindowAlive = null,
+        Action? requestWindowReload = null)
     {
         // 窗口只保存应用层注入的调度器，不在 UI 内部创建控制逻辑。
         _commandDispatcher = commandDispatcher;
@@ -157,6 +163,7 @@ public partial class MainWindow : SukiWindow, IViewHost
         _feedbackExporter = feedbackExporter;
         _requestApplicationExit = requestApplicationExit;
         _shouldKeepWindowAlive = shouldKeepWindowAlive;
+        _requestWindowReload = requestWindowReload;
         _uiSettings = new SettingsStore(nextSettings);
         _backgroundSelection = new BackgroundSelectionService(_uiSettings, _backgroundImages);
         _logManager = ApplicationLog.Current;
@@ -241,8 +248,9 @@ public partial class MainWindow : SukiWindow, IViewHost
         DesktopLinkService? desktopLinks = null,
         FeedbackExportService? feedbackExporter = null,
         Action? requestApplicationExit = null,
-        Func<bool>? shouldKeepWindowAlive = null)
-        : this(settings, modelCatalog, commandDispatcher, updateCoordinator, desktopLinks, feedbackExporter, requestApplicationExit, shouldKeepWindowAlive)
+        Func<bool>? shouldKeepWindowAlive = null,
+        Action? requestWindowReload = null)
+        : this(settings, modelCatalog, commandDispatcher, updateCoordinator, desktopLinks, feedbackExporter, requestApplicationExit, shouldKeepWindowAlive, requestWindowReload)
     {
         _frontendState = frontendState;
         _controlManager = controlManager;
@@ -298,7 +306,6 @@ public partial class MainWindow : SukiWindow, IViewHost
         // 主页（状态/电量/ANC/功能/空间音频）经 HomeView 路由快照。
         UpdateTitle();
         HomeView?.ApplySnapshot(snapshot);
-        GestureView?.ApplySnapshot(snapshot);
         SettingsView?.ApplySnapshot(snapshot);
         DeviceInfoView?.ApplySnapshot(snapshot);
         EqView?.ApplySnapshot(snapshot);
@@ -347,8 +354,6 @@ public partial class MainWindow : SukiWindow, IViewHost
         DeviceInfoView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
         HomeView.Host = this;
         HomeView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
-        GestureView.Host = this;
-        GestureView.Attach(_controlManager, _uiSettings, _logManager, _commandDispatcher, _frontendState, _desktopLinks);
     }
 
     void IViewHost.RequestNavigate(string page) => ShowPage(page);

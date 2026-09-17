@@ -7,7 +7,6 @@ using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Control.Core.Transport;
 using OppoPodsManager.Control.Subsystems.Equalizers;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
 using OppoPodsManager.Communication.Abstractions;
 
@@ -44,22 +43,8 @@ internal sealed class HuaweiManager : IBrandManager
     private readonly Dictionary<ushort, int> _pollFailures = new();
     private const int PollFailureThreshold = 3;
 
-    // 手势内存状态（协议字节，写入后乐观更新；回读确认时覆写）。
-    private byte? _doubleTapLeft;
-    private byte? _doubleTapRight;
-    private byte? _tripleTapLeft;
-    private byte? _tripleTapRight;
-    private byte? _longPressLeft;
-    private byte? _longPressRight;
-    private byte? _swipeLeft;
-    private byte? _swipeRight;
-    // 按捏（pinch）当前功能（逻辑动作，仅 Pro3/Pro5；全局设置，不分左右耳）。
-    private GestureActionKind? _pinchAction;
     // FreeBuds 3 智能降噪方向档位（0-8，SupportsAncDirectionDial；启用降噪时附带下发）。
     private byte _ancDirectionLevel = 4;
-    // 手势写入时间戳（TickCount64，毫秒）：写入后短时间内抑制回读覆盖，避免乐观更新被旧值漂移。
-    private readonly Dictionary<(TapKind Kind, EarSide Ear), long> _gestureWriteStamps = new();
-    private const int GestureReadbackSettleMs = 1500;
 
     // 佩戴检测开关（bool 语义，非耳侧佩戴状态）。
     private bool? _wearDetectionEnabled;
@@ -131,9 +116,6 @@ internal sealed class HuaweiManager : IBrandManager
         _dualPreferredAddress = null;
         _dualDevices.Clear();
         _dualEnumerateTcs = null;
-        _doubleTapLeft = _doubleTapRight = _tripleTapLeft = _tripleTapRight = null;
-        _longPressLeft = _longPressRight = _swipeLeft = _swipeRight = null;
-        _pinchAction = null;
         _state.Reset();
     }
 
@@ -546,101 +528,6 @@ internal sealed class HuaweiManager : IBrandManager
         return await SetNoiseCancellationAsync(mode, cancellationToken);
     }
 
-    // ---- 触控手势（实装：双击/三击/长按/滑动，按型号能力动态构建）----
-    public IReadOnlyList<GestureEntry> GestureEntries
-    {
-        get
-        {
-            var list = new List<GestureEntry>();
-            if (!_capabilities.SupportsGestureConfiguration)
-                return list;
-            foreach (var ear in new[] { EarSide.Left, EarSide.Right })
-            {
-                foreach (var kind in SupportedGestureKinds)
-                {
-                    // 按捏为全局设置（命令字 0x2B92 不分左右耳），仅在左列渲染一次。
-                    if (kind == TapKind.Pinch && ear == EarSide.Right)
-                        continue;
-                    var actions = GetGestureActions(kind);
-                    if (actions.Count == 0)
-                        continue;
-                    var options = actions
-                        .Select(action => new GestureActionOption(action, GestureDisplay.KeyFor(action)))
-                        .ToArray();
-                    list.Add(new GestureEntry(
-                        GestureSource.Touch,
-                        kind,
-                        ear,
-                        true,
-                        LongPressRenderMode.CycleSet,
-                        options,
-                        ResolveCurrentGesture(kind, ear)));
-                }
-            }
-            return list;
-        }
-    }
-
-    public async Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
-    {
-        if (_link is null || !_capabilities.SupportsGestureConfiguration)
-            return false;
-        // 按捏（Pro3/Pro5）：独立命令字 0x2B92，非单字节侧动作帧，单独编包下发。
-        if (kind == TapKind.Pinch)
-        {
-            if (_route != HuaweiRoute.FreeBudsPro3 && _route != HuaweiRoute.FreeBudsPro5)
-                return false;
-            var pinchPayload = BuildPinchSetPayload(action);
-            if (pinchPayload is null)
-                return false;
-            try
-            {
-                await _link.SendFireAndForgetAsync(HuaweiConstants.SetPinchToggle, pinchPayload, cancellationToken);
-                _pinchAction = action;
-                _gestureWriteStamps[(TapKind.Pinch, EarSide.Left)] = Environment.TickCount64;
-                _state.NotifyChanged();
-                return true;
-            }
-            catch (Exception exception)
-            {
-                ApplicationLog.Current?.Error("Huawei", $"设置按捏手势失败：{exception.Message}", exception);
-                return false;
-            }
-        }
-        var value = EncodeGestureValue(kind, action);
-        if (value is null)
-            return false;
-        try
-        {
-            var payload = BuildGestureSetPayload(kind, ear, value.Value);
-            if (payload is null)
-                return false;
-            ushort command = kind switch
-            {
-                TapKind.Double => HuaweiConstants.SetDoubleTap,
-                TapKind.Triple => HuaweiConstants.SetTripleTap,
-                TapKind.LongPress => HuaweiConstants.SetLongPress,
-                TapKind.Slide => HuaweiConstants.SetSwipe,
-                _ => 0
-            };
-            if (command == 0)
-                return false;
-            await _link.SendFireAndForgetAsync(command, payload, cancellationToken);
-            // 乐观更新内存字节，UI 通过 GestureEntries 立即反映。
-            UpdateGestureMemory(kind, ear, value.Value);
-            _gestureWriteStamps[(kind, ear)] = Environment.TickCount64;
-            _state.NotifyChanged();
-            // TODO(真机)：华为手势写命令无通用 ACK，参考实现发送后不回读；如需确认可在延迟后
-            // 查询对应状态（S01 C20/C26、S2B C17/C1F），回读失败保留乐观值。
-            return true;
-        }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Error("Huawei", $"设置触控手势失败：{exception.Message}", exception);
-            return false;
-        }
-    }
-
     // ---- 会话建立 ----
     // 会话握手验证：StartSession 期间收到过任何协议响应（5A 二进制回包或 AT 文本电量）即置 true。
     // 用于防止“能建链但不是华为协议”的死通道被锁成活动会话。
@@ -667,8 +554,6 @@ internal sealed class HuaweiManager : IBrandManager
             await RefreshBatteryAsync(link, cancellationToken);
         if (_capabilities.SupportsAnc && _capabilities.SupportsAncStateReadback)
             await RefreshAncStateAsync(link, cancellationToken);
-        if (_capabilities.SupportsGestureConfiguration)
-            await RefreshGestureStatesAsync(link, cancellationToken);
         if (_capabilities.SupportsWearDetection)
             await RefreshWearDetectionAsync(link, cancellationToken);
         if (_capabilities.SupportsEqualizer)
@@ -697,7 +582,7 @@ internal sealed class HuaweiManager : IBrandManager
     }
 
     // ---- 订阅与运行期熔断 ----
-    // 注册报告帧的常驻订阅：设备主动推送的状态（电量/降噪/佩戴/手势）直接更新内存，
+    // 注册报告帧的常驻订阅：设备主动推送的状态（电量/降噪/佩戴）直接更新内存，
     // 不再依赖轮询，减少链路占用；也覆盖 0x0127 备用电量报告。
     private void RegisterSubscriptions(ConnectionLink link)
     {
@@ -705,10 +590,6 @@ internal sealed class HuaweiManager : IBrandManager
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportBatteryAlt, OnBatteryReport));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportAncState, OnAncReport));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportWearDetection, OnWearReport));
-        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportDoubleTapState, f => ApplyGestureState(HuaweiConstants.QueryDoubleTapState, f.Payload.Span)));
-        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportTripleTapState, f => ApplyGestureState(HuaweiConstants.QueryTripleTapState, f.Payload.Span)));
-        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportLongPressState, f => ApplyGestureState(HuaweiConstants.QueryLongPressState, f.Payload.Span)));
-        _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.ReportSwipeState, f => ApplyGestureState(HuaweiConstants.QuerySwipeState, f.Payload.Span)));
         // 新能力回报订阅：EQ / 低延迟 / 双设备枚举 / 双设备变更事件。
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.QueryEqualizer, OnEqualizerReport));
         _subscriptions.Add(link.Router.Subscribe(HuaweiConstants.QueryLowLatency, OnLowLatencyReport));
@@ -869,33 +750,6 @@ internal sealed class HuaweiManager : IBrandManager
         {
             ApplicationLog.Current?.Debug("Huawei", $"佩戴检测查询失败：{exception.Message}");
             RecordPollFailure(HuaweiConstants.QueryWearDetection);
-        }
-    }
-
-    private async Task RefreshGestureStatesAsync(ConnectionLink link, CancellationToken cancellationToken)
-    {
-        // 状态查询按型号分组（参考 buildGestureStateQuery）：
-        //   4E: 双击+长按；5I: 双击；FREEARC: 双击+三击+长按+滑动；6I/CLIP2/7I: 双击+三击+滑动。
-        // 查询帧 TLV 为 [01 00 02 00]（请求左右状态），等价抓包 5A0007000120010002。
-        var queries = BuildGestureStateQueries();
-        foreach (var (query, report) in queries)
-        {
-            try
-            {
-                var response = await link.RequestAsync(
-                    query, report, new byte[] { 0x01, 0x00, 0x02, 0x00 }, cancellationToken);
-                if (response is not null)
-                    ApplyGestureState(query, response.Payload.Span);
-            }
-            catch (TimeoutException)
-            {
-                // 型号回读差异（如 5I 只回读双击）：超时仅记录，不阻塞其他查询。
-                ApplicationLog.Current?.Debug("Huawei", $"手势状态查询超时：command=0x{query:X4}。");
-            }
-            catch (Exception exception)
-            {
-                ApplicationLog.Current?.Debug("Huawei", $"手势状态查询失败：command=0x{query:X4}，{exception.Message}");
-            }
         }
     }
 
@@ -1137,52 +991,6 @@ internal sealed class HuaweiManager : IBrandManager
         return NoiseMode.NoiseCancellation;
     }
 
-    private void ApplyGestureState(ushort queryCommand, ReadOnlySpan<byte> payload)
-    {
-        // TLV 0x01=左、0x02=右，各单字节动作值。解析失败时保留内存乐观值。
-        var fields = ParseTlv(payload);
-        var left = fields.TryGetValue(HuaweiConstants.TlvLeftGesture, out var l) && l.Length > 0 ? l.Span[0] : (byte?)null;
-        var right = fields.TryGetValue(HuaweiConstants.TlvRightGesture, out var r) && r.Length > 0 ? r.Span[0] : (byte?)null;
-        if (left is null && right is null)
-            return;
-        var (kind, _) = queryCommand switch
-        {
-            HuaweiConstants.QueryDoubleTapState => (TapKind.Double, 0),
-            HuaweiConstants.QueryTripleTapState => (TapKind.Triple, 0),
-            HuaweiConstants.QueryLongPressState => (TapKind.LongPress, 0),
-            HuaweiConstants.QuerySwipeState => (TapKind.Slide, 0),
-            _ => ((TapKind?)null, 0)
-        };
-        if (kind is null)
-            return;
-        // 回读加固：写入后短暂窗口内抑制回读覆盖（Pro5/Pro3 等无通用 ACK，设备可能回显旧值造成漂移）。
-        var applied = false;
-        if (left is { } leftValue && !IsRecentGestureWrite(kind.Value, EarSide.Left))
-        {
-            UpdateGestureMemory(kind.Value, EarSide.Left, leftValue);
-            applied = true;
-        }
-        if (right is { } rightValue && !IsRecentGestureWrite(kind.Value, EarSide.Right))
-        {
-            UpdateGestureMemory(kind.Value, EarSide.Right, rightValue);
-            applied = true;
-        }
-        if (applied)
-            _state.NotifyChanged();
-    }
-
-    private bool IsRecentGestureWrite(TapKind kind, EarSide ear)
-    {
-        if (_gestureWriteStamps.TryGetValue((kind, ear), out var stamp))
-        {
-            var elapsed = Environment.TickCount64 - stamp;
-            if (elapsed >= 0 && elapsed < GestureReadbackSettleMs)
-                return true;
-            _gestureWriteStamps.Remove((kind, ear));
-        }
-        return false;
-    }
-
     private bool? ParseWearDetection(ReadOnlySpan<byte> payload)
     {
         // TLV 0x01 单字节：0x00=false / 0x01=true（参考 parseLatestBooleanState）。
@@ -1240,353 +1048,6 @@ internal sealed class HuaweiManager : IBrandManager
             ? HuaweiConstants.TransparencyDefault6i
             : HuaweiConstants.AncSubModeDefault;
         return new byte[] { 0x01, 0x02, HuaweiConstants.AncModeTransparency, subMode };
-    }
-
-    private byte[]? BuildGestureSetPayload(TapKind kind, EarSide ear, byte value)
-    {
-        var side = ear == EarSide.Left ? (byte)0x01 : (byte)0x02;
-        // Eyewear2 滑动用 9 字节重复模式（参考 buildSwipePacket）。
-        if (kind == TapKind.Slide && _route == HuaweiRoute.Eyewear2)
-            return [side, side, value, side, side, value];
-        // 标准侧动作帧：side + [01] + value（参考 buildSideActionPacket）。
-        return [side, 0x01, value];
-    }
-
-    private byte[]? BuildPinchSetPayload(GestureActionKind action)
-    {
-        // 0x2B92 按捏功能切换帧（参考 buildFreeBudsPro3GestureTogglePacket / FreeBudsPro3GestureToggle）。
-        // TLV 序列：(0x01,[0x01]) + (slot,[0x01,context]) + (0x03,[value]) + (0x04,[value])，
-        // slot/context/value 由具体按捏功能决定（参考 modernPinchRoutes = Pro3 / Pro5）。
-        var (slot, context, value) = action switch
-        {
-            GestureActionKind.AnswerCall => (0x00, 0x01, 0x00), // CALL_ANSWER_END
-            GestureActionKind.RejectCall => (0x01, 0x01, 0x01), // CALL_REJECT
-            GestureActionKind.PlayPause => (0x00, 0x02, 0x02),  // MEDIA_PLAY_PAUSE
-            GestureActionKind.Next => (0x01, 0x02, 0x04),       // MEDIA_NEXT
-            GestureActionKind.Previous => (0x02, 0x02, 0x03),   // MEDIA_PREVIOUS
-            _ => (-1, -1, -1)
-        };
-        if (slot < 0)
-            return null;
-        return new byte[]
-        {
-            0x01, 0x01, 0x01,
-            (byte)slot, 0x02, 0x01, (byte)context,
-            0x03, 0x01, (byte)value,
-            0x04, 0x01, (byte)value,
-        };
-    }
-
-    private byte? EncodeGestureValue(TapKind kind, GestureActionKind action)
-    {
-        if (kind is TapKind.Double or TapKind.Triple)
-        {
-            // FreeBuds 3 双击为 legacy 值集（勿复用于其他型号）。
-            if (_route == HuaweiRoute.FreeBuds3)
-            {
-                return action switch
-                {
-                    GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
-                    GestureActionKind.Next => HuaweiConstants.GestureFb3PlayNext,
-                    GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
-                    GestureActionKind.NoiseControlToggle => HuaweiConstants.GestureFb3NoiseCancellation,
-                    GestureActionKind.None => HuaweiConstants.GestureNone,
-                    _ => null
-                };
-            }
-            // FreeBuds 3i 双击为位掩码值集（FreeBuddy 实测：next=4/previous=8，非 modern 的 2/7）。
-            if (_route == HuaweiRoute.FreeBuds3I)
-            {
-                return action switch
-                {
-                    GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
-                    GestureActionKind.Next => HuaweiConstants.Gesture3iNext,
-                    GestureActionKind.Previous => HuaweiConstants.Gesture3iPrevious,
-                    GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
-                    GestureActionKind.None => HuaweiConstants.GestureNone,
-                    _ => null
-                };
-            }
-            // FreeClip2 双击：0x07 映射为空间音频（FreeBuds 3 之外的通用双击分支里 0x07 才是上一曲）。
-            if (kind == TapKind.Double && _route == HuaweiRoute.FreeClip2)
-            {
-                return action switch
-                {
-                    GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
-                    GestureActionKind.Next => HuaweiConstants.GestureNext,
-                    GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
-                    GestureActionKind.SpatialAudio => 0x07,
-                    GestureActionKind.None => HuaweiConstants.GestureNone,
-                    _ => null
-                };
-            }
-            return action switch
-            {
-                GestureActionKind.PlayPause => HuaweiConstants.GesturePlayPause,
-                GestureActionKind.Next => HuaweiConstants.GestureNext,
-                GestureActionKind.Previous => HuaweiConstants.GesturePrevious,
-                GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
-                GestureActionKind.None => HuaweiConstants.GestureNone,
-                _ => null
-            };
-        }
-        if (kind == TapKind.LongPress)
-        {
-            // 4E 的降噪控制值不同（0x03 而非 0x0A），且不支持语音助手。
-            if (_route == HuaweiRoute.FreeBuds4E)
-            {
-                return action switch
-                {
-                    GestureActionKind.NoiseControlToggle => 0x03,
-                    GestureActionKind.None => HuaweiConstants.GestureNone,
-                    // TODO(真机)：4E 听歌识曲 0x0E 无项目对应动作，首版省略。
-                    _ => null
-                };
-            }
-            return action switch
-            {
-                GestureActionKind.VoiceAssistant => HuaweiConstants.GestureVoiceAssistant,
-                GestureActionKind.NoiseControlToggle => HuaweiConstants.GestureNoiseControl,
-                GestureActionKind.None => HuaweiConstants.GestureNone,
-                _ => null
-            };
-        }
-        if (kind == TapKind.Slide)
-        {
-            return action switch
-            {
-                GestureActionKind.VolumeControl => HuaweiConstants.SwipeVolumeControl,
-                GestureActionKind.SongSwitch => HuaweiConstants.SwipeTrackControl,
-                GestureActionKind.None => HuaweiConstants.GestureNone,
-                _ => null
-            };
-        }
-        return null;
-    }
-
-    private GestureActionKind DecodeGestureValue(TapKind kind, byte value)
-    {
-        if (kind is TapKind.Double or TapKind.Triple)
-        {
-            if (_route == HuaweiRoute.FreeBuds3)
-            {
-                return value switch
-                {
-                    HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
-                    HuaweiConstants.GestureFb3PlayNext => GestureActionKind.Next,
-                    HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
-                    HuaweiConstants.GestureFb3NoiseCancellation => GestureActionKind.NoiseControlToggle,
-                    _ => GestureActionKind.None
-                };
-            }
-            if (_route == HuaweiRoute.FreeBuds3I)
-            {
-                return value switch
-                {
-                    HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
-                    HuaweiConstants.Gesture3iNext => GestureActionKind.Next,
-                    HuaweiConstants.Gesture3iPrevious => GestureActionKind.Previous,
-                    HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
-                    _ => GestureActionKind.None
-                };
-            }
-        // FreeClip2 双击：0x07 解析为空间音频（其余型号 0x07 为上一曲）。
-        if (kind == TapKind.Double && _route == HuaweiRoute.FreeClip2)
-        {
-            return value switch
-            {
-                HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
-                HuaweiConstants.GestureNext => GestureActionKind.Next,
-                HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
-                0x07 => GestureActionKind.SpatialAudio,
-                _ => GestureActionKind.None
-            };
-        }
-        return value switch
-        {
-            HuaweiConstants.GesturePlayPause => GestureActionKind.PlayPause,
-            HuaweiConstants.GestureNext => GestureActionKind.Next,
-            HuaweiConstants.GesturePrevious => GestureActionKind.Previous,
-            HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
-            _ => GestureActionKind.None
-        };
-        }
-        if (kind == TapKind.LongPress)
-        {
-            return value switch
-            {
-                HuaweiConstants.GestureVoiceAssistant => GestureActionKind.VoiceAssistant,
-                HuaweiConstants.GestureNoiseControl or 0x03 => GestureActionKind.NoiseControlToggle,
-                // TODO(真机)：0x0E 听歌识曲无项目对应动作，首版折叠为 None。
-                _ => GestureActionKind.None
-            };
-        }
-        if (kind == TapKind.Slide)
-        {
-            return value switch
-            {
-                HuaweiConstants.SwipeVolumeControl => GestureActionKind.VolumeControl,
-                HuaweiConstants.SwipeTrackControl => GestureActionKind.SongSwitch,
-                _ => GestureActionKind.None
-            };
-        }
-        return GestureActionKind.None;
-    }
-
-    private void UpdateGestureMemory(TapKind kind, EarSide ear, byte value)
-    {
-        switch (kind, ear)
-        {
-            case (TapKind.Double, EarSide.Left): _doubleTapLeft = value; break;
-            case (TapKind.Double, EarSide.Right): _doubleTapRight = value; break;
-            case (TapKind.Triple, EarSide.Left): _tripleTapLeft = value; break;
-            case (TapKind.Triple, EarSide.Right): _tripleTapRight = value; break;
-            case (TapKind.LongPress, EarSide.Left): _longPressLeft = value; break;
-            case (TapKind.LongPress, EarSide.Right): _longPressRight = value; break;
-            case (TapKind.Slide, EarSide.Left): _swipeLeft = value; break;
-            case (TapKind.Slide, EarSide.Right): _swipeRight = value; break;
-        }
-    }
-
-    private GestureActionKind ResolveCurrentGesture(TapKind kind, EarSide ear)
-    {
-        // 按捏直接记录逻辑动作（非协议字节），单独返回。
-        if (kind == TapKind.Pinch)
-            return _pinchAction ?? GestureActionKind.None;
-        byte? raw = kind switch
-        {
-            TapKind.Double => ear == EarSide.Left ? _doubleTapLeft : _doubleTapRight,
-            TapKind.Triple => ear == EarSide.Left ? _tripleTapLeft : _tripleTapRight,
-            TapKind.LongPress => ear == EarSide.Left ? _longPressLeft : _longPressRight,
-            TapKind.Slide => ear == EarSide.Left ? _swipeLeft : _swipeRight,
-            _ => null
-        };
-        return raw is { } value ? DecodeGestureValue(kind, value) : GestureActionKind.None;
-    }
-
-    // 该型号支持的手势种类（与参考 buildGestureStateQuery / 分派表对齐）。
-    private IReadOnlyList<TapKind> SupportedGestureKinds
-    {
-        get
-        {
-            if (_route == HuaweiRoute.FreeBuds3)
-                return [TapKind.Double];
-            var kinds = new List<TapKind>();
-            if (SupportsTap(_route, TapKind.Double)) kinds.Add(TapKind.Double);
-            if (SupportsTap(_route, TapKind.Triple)) kinds.Add(TapKind.Triple);
-            if (SupportsTap(_route, TapKind.LongPress)) kinds.Add(TapKind.LongPress);
-            if (SupportsTap(_route, TapKind.Slide)) kinds.Add(TapKind.Slide);
-            // 按捏仅 Pro3/Pro5 支持（参考 modernPinchRoutes）。
-            if (_route == HuaweiRoute.FreeBudsPro3 || _route == HuaweiRoute.FreeBudsPro5)
-                kinds.Add(TapKind.Pinch);
-            return kinds;
-        }
-    }
-
-    private static bool SupportsTap(HuaweiRoute route, TapKind kind) => (route, kind) switch
-    {
-        // 双击：4E/5I/6I/7I/CLIP2/FREEARC/EYEWEAR2/3I
-        (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds6I
-            or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeClip2 or HuaweiRoute.FreeArc
-            or HuaweiRoute.Eyewear2 or HuaweiRoute.FreeBuds3I, TapKind.Double) => true,
-        // 三击：6I/7I/CLIP2/FREEARC
-        (HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeClip2
-            or HuaweiRoute.FreeArc, TapKind.Triple) => true,
-        // 长按：4E/6I/PRO3/7I/FREEARC（参考 modernLongPressRoutes）
-        (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBudsPro3
-            or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc, TapKind.LongPress) => true,
-        // 滑动：6I/CLIP2/FREEARC/EYEWEAR2（参考 buildSwipePacket）
-        (HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeClip2 or HuaweiRoute.FreeArc
-            or HuaweiRoute.Eyewear2, TapKind.Slide) => true,
-        _ => false
-    };
-
-    private IReadOnlyList<GestureActionKind> GetGestureActions(TapKind kind)
-    {
-        if (kind == TapKind.Pinch)
-        {
-            // 按捏功能：Pro3/Pro5 支持 接听/拒接/播放暂停/上一曲/下一曲（参考 FreeBudsPro3GestureToggle）。
-            if (_route == HuaweiRoute.FreeBudsPro3 || _route == HuaweiRoute.FreeBudsPro5)
-                return [GestureActionKind.AnswerCall, GestureActionKind.RejectCall,
-                    GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.Previous];
-            return [];
-        }
-        if (kind == TapKind.LongPress)
-        {
-            return _route switch
-            {
-                // 4E：降噪控制 + 无（听歌识曲 0x0E 无项目对应动作，省略）
-                HuaweiRoute.FreeBuds4E => [GestureActionKind.NoiseControlToggle, GestureActionKind.None],
-                // 6i/Pro3/7i：语音助手 + 降噪控制 + 无
-                HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBudsPro3 or HuaweiRoute.FreeBuds7I
-                    => [GestureActionKind.VoiceAssistant, GestureActionKind.NoiseControlToggle, GestureActionKind.None],
-                // FreeArc：语音助手 + 无
-                HuaweiRoute.FreeArc => [GestureActionKind.VoiceAssistant, GestureActionKind.None],
-                _ => []
-            };
-        }
-        if (kind == TapKind.Slide)
-        {
-            return _route switch
-            {
-                HuaweiRoute.FreeBuds6I => [GestureActionKind.VolumeControl, GestureActionKind.SongSwitch, GestureActionKind.None],
-                // FreeClip2：仅音量控制 + 无
-                HuaweiRoute.FreeClip2 => [GestureActionKind.VolumeControl, GestureActionKind.None],
-                HuaweiRoute.FreeArc => [GestureActionKind.VolumeControl, GestureActionKind.SongSwitch],
-                HuaweiRoute.Eyewear2 => [GestureActionKind.VolumeControl, GestureActionKind.SongSwitch, GestureActionKind.None],
-                _ => []
-            };
-        }
-        // 双击/三击
-        if (kind == TapKind.Double && _route == HuaweiRoute.FreeBuds3)
-            return [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.VoiceAssistant,
-                GestureActionKind.NoiseControlToggle, GestureActionKind.None];
-        return (_route, kind) switch
-        {
-            // 6i 双击：播放/暂停 + 下一曲（官方 App 仅两档）
-            (HuaweiRoute.FreeBuds6I, TapKind.Double) => [GestureActionKind.PlayPause, GestureActionKind.Next],
-            // 4E/5I/7I/FREEARC 双击：播放/暂停 + 下一曲 + 上一曲 + 语音助手 + 无
-            (HuaweiRoute.FreeBuds4E or HuaweiRoute.FreeBuds5I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeArc
-                or HuaweiRoute.FreeBuds3I, TapKind.Double)
-                => [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.Previous,
-                    GestureActionKind.VoiceAssistant, GestureActionKind.None],
-            // FreeClip2 双击：播放/暂停 + 下一曲 + 语音助手 + 空间音频(0x07) + 无。
-            // 注：0x07 同时是「上一曲」协议值，但 FreeClip2 双击不提供上一曲，故此处映射为空间音频（与参考一致）。
-            (HuaweiRoute.FreeClip2, TapKind.Double)
-                => [GestureActionKind.PlayPause, GestureActionKind.Next, GestureActionKind.VoiceAssistant,
-                    GestureActionKind.SpatialAudio, GestureActionKind.None],
-            // Eyewear2 双击：播放/暂停 + 语音助手 + 无
-            (HuaweiRoute.Eyewear2, TapKind.Double)
-                => [GestureActionKind.PlayPause, GestureActionKind.VoiceAssistant, GestureActionKind.None],
-            // 三击：下一曲 + 上一曲 + 无（6i/7i/CLIP2/FREEARC）
-            (HuaweiRoute.FreeBuds6I or HuaweiRoute.FreeBuds7I or HuaweiRoute.FreeClip2 or HuaweiRoute.FreeArc, TapKind.Triple)
-                => [GestureActionKind.Next, GestureActionKind.Previous, GestureActionKind.None],
-            _ => []
-        };
-    }
-
-    private IReadOnlyList<(ushort Query, ushort Report)> BuildGestureStateQueries()
-    {
-        var queries = new List<(ushort, ushort)>();
-        void Add(ushort query)
-        {
-            if (SupportsTap(_route, query switch
-            {
-                HuaweiConstants.QueryDoubleTapState => TapKind.Double,
-                HuaweiConstants.QueryTripleTapState => TapKind.Triple,
-                HuaweiConstants.QueryLongPressState => TapKind.LongPress,
-                HuaweiConstants.QuerySwipeState => TapKind.Slide,
-                _ => (TapKind)(-1)
-            }))
-            {
-                queries.Add((query, query));
-            }
-        }
-        Add(HuaweiConstants.QueryDoubleTapState);
-        Add(HuaweiConstants.QueryTripleTapState);
-        Add(HuaweiConstants.QueryLongPressState);
-        Add(HuaweiConstants.QuerySwipeState);
-        return queries;
     }
 
     internal static Dictionary<byte, ReadOnlyMemory<byte>> ParseTlv(ReadOnlySpan<byte> payload)

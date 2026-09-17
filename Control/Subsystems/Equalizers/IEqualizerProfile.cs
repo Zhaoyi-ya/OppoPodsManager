@@ -6,7 +6,7 @@ namespace OppoPodsManager.Control.Subsystems.Equalizers;
 /// 负载编码、预设名解析规则与频段白名单对齐方式。未来接入华为/索尼等新品牌时，
 /// 只需提供各自的 <see cref="IEqualizerProfile"/> 实现，无需改动 EQ 页面与控制编排。
 ///
-/// 与 <see cref="OppoPodsManager.Control.Subsystems.Gestures.IGestureProfile"/> 同一思路：把协议差异收敛到
+/// 与品牌触控/按键类协议同一思路：把协议差异收敛到
 /// 可插拔的“品牌档案”里，型号/能力判断仍由各 manager 的 <c>DeviceCapability</c> 负责。
 /// </summary>
 public interface IEqualizerProfile

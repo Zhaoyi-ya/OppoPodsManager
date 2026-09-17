@@ -1,6 +1,5 @@
 ﻿using Avalonia.Controls.Shapes;
 using OppoPodsManager.Assets.VisualAssets;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Brands.Oppo.Features;
 using OppoPodsManager.UI.MainWindow;
 using AvaloniaControl = Avalonia.Controls.Control;

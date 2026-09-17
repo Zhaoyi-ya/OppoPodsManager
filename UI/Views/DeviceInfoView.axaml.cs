@@ -14,7 +14,6 @@ namespace OppoPodsManager.UI.Views;
 
 /// <summary>
 /// 设备信息页：仅保留隐藏的 EQ 快捷选择器（原 MainWindow.CbEq 逻辑迁入此处）。
-/// 触控手势已迁至独立的「快捷手势」侧边栏页（GestureView）。
 /// </summary>
 public partial class DeviceInfoView : PageView
 {

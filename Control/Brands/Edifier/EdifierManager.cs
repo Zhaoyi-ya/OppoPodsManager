@@ -5,7 +5,6 @@ using OppoPodsManager.Control.Abstractions;
 using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Transport;
 using OppoPodsManager.Control.Core.Models;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 namespace OppoPodsManager.Control.Brands.Edifier;
@@ -97,9 +96,6 @@ internal sealed class EdifierManager : IBrandManager
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken) => Task.FromResult(false);
     public Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken) => Task.FromResult(false);
-    // ---- 触控手势：漫步者协议不支持手势配置，统一返回空/不支持 ----
-    public IReadOnlyList<GestureEntry> GestureEntries => [];
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken) => Task.FromResult(false);
     // 漫步者协议不支持均衡器，统一返回空档案；UI 通过 Presentation.SupportsCustomEqualizer 判定不可见。
     public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
     public sbyte CustomEqualizerMinimumGain => BrandPresentation.DefaultCustomEqMinimumGain;

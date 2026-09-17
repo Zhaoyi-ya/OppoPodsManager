@@ -7,7 +7,6 @@ using OppoPodsManager.Control.Subsystems.Logging;
 using OppoPodsManager.Control.Abstractions;
 using OppoPodsManager.Assets.Oplus;
 using System.Collections.Generic;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Equalizers;
 using OppoPodsManager.Control.Core;
 using OppoPodsManager.Control.Core.Features;
@@ -33,24 +32,6 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
     private GameSound? _gameSound;
     private IEqualizerProfile _equalizerProfile = NullEqualizerProfile.Instance;
     private BassEngineState? _bassEngineState;
-    private readonly OppoGestureProfile _gestureProfile = new();
-    // 长按「切换噪声控制」的循环模式集合（按 控制源+耳 分键）。后端编码尚未实现，仅作 UI 勾选的内存态；
-    // 未记录时默认全勾（与 vivo 出厂 NOISE_ALL 全场景循环基线一致）。
-    private readonly Dictionary<(GestureSource Source, EarSide Ear), IReadOnlyList<NoiseMode>> _longPressCycleSets = new();
-    // 官方 App 长按面板的可勾选模式顺序：降噪 / 自适应 / 通透 / 关闭。
-    private static readonly (NoiseMode Mode, string Key)[] LongPressCycleModes =
-    {
-        (NoiseMode.NoiseCancellation, "Anc_ModeNoiseCancellation"),
-        (NoiseMode.Smart, "Anc_ModeAdaptive"),
-        (NoiseMode.Adaptive, "Anc_ModeAdaptive"),
-        (NoiseMode.Transparency, "Anc_ModeTransparency"),
-        (NoiseMode.Off, "Anc_ModeOff"),
-    };
-    // OPPO 触控（KeyFunction）当前值：每次成功 SET 后回填，供 GestureEntries 显示；GET 回读亦写入此处。
-    // 键含控制源(Source)，使主触控区与柄的同一 (耳,手势) 互不覆盖。
-    private readonly Dictionary<(GestureSource Source, EarSide Ear, TapKind Kind), GestureActionKind> _currentGestures = new();
-    // GET 0x0108 返回的当前触控整表（帧列表）；null 表示尚未读取。
-    private List<OppoGestureProfile.KeyFunctionFrame>? _keyFunctionFrames;
     // 控制通知缺失时的轻量回读循环。
     private CancellationTokenSource? _pollCancellation;
     private Task? _pollTask;
@@ -496,120 +477,6 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
             : (byte)0;
         return SetGameSoundEnabledCoreAsync(type, enabled, cancellationToken);
     }
-    // ---- 触控手势：品牌无关展示与下发（OPPO 触控表 GET 0x0108 / SET 0x0408，真机抓包确认）----
-    public IReadOnlyList<GestureEntry> GestureEntries
-    {
-        get
-        {
-            var list = new List<GestureEntry>();
-            foreach (var source in _gestureProfile.SupportedSources)
-            {
-                // 「柄」仅官方名单声明 supportPinch 的型号支持（Capability.SupportsFeature("stem")）。
-                // Enco Free4 等无按压交互的型号不渲染柄分组，避免展示无法使用的控制项。
-                if (source == GestureSource.Stem && !Capability.SupportsFeature("stem"))
-                    continue;
-                foreach (var kind in _gestureProfile.GetSupportedGestures(source))
-                {
-                    foreach (var ear in new[] { EarSide.Left, EarSide.Right })
-                    {
-                        var options = _gestureProfile.GetActionOptions(kind, ear, source);
-                        GestureActionKind current = GestureActionKind.None;
-                        if (_keyFunctionFrames is not null
-                            && OppoGestureProfile.TryFindSlot(_keyFunctionFrames, ear, source, kind, out var idx))
-                        {
-                            var fn = _keyFunctionFrames[idx].Function;
-                            if (OppoGestureProfile.TryResolveFunction(fn, out var resolved))
-                                current = resolved;
-                        }
-                        _currentGestures[(source, ear, kind)] = current;
-                        // 长按(主触控区)对齐官方交互：弹出多选面板勾选噪声循环模式（MultiCheckbox）；
-                        // 其余手势仍用下拉（CycleSet）。柄键长按(press 家族)保持原样。
-                        var isLongPressPanel = kind == TapKind.LongPress && source == GestureSource.Touch;
-                        list.Add(new GestureEntry(source, kind, ear, _gestureProfile.IsGestureConfigurable(kind, source),
-                            isLongPressPanel ? LongPressRenderMode.MultiCheckbox : LongPressRenderMode.CycleSet,
-                            options, current,
-                            isLongPressPanel ? BuildLongPressCycleOptions(source, ear) : null));
-                    }
-                }
-            }
-            return list;
-        }
-    }
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
-        => SetTouchGestureCoreAsync(ear, kind, action, source, cancellationToken);
-    // 长按循环集合的内存勾选态：后端协议编码待核对，暂不下发；保存后通知快照刷新，让 UI 回显新勾选。
-    public Task<bool> SetLongPressCycleAsync(EarSide ear, GestureSource source, IReadOnlyList<NoiseMode> modes, CancellationToken cancellationToken)
-    {
-        _longPressCycleSets[(source, ear)] = modes.ToArray();
-        State.NotifyChanged();
-        return Task.FromResult(true);
-    }
-    // 组装长按面板的勾选条目：按官方顺序输出四个模式，勾选态取自内存集合（未记录默认全勾）。
-    private IReadOnlyList<LongPressCycleOption> BuildLongPressCycleOptions(GestureSource source, EarSide ear)
-    {
-        var selected = _longPressCycleSets.TryGetValue((source, ear), out var saved)
-            ? saved
-            : LongPressCycleModes.Select(m => m.Mode).ToArray();
-        var selectedSet = new HashSet<NoiseMode>(selected);
-        return LongPressCycleModes
-            .Select(m => new LongPressCycleOption(m.Mode, m.Key, selectedSet.Contains(m.Mode)))
-            .ToArray();
-    }
-    // OPPO 触控下发：OPPO 以「整表」写入（GET 0x0108 读取当前 → 改一帧 → SET 0x0408 回写整表）。
-    // 命令不可用或槽位未定位（映射待核对）时安全跳过，不下发错误命令。
-    private async Task<bool> SetTouchGestureCoreAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken)
-    {
-        if (!CanUseCommand(CommandId.SetKeyFunction, CommandId.KeyFunction))
-        {
-            ApplicationLog.Current?.Debug("Gesture.OPPO", "OPPO 触控命令不可用（命令未配置或设备不支持），跳过下发。");
-            return false;
-        }
-        try
-        {
-            var link = RequireLink();
-            // 1. 读取当前整表（本地无缓存时先 GET）
-            if (_keyFunctionFrames is null)
-            {
-                var get = await TryRequestAsync(link, CommandId.KeyFunction, CommandId.KeyFunctionResponse, Array.Empty<byte>(), cancellationToken);
-                if (get is null || !OppoGestureProfile.DecodeTable(get.Payload.ToArray(), out var init))
-                    return false;
-                _keyFunctionFrames = init;
-            }
-            // 2. 定位 (耳, 控制源, 手势) 槽位；找不到说明推断映射需核对，安全跳过。
-            if (!OppoGestureProfile.TryFindSlot(_keyFunctionFrames, ear, source, kind, out var index))
-            {
-                ApplicationLog.Current?.Debug("Gesture.OPPO",
-                    $"未找到槽位 (ear={ear}, source={source}, kind={kind})，(控制源,手势)→(button,action) 映射待核对，跳过下发。");
-                return false;
-            }
-            if (!OppoGestureProfile.TryEncodeFunction(action, out var function))
-                return false;
-            // 3. 修改目标帧并整表回写
-            var frames = _keyFunctionFrames.ToList();
-            var f = frames[index];
-            frames[index] = new OppoGestureProfile.KeyFunctionFrame(f.DeviceType, f.Button, f.ButtonAction, function);
-            var payload = OppoGestureProfile.EncodeTable(frames);
-            if (!await WriteAsync(link, CommandId.SetKeyFunction, CommandId.SetKeyFunctionResponse, payload, cancellationToken))
-            {
-                // 回退：逆向发现 0x041C 与 0x0408 同族、疑为另一个键功能 SET。
-                // 部分固件把真实写入入口放在 0x041C，0x0408 虽被识别但拒绝写入。
-                // 仅当 0x0408 被设备拒绝时尝试，不影响原本成功的路径。
-                ApplicationLog.Current?.Debug("Gesture.OPPO",
-                    "SET 0x0408 被设备拒绝，尝试回退写入入口 0x041C。");
-                if (!await WriteAsync(link, CommandId.Unknown041C, CommandId.Unknown041CResponse, payload, cancellationToken))
-                    return false;
-            }
-            _keyFunctionFrames = frames;
-            _currentGestures[(source, ear, kind)] = action;
-            State.NotifyChanged();
-            return true;
-        }
-        catch (Exception exception)
-        {
-            ApplicationLog.Current?.Error("Gesture.OPPO", $"设置 OPPO 触控手势失败：{exception.Message}", exception);
-            return false;
-        }
-    }
     // 根据当前设备快照和本地隐藏策略生成多设备显示数据。
     public MultiDeviceDisplayState GetMultiDeviceDisplayState(IReadOnlySet<string> hiddenAddresses)
         => MultiDevicePolicy.BuildDisplayState(State.Snapshot().MultiDevice, hiddenAddresses);
@@ -950,16 +817,6 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
                 Capability = FeatureSwitches.RefineCapability(_baseCapability, State.Snapshot().FeatureStates);
             }
         }
-        // 触控表（KeyFunction）初始回读：GET 0x0108，解析为整表供 GestureEntries 显示与后续 SET 使用。
-        if (Capability.SupportsCommand(CommandId.KeyFunction))
-        {
-            var gestureResp = await TryRequestAsync(link, CommandId.KeyFunction, CommandId.KeyFunctionResponse, Array.Empty<byte>(), cancellationToken);
-            if (gestureResp is not null && OppoGestureProfile.DecodeTable(gestureResp.Payload.ToArray(), out var gestureFrames))
-            {
-                _keyFunctionFrames = gestureFrames;
-                ApplicationLog.Current?.Debug("Gesture.OPPO", $"初始触控表读取完成：frames={gestureFrames.Count}。");
-            }
-        }
 #if DEBUG
         // 真机命令面探测改为后台执行，避免阻塞“已连接”状态发布与初始信息回读。
         // 依据 OPPO Enco Free4 真机日志：未命名 GET 多数 50ms 内响应，但 0x011E/0x011F
@@ -1004,25 +861,8 @@ public sealed class OppoManager : BrandManagerBase, IBrandManager
                     continue;
                 }
                 var bytes = resp.Payload.ToArray();
-                if (cmd == CommandId.KeyFunction && OppoGestureProfile.DecodeTable(bytes, out var gFrames))
-                {
-                    ApplicationLog.Current?.Info("Probe", $"  0x{cmd:X4} (KeyFunction) -> frames={gFrames.Count}");
-                    for (int i = 0; i < gFrames.Count; i++)
-                    {
-                        var fr = gFrames[i];
-                        OppoGestureProfile.DecodeFrame(fr, out var ear, out var source, out var kind, out var act);
-                        ApplicationLog.Current?.Debug("Probe",
-                            $"    [{i}] dt=0x{fr.DeviceType:X2} btn=0x{fr.Button:X2} act=0x{fr.ButtonAction:X2} fn=0x{fr.Function:X2}" +
-                            $" => {(ear?.ToString() ?? "?")}/{(source?.ToString() ?? "?")}/{(kind?.ToString() ?? "?")}/{(act?.ToString() ?? "?")}");
-                    }
-                }
-                else
-                {
-                    var hex = Convert.ToHexString(bytes);
-                    var looksGesture = bytes.Length >= 4 && bytes.Length % 4 == 0;
-                    var tag = looksGesture ? " [疑似手势表 len%4==0]" : "";
-                    ApplicationLog.Current?.Debug("Probe", $"  0x{cmd:X4} -> len={bytes.Length}, payload={hex}{tag}");
-                }
+                var hex = Convert.ToHexString(bytes);
+                ApplicationLog.Current?.Debug("Probe", $"  0x{cmd:X4} -> len={bytes.Length}, payload={hex}");
             }
             ApplicationLog.Current?.Info("Probe", "未命名 GET 命令探测完成。");
         }

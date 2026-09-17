@@ -97,27 +97,6 @@ internal static class VivoConstants
     public const byte NoiseCycleExcludeTrans = 0x08;
     public const byte NoiseCycleExcludeAnc   = 0x09;
     public const byte NoiseCycleNone         = 0xff;
-    // ---- 双击手势 ----
-    // SET   0x0102 payload = [动作码]（单字节；耳机按数值范围判左右：0x00~0x06=左耳，0x10~0x16=右耳）
-    // QUERY 0x0202 payload = 空（与注册通知-开始共用命令字）
-    // REPORT 0x8202 payload = [00][左动作码][右动作码]（改设置时上报，非触发事件）
-    public const ushort SetDoubleTap = 0x0102;
-    public const ushort QueryDoubleTap = 0x0202;
-    public const ushort AckDoubleTap = 0x8102;
-    public const ushort ReportDoubleTapConfig = 0x8202;
-    // ---- 长按手势功能（左右耳下拉仅 无 / 切换噪声控制）----
-    // ⚠️ 命令字已据官方 App 反编译注册表（EarbudSettingsFetcher.fetchEarbudsSettingsFromCommand）更正：
-    //    set_long_press = 305 = 0x0131（旧工程误用 0x0150，那是 set_touch_operation_button）。
-    //    SET 0x0131 / QUERY 0x0231 / ACK 0x8131 / REPORT 0x8231。
-    //    同步更正查询/ACK/上报命令字（0x0250/0x8150/0x8250 → 0x0231/0x8131/0x8231）。
-    //    注：0x0231/0x8231 曾被 vivo-Protocol.txt 抓包误标为"查找"，实为长按查询/上报（注册表实锤）。
-    // SET   0x0131 payload = [05][功能码]（APK m37720W(5, a, b) 构造）
-    // QUERY 0x0231 payload = 空
-    // ACK/Report 0x8131 / 0x8231 payload 待 payload 级核对
-    public const ushort SetLongPressFunc = 0x0131;
-    public const ushort QueryLongPressFunc = 0x0231;
-    public const ushort AckLongPressFunc = 0x8131;
-    public const ushort ReportLongPressFunc = 0x8231;
     // ---- 通话操作（set_touch_operation_button，ScrewVivoTWS AcceptCallMaker 同款；与双击手势 0x0102 互补）----
     // 这是「来电时」的独立触控开关（双击=接听/挂断、长按=拒接），与「双击/长按手势做什么」是两套功能。
     // SET 0x0150 payload = [0x03, mode]（mode 位域：bit1(0x02)=双击接听/挂断来电，bit0(0x01)=长按拒接来电）。
@@ -202,41 +181,6 @@ internal static class VivoConstants
     public const ushort ReportFirmware        = 0x821C;
     public const ushort QueryModel            = 0x021B;
     public const ushort ReportModel            = 0x821B;
-    // ---- 双击手势动作码（实测；左/右耳编号不同）----
-    // 0x00~0x06（左）/0x10~0x16（右）为全区间；官方 App 双击选项仅用 0,1,2,3,5,6（部分机型+7 快捷指令），
-    // 0x04(左)/0x14(右) 为官方 App UI 未暴露的空档，固件支持、且 App 描述文案明确"双击接听/挂断通话"，
-    // 故 0x04/0x14 = 来电接听/结束通话（[推断]：仅由代码空档+文案推断，待真机抓包确认）。
-    public static readonly IReadOnlyDictionary<byte, string> TapLeftCodes = new Dictionary<byte, string>
-    {
-        [0x00] = "语音助手",
-        [0x01] = "播放/暂停",
-        [0x02] = "上一首",
-        [0x03] = "下一首",
-        [0x04] = "接听/挂断通话",
-        [0x05] = "翻译",
-        [0x06] = "无",
-    };
-    public static readonly IReadOnlyDictionary<byte, string> TapRightCodes = new Dictionary<byte, string>
-    {
-        [0x10] = "语音助手",
-        [0x11] = "播放/暂停",
-        [0x12] = "上一首",
-        [0x13] = "下一首",
-        [0x14] = "接听/挂断通话",
-        [0x15] = "翻译",
-        [0x16] = "无",
-    };
-    // 长按功能码 → 名称
-    // 长按功能码 = 噪声模式码（权威：TWS-Pods-PC/vivo/vivo_protocol.py）。0xFF=无；
-    // 0x0B=全场景(切换噪声控制出厂基线)、0x0A=排除关闭、0x08=排除通透、0x09=排除降噪。
-    public static readonly IReadOnlyDictionary<byte, string> LongPressFuncCodes = new Dictionary<byte, string>
-    {
-        [0xFF] = "无",
-        [0x0B] = "切换噪声控制",
-        [0x0A] = "排除关闭",
-        [0x08] = "排除通透",
-        [0x09] = "排除降噪",
-    };
 }
 // 型号画像（驱动帧 GAIA 版本 / 噪声查询载荷 / 噪声 SET 后缀；对齐官方 App / Windows 逆向参考 VivoProfiles）。
 // 全部非握手命令统一用 GaiaVersion（v4 家族 / v3 旧系），由 VivoManagerFactory 注入 VivoFrameCodec。

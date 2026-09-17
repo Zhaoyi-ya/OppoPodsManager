@@ -8,7 +8,6 @@ using OppoPodsManager.Control.Core.Features;
 using OppoPodsManager.Control.Core.Models;
 using OppoPodsManager.Control.Core.Transport;
 using OppoPodsManager.Control.Subsystems.Equalizers;
-using OppoPodsManager.Control.Subsystems.Gestures;
 using OppoPodsManager.Control.Subsystems.Logging;
 using OppoPodsManager.Communication.Abstractions;
 
@@ -43,7 +42,6 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     public sbyte CustomEqualizerMinimumGain => BrandPresentation.DefaultCustomEqMinimumGain;
     public sbyte CustomEqualizerMaximumGain => BrandPresentation.DefaultCustomEqMaximumGain;
     public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
-    public IReadOnlyList<GestureEntry> GestureEntries => Array.Empty<GestureEntry>();
 
     // 能力全空：UI 不渲染任何高级功能控件；电量由 Snapshot 直接驱动，连接后即可见。
     public BrandPresentation Presentation
@@ -293,7 +291,6 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     public Task<bool> SetGameSoundEnabledAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetMultiDevicePriorityAsync(bool automatic, string? address, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> OperateMultiDeviceAsync(MultiDeviceOperation operation, string? address, CancellationToken cancellationToken) => Unsupported();
-    public Task<bool> SetTouchGestureAsync(EarSide ear, TapKind kind, GestureActionKind action, GestureSource source, CancellationToken cancellationToken) => Unsupported();
 
     public bool IsValidCustomEqualizerName(string name) => false;
     public EqualizerEntrySnapshot CreateCustomEqualizerEntry(byte id, string name, IReadOnlyList<double> gains)
