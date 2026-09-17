@@ -27,8 +27,16 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     // 故此处单独限一个短窗口；超时即视为不需要认证，不影响后续电量读取。
     private static readonly TimeSpan AuthProbeTimeout = TimeSpan.FromMilliseconds(1200);
 
+    private readonly XiaomiConfigChannel _config = new();
     private DeviceCapability _capability = DeviceCapability.Unknown;
     private ConnectionLink? _link;
+
+    // 控制项状态：Presentation.ControlStates 的数据源，UI 复选框据此勾选。
+    // 键名须与 UI 侧的判断一致（HomeView.axaml.cs 用的是 visibleControls.Contains("game-mode")）。
+    private readonly Dictionary<string, bool> _controlStates = new(StringComparer.Ordinal)
+    {
+        ["game-mode"] = false
+    };
 
     public XiaomiManager()
     {
@@ -43,27 +51,34 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     public sbyte CustomEqualizerMaximumGain => BrandPresentation.DefaultCustomEqMaximumGain;
     public IEqualizerProfile EqualizerProfile => NullEqualizerProfile.Instance;
 
-    // 能力全空：UI 不渲染任何高级功能控件；电量由 Snapshot 直接驱动，连接后即可见。
+    // 控制项可见性：当前只开放「游戏模式（低延迟）」——它是唯一具备**完整外部证据**的功能
+    // （配置 ID 47 + 值 01/00，见 XiaomiConfigChannel 的注释与依据）。
+    //
+    // 降噪 / EQ / 多点连接 / 空间音频的配置 ID 已在 XiaomiConstants 就位，但**取值编码尚未确认**，
+    // 因此在真机验证前不写入 VisibleControls —— 避免 UI 放出"点了没反应"的控件。
+    // 待配置通道验证通过后，按 ID 表逐个补齐即可（通道已通，剩下的是填表工作）。
+    private static readonly IReadOnlySet<string> VisibleControls =
+        new HashSet<string>(StringComparer.Ordinal) { "game-mode" };
+
     public BrandPresentation Presentation
     {
         get
         {
-            var emptyControls = new HashSet<string>();
-            var emptyStates = new Dictionary<string, bool>();
+            var states = new Dictionary<string, bool>(_controlStates, StringComparer.Ordinal);
             return new BrandPresentation(
                 Capability.ModelName,
                 Capability.IsKnownModel,
-                false,
-                false,
-                false,
-                false,
+                false,                          // SupportsSpatialAudio
+                false,                          // SupportsCustomEqualizer
+                false,                          // SupportsNoiseCancellation
+                false,                          // CanManageMultiDevice
                 Array.Empty<ushort>(),
                 CustomEqualizerMinimumGain,
                 CustomEqualizerMaximumGain,
                 Array.Empty<string>(),
-                emptyControls,
-                emptyStates,
-                emptyStates,
+                VisibleControls,
+                states,
+                states,                         // ControlEnabledStates：暂不置灰任何项
                 Array.Empty<NoiseOptionModel>(),
                 string.Empty);
         }
@@ -86,7 +101,13 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
 
         // 认证先行：要求在认证后才应答其它命令的机型，先认证可让后续读取一次成功。
         // 该步骤失败不影响会话（详见 TryAuthenticateAsync）。
-        await TryAuthenticateAsync(link, deviceName, cancellationToken);
+        var authenticated = await TryAuthenticateAsync(link, deviceName, cancellationToken);
+
+        // 认证结果上报（opCode 0x51）。依据外部实现 MiBudsClient：它在连接建立后固定发送
+        // `FE DC BA 04 51 0003 00 03 01 EF`。本项目已单独完成挑战/应答，这一步是否必需尚未确认，
+        // 故只在认证成功时补发，失败静默忽略、不阻断会话。
+        if (authenticated)
+            await _config.TrySendAuthResultAsync(link, cancellationToken);
 
         ApplicationLog.Current?.Info("Xiaomi", $"已建立 RFCOMM 会话：{deviceName}，开始尝试读取电量。");
         try
@@ -264,6 +285,30 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     // ---- 能力未实现的安全兜底：UI 不会触发（Presentation 不显示对应控件），调用亦返回 false ----
     private Task<bool> Unsupported() => Task.FromResult(false);
 
+    // 游戏模式（低延迟）：走 RCSP 配置写通道，configId = 47（LowLatency），值 01=开 / 00=关。
+    // 证据：MiBudsClient 的 MODE_COMMAND_TEMPLATE 中 0x002F(=47) 之后为 {param} ∈ {01,00}。
+    public async Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (_link is null)
+            return false;
+
+        var acked = await _config.WriteAsync(
+            _link,
+            XiaomiConstants.LowLatency,
+            enabled ? (byte)0x01 : (byte)0x00,
+            cancellationToken);
+
+        ApplicationLog.Current?.Info("Xiaomi",
+            $"设置游戏模式（低延迟）：enabled={enabled}，收到应答={acked}。");
+
+        // 小米写命令是否回 ack 尚未确认，故无论是否收到都按操作值更新 UI ——
+        // 否则设备不回 ack 时界面会永远卡在旧值、用户无法继续操作。
+        // 若设备实际拒绝，下一次会话的读取会以真实状态覆盖。
+        _controlStates["game-mode"] = enabled;
+        State.NotifyChanged();
+        return acked;
+    }
+
     public Task<bool> SetWearDetectionAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetVoiceEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetHearingEnhancementAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
@@ -272,7 +317,6 @@ public sealed class XiaomiManager : BrandManagerBase, IBrandManager
     public Task<bool> SetBassEngineAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetSpatialSoundAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetSpineHealthAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
-    public Task<bool> SetGameModeAsync(bool enabled, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetEqualizerAsync(byte presetId, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetEqualizerByNameAsync(string presetName, CancellationToken cancellationToken) => Unsupported();
     public Task<bool> SetSpatialAudioAsync(SpatialAudioMode mode, CancellationToken cancellationToken) => Unsupported();

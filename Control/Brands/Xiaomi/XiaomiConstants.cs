@@ -31,16 +31,42 @@ public static class XiaomiConstants
     public const int HeaderSize = 3;
     /// <summary>长度字段偏移（大端 2 字节）。</summary>
     public const int LengthOffset = 5;
-    /// <summary>命令字偏移。已知真值帧中此字节为 0x0B。</summary>
+    /// <summary>请求序号（seq）偏移。早期实现称其为「命令字」，真值帧对齐后应为 **seq**。</summary>
+    /// <remarks>电量真值帧此处为 0x0B、低延迟帧为 0x90、认证结果帧为 0x00 —— 随请求变化，是序号而非功能码。
+    /// 真正的命令字在 <see cref="OpCodeOffset"/>。</remarks>
     public const int CommandOffset = 7;
     /// <summary>负载起始偏移。</summary>
     public const int PayloadOffset = 8;
-    /// <summary>固定开销 = 帧头3 + 类型1 + 命令1 + 长度2 + 命令字1 + 帧尾1。</summary>
+    /// <summary>RCSP opCode（真正的命令字）在帧内的偏移。</summary>
+    /// <remarks>2026-09-17 补充：电量帧为 0x02、配置写为 0xF2、配置读 0xF3、认证结果 0x51。
+    /// <c>XiaomiFrameCodec.Encode</c> 把命令字写在 byte[7] 的布局**只对电量帧恰好成立**，
+    /// 配置类命令请走 <c>XiaomiConfigChannel</c>（自建帧 + SendRawAsync）。</remarks>
+    public const int OpCodeOffset = 4;
+    /// <summary>固定开销 = 帧头3 + 类型1 + opCode1 + 长度2 + seq1 + 帧尾1 = 9。</summary>
     public const int Overhead = 9;
 
     /// <summary>类型字节（帧内第 4 字节）。位语义据公开逆向资料：bit7 0=应答/1=请求，bit6 1=需要应答。</summary>
     /// <remarks>已知真值帧为 0xC4，另有 0xC7（降噪帧）。**该字节随命令变化，不能作为帧头校验的一部分。**</remarks>
     public const byte TypeRequest = 0xC4;
+
+    /// <summary>认证结果上报帧的类型字节。真值帧 <c>FE DC BA 04 51 0003 00 03 01 EF</c>。</summary>
+    public const byte TypeAuthResult = 0x04;
+
+    // ---- 配置通道（0xF2 写 / 0xF3 读）帧与负载常量 ----
+    // 详见 XiaomiConfigChannel 的帧布局说明。负载布局：
+    //   写 [seq][0x03][configId 2B 大端][value]   读 [seq][0x02][configId 2B 大端]
+
+    /// <summary>配置通道请求序号的起始值（外部实现固定用 0x90）。</summary>
+    public const byte ConfigSeqStart = 0x90;
+    /// <summary>读配置负载中 configId 前的标记字节，值等于其后字节数（=2）。</summary>
+    public const byte ConfigReadMarker = 0x02;
+    /// <summary>写配置负载中 configId 前的标记字节，值等于其后字节数（=3，即 configId 2 + value 1）。</summary>
+    public const byte ConfigWriteMarker = 0x03;
+
+    /// <summary>认证结果上报帧的 seq 字节（真值帧中为 0x00）。</summary>
+    public const byte AuthResultSeq = 0x00;
+    /// <summary>认证结果上报帧的负载（真值帧 <c>...51 0003 00 03 01 EF</c> 中为 03 01）。</summary>
+    public static readonly byte[] AuthResultPayload = { 0x03, 0x01 };
 
     /// <summary>已知真值帧的第 5 字节（命令字之前的固定字节）。</summary>
     public const byte OpCodeDefault = 0x02;
