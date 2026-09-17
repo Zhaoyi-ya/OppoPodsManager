@@ -146,8 +146,19 @@ public partial class HomeView : PageView
         // 注意：绝不能在此用 .GetResult()/.Result 同步阻塞 UI 线程——
         // 扫描链路(DiscoverAsync)跨线程执行，结束后续体需要回到 UI 线程才能跑完，
         // 而 GetResult() 会把 UI 线程占死，造成永久卡死(界面无响应)。改为 await 并在 UI 线程回写。
-        var devices = await ControlManager.RefreshAvailableDevicesAsync(CancellationToken.None);
-        await Dispatcher.UIThread.InvokeAsync(() => ApplyNextDevices(devices));
+        //
+        // 另：async void 里抛出的异常会直接交给 SynchronizationContext，没有任何调用方能接住 ——
+        // 调试器中断，严重时进程退出。刷新失败属于常态（蓝牙栈忙、耳机刚断开、设备列表变化中），
+        // 必须就地消化。
+        try
+        {
+            var devices = await ControlManager.RefreshAvailableDevicesAsync(CancellationToken.None);
+            await Dispatcher.UIThread.InvokeAsync(() => ApplyNextDevices(devices));
+        }
+        catch (Exception exception)
+        {
+            Log?.Error("UI", $"刷新设备列表失败：{exception.Message}", exception);
+        }
     }
 
     internal void ApplyNextDevices(IReadOnlyList<DeviceConnectionOption> devices)
@@ -195,10 +206,21 @@ public partial class HomeView : PageView
         if (ControlManager is null)
             return;
 
-        if (string.IsNullOrWhiteSpace(deviceId))
-            await ControlManager.ConnectFirstAvailableAsync(CancellationToken.None);
-        else
-            await ControlManager.ConnectAsync(deviceId, CancellationToken.None);
+        // 本方法由多处 fire-and-forget 调用（`_ = ConnectNextDeviceAsync(...)`）触发，没有调用方 await；
+        // 异常一旦逃逸就成为「未观察的 Task 异常」，从线程池冒出（堆栈里就是
+        // RunFromThreadPoolDispatchLoop），表现为调试器中断 + 用户侧「未在用户代码中进行处理」。
+        // 因此在这里自行消化：连接失败是常态（耳机被手机占着 SPP 通道等），不该以异常形式传播。
+        try
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+                await ControlManager.ConnectFirstAvailableAsync(CancellationToken.None);
+            else
+                await ControlManager.ConnectAsync(deviceId, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            Log?.Error("UI", $"连接设备失败：{exception.Message}", exception);
+        }
     }
 
     internal async Task RefreshNextDevicesAsync()

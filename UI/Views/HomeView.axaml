@@ -16,7 +16,7 @@
       <TextBlock x:Name="StatusText" Grid.Column="1" Text="{l10n:Translate Status_Disconnected}" FontSize="14" Foreground="#FF8888"
          VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
      </Grid>
-      <ComboBox x:Name="CbDevice" Grid.Column="1" Height="26" FontSize="11" MinWidth="96" MaxWidth="150"
+      <ComboBox x:Name="CbDevice" Grid.Column="1" Height="26" FontSize="11" MinWidth="96" MaxWidth="280"
         HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="False"
         ToolTip.Tip="{l10n:Translate Status_SwitchDeviceTooltip}"/>
       <Button x:Name="BtnRefreshDevices" Grid.Column="2" Content="⟳" Height="26" Width="26" FontSize="13"

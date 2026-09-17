@@ -588,6 +588,25 @@ public sealed class ControlManager : IAsyncDisposable
             }
             return await ConnectAsync(plan.Candidate.StableId, cancellationToken);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            // 单次连接失败（典型：耳机被另一台设备占着 SPP 通道 / 未配对导致经典 SDP 未缓存，
+            // RFCOMM 服务暂时不可用）必须**在本方法内**消化掉，否则有两个后果：
+            //   ① 该异常在向上冒泡时没有人 catch，VS Code 调试器会判为「未处理异常」并中断，
+            //      用户侧表现为反复弹出「发生异常 … 未在用户代码中进行处理」；
+            //   ② 冒泡到自动连接循环的外层 catch（本类 196 行）会让**整个循环终止**，
+            //      此后设备再变化也不会自动重连，只能手动点重连。
+            // 记日志后返回 false，让下一轮信号（设备变化 / 看门狗 / 用户操作）自然重试。
+            ApplicationLog.Current?.Error(
+                "Control",
+                $"自动连接失败（保留自动连接循环，等待下一轮信号重试）：{exception.Message}",
+                exception);
+            return false;
+        }
         finally
         {
             Volatile.Write(ref _autoConnectInProgress, 0);
