@@ -40,6 +40,20 @@ public partial class PersonalView : PageView
         };
         BtnResetOpacity.Click += (_, _) => SlOpacity.Value = 50;
         CbToastDuration.SelectionChanged += CbToastDuration_Changed;
+        CbLowBatteryToast.IsCheckedChanged += (_, _) =>
+        {
+            if (_initializing) return;
+            var on = CbLowBatteryToast.IsChecked == true;
+            UiSettings.SetBool("LowBatteryToast", on);
+            Log?.Debug("UI", $"设置: 低电量提醒 -> {on}");
+        };
+        CbConnectionToast.IsCheckedChanged += (_, _) =>
+        {
+            if (_initializing) return;
+            var on = CbConnectionToast.IsChecked == true;
+            UiSettings.SetBool("ConnectionToast", on);
+            Log?.Debug("UI", $"设置: 连接弹窗 -> {on}");
+        };
         BtnBgLeft.Click += BtnBgLeft_Click;
         BtnBgRight.Click += BtnBgRight_Click;
         BgThumbDefault.PointerPressed += (_, _) => Host?.SelectBackground("default");
@@ -89,6 +103,8 @@ public partial class PersonalView : PageView
             TbOpacity.Text = $"{opacityVal}%";
 
             CbToastDuration.SelectedIndex = ReadToastDurationIndex();
+            CbLowBatteryToast.IsChecked = UiSettings.GetBool("LowBatteryToast", true);
+            CbConnectionToast.IsChecked = UiSettings.GetBool("ConnectionToast", true);
 
             var customName = UiSettings.GetString("CustomName");
             TbCustomName.Text = customName ?? "";

@@ -124,8 +124,9 @@ public partial class HomeView : PageView
         if (!string.IsNullOrWhiteSpace(modelName)
             && !string.Equals(modelName, "Unknown", StringComparison.OrdinalIgnoreCase))
         {
-            var connectedText = TranslationCatalog.Get("Status_Connected");
-            StatusText.Text = string.Format(connectedText, modelName);
+            // 该文本现在是电量卡片的标题（原顶部状态条已并入卡片），因此直接显示设备名；
+            // 连接状态由左侧圆点颜色表达，不再重复「已连接 —」前缀。
+            StatusText.Text = modelName;
             return;
         }
 
@@ -767,10 +768,14 @@ public partial class HomeView : PageView
         {
             // 单栏：取唯一非空槽位（无数据时用左槽占位）居中显示，图案换成整机图。
             var source = active.Count > 0 ? active[0] : 0;
+            SetBatteryColumns(1);
             for (var i = 0; i < panels.Length; i++)
+            {
                 panels[i].IsVisible = i == source;
-            BatteryGrid.ColumnDefinitions = new ColumnDefinitions("*");
-            Grid.SetColumn(panels[source], 0);
+                // 隐藏槽位也必须归到合法列。其 XAML 里写死的 Grid.Column=1/2 若留在树里，
+                // 列数缩小后会让 Grid 的 cell 缓存越界（详见 SetBatteryColumns 注释）。
+                Grid.SetColumn(panels[i], 0);
+            }
             titles[source].Text = TranslationCatalog.Get("Battery_Title");
             SetNextBattery(labels[source], bolts[source], progresses[source], levels[source]);
             ApplyBatteryImages(new[] { (source, EarphoneSlot.Headphone) });
@@ -779,18 +784,34 @@ public partial class HomeView : PageView
 
         // 多栏：按激活槽位顺序依次占据各列；无数据时三栏占位。
         var shown = active.Count > 0 ? active : new List<int> { 0, 1, 2 };
+        SetBatteryColumns(shown.Count);
         for (var i = 0; i < panels.Length; i++)
         {
             var isShown = shown.Contains(i);
             panels[i].IsVisible = isShown;
+            // 未显示的槽位同样归到第 0 列，避免其残留列号超出当前列数。
+            Grid.SetColumn(panels[i], isShown ? shown.IndexOf(i) : 0);
             if (!isShown)
                 continue;
-            Grid.SetColumn(panels[i], shown.IndexOf(i));
             titles[i].Text = TranslationCatalog.Get(titleKeys[i]);
             SetNextBattery(labels[i], bolts[i], progresses[i], levels[i]);
         }
-        BatteryGrid.ColumnDefinitions = new ColumnDefinitions(string.Join(",", Enumerable.Repeat("*", shown.Count)));
         ApplyBatteryImages(shown.Select(index => (index, defaultSlots[index])).ToArray());
+    }
+
+    /// <summary>就地重建电量区的列定义。
+    /// 必须**修改现有集合**（Clear + Add），不能整体替换（<c>ColumnDefinitions = new ColumnDefinitions(...)</c>）：
+    /// 整体替换时 Grid 收不到定义变更通知、cell 缓存不会失效，旧缓存里 CaseBatteryPanel 的列号仍是 2，
+    /// 而新定义只剩 1~2 列，下一次测量会在 GetMeasureSizeForRange 里越界抛
+    /// ArgumentOutOfRangeException —— 布局过程被中断，整页呈现错乱与缺失。</summary>
+    private void SetBatteryColumns(int count)
+    {
+        if (BatteryGrid.ColumnDefinitions.Count == count)
+            return;
+
+        BatteryGrid.ColumnDefinitions.Clear();
+        for (var i = 0; i < count; i++)
+            BatteryGrid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Star));
     }
 
     /// <summary>用户更换自定义耳机图案后由外壳调用，强制重设电量区图案。</summary>

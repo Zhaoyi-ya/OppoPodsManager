@@ -70,6 +70,7 @@ public sealed partial class App : Application
             _settings ??= new SettingsManager(settingsPath);
             _log = new ApplicationLog(Path.Combine(Path.GetDirectoryName(settingsPath)!, "Logs"));
             _log.Info("App", "开始初始化桌面生命周期和设备控制器。");
+            InstallGlobalExceptionHandlers();
             _desktopLinks = new DesktopLinkService(_log);
             _feedbackExporter = new FeedbackExportService(_log);
             var communication = CommunicationBootstrap.CreateDefault();
@@ -126,6 +127,29 @@ public sealed partial class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    // 全局异常兜底。
+    // 背景：界面上偶发的「Avalonia.Win32 内 Index was out of range、无法计算异常堆栈跟踪」会直接
+    // 终止进程，且因异常来自平台层的 native 回调，调试器也拿不到托管堆栈——只能看到进程猝死、
+    // 日志停在半行。这里统一接管：把完整异常（含堆栈）写进日志，并拦截 UI 线程异常避免整个应用
+    // 被非致命问题（如提示窗定位/关闭失败）带走。
+    private void InstallGlobalExceptionHandlers()
+    {
+        Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            _log?.Error("App", "UI 线程未处理异常（已拦截，应用继续运行）。", e.Exception);
+            e.Handled = true;
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            // 非 UI 线程的终止性异常：拦不住进程退出，但保证堆栈落盘供排查。
+            _log?.Error("App", "未处理的终止性异常。", e.ExceptionObject as Exception);
+            _log?.Flush();
+        };
+
+        _log?.Debug("App", "全局异常兜底已安装（UI 线程异常将记录堆栈并拦截）。");
     }
 
     // 创建一个只属于当前显示周期的主窗口，托盘和设备会话不随窗口创建。

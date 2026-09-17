@@ -72,6 +72,12 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
         if (old is Bitmap oldBitmap && !AssetHelper.IsShared(oldBitmap))
             oldBitmap.Dispose();
     }
+    // 自定义耳机图案菜单集合：由代码 menu.Open(border) 弹出。窗体的「点空白关闭」原先只覆盖
+    // ComboBox 与设备列表菜单，这组菜单因此会一直挂着；而 SukiWindow 自定义外壳下 ContextMenu
+    // 自带的轻关闭也不生效，所以这里显式登记，并在点空白/切换图案时关闭
+    // （与 CloseOpenDeviceContextMenus 同一套做法）。
+    private readonly List<ContextMenu> _earphoneMenus = new();
+
     private void BuildEarphoneCustomUi()
     {
         foreach (var preview in _earphonePreviews.Values)
@@ -79,6 +85,8 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
 
         PersonalView.EarphoneCustomContent.Children.Clear();
         _earphonePreviews.Clear();
+        // 菜单随控件一起重建，集合需同步清空，避免残留已废弃的菜单引用。
+        _earphoneMenus.Clear();
         foreach (var slot in new[]
                  { EarphoneSlot.Case, EarphoneSlot.HomeLeft, EarphoneSlot.HomeRight, EarphoneSlot.Headphone })
         {
@@ -121,7 +129,13 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
             menu.Items.Add(pickItem);
             menu.Items.Add(resetItem);
             border.ContextMenu = menu;
-            border.Tapped += (_, _) => menu.Open(border);
+            _earphoneMenus.Add(menu);
+            // 打开前先收起其它图案的菜单，避免多个菜单同时挂在那里。
+            border.Tapped += (_, _) =>
+            {
+                CloseEarphoneMenusExcept(menu);
+                menu.Open(border);
+            };
 
             PersonalView.EarphoneCustomContent.Children.Add(new StackPanel
             {
@@ -147,6 +161,18 @@ using BatteryLevel = OppoPodsManager.Control.Core.Models.BatteryLevel;namespace 
             });
         }
     }
+    /// <summary>关闭所有已展开的自定义耳机图案菜单（由窗体「点空白关闭」调用）。</summary>
+    private void CloseOpenEarphoneMenus() => CloseEarphoneMenusExcept(null);
+
+    private void CloseEarphoneMenusExcept(ContextMenu? keep)
+    {
+        foreach (var menu in _earphoneMenus)
+        {
+            if (!ReferenceEquals(menu, keep) && menu.IsOpen)
+                menu.Close();
+        }
+    }
+
     private async Task PickAndSaveEarphoneImage(EarphoneSlot slot)
     {
         var storage = TopLevel.GetTopLevel(this)?.StorageProvider;

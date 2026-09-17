@@ -129,6 +129,12 @@ public sealed record AppSettings(
     public int BackgroundBlur { get; init; }
     public bool AdvancedRender { get; init; }
     public bool AcrylicBlur { get; init; }
+    // 通知弹窗开关（个性化 → 弹窗设置），默认均开启：
+    //   LowBatteryToastEnabled —— 低电量 / 极低电量提醒弹窗；
+    //   ConnectionToastEnabled —— 设备连接 / 断开弹窗。
+    // 仅控制"是否弹出"，不影响控制层对通知的分类与状态更新。
+    public bool LowBatteryToastEnabled { get; init; } = true;
+    public bool ConnectionToastEnabled { get; init; } = true;
     public List<string> BackgroundHistory { get; init; } = [];
     public string SkippedVersion { get; init; } = string.Empty;
 

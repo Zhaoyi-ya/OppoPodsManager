@@ -16,6 +16,8 @@ public sealed class SettingsStore
         {
             "AdvancedRender" => _settings?.Current.AdvancedRender ?? fallback,
             "AcrylicBlur" => _settings?.Current.AcrylicBlur ?? fallback,
+            "LowBatteryToast" => _settings?.Current.LowBatteryToastEnabled ?? fallback,
+            "ConnectionToast" => _settings?.Current.ConnectionToastEnabled ?? fallback,
             "TrayEnabled" => _settings?.Current.MinimizeToTray ?? fallback,
             "AutoStart" => _settings?.Current.StartWithWindows ?? fallback,
             "AutoCheckUpdate" => _settings?.Current.AutomaticUpdateChecks ?? fallback,
@@ -110,6 +112,8 @@ public sealed class SettingsStore
         {
             "AdvancedRender" => settings with { AdvancedRender = value },
             "AcrylicBlur" => settings with { AcrylicBlur = value },
+            "LowBatteryToast" => settings with { LowBatteryToastEnabled = value },
+            "ConnectionToast" => settings with { ConnectionToastEnabled = value },
             "TrayEnabled" => settings with { MinimizeToTray = value },
             "AutoCheckUpdate" => settings with { AutomaticUpdateChecks = value },
             _ => settings

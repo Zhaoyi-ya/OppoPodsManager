@@ -4,30 +4,27 @@
              xmlns:l10n="using:OppoPodsManager.Assets.Localization"
              x:Class="OppoPodsManager.UI.Views.HomeView">
  <StackPanel Spacing="14" Margin="0,0,0,40">
-  <Border Padding="14,10"
-    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
-   <Grid ColumnDefinitions="Auto,*,Auto,Auto" MinHeight="28">
-    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-     <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#FF5555" Margin="0,0,6,0"/>
-     <TextBlock x:Name="StatusText" Text="{l10n:Translate Status_Disconnected}" FontSize="13" Foreground="#FF8888"
-        VerticalAlignment="Center"/>
-    </StackPanel>
-     <ComboBox x:Name="CbDevice" Grid.Column="1" Height="26" FontSize="11" MinWidth="140" MaxWidth="220"
-       HorizontalAlignment="Right" Margin="8,0,8,0" IsVisible="False"
-       ToolTip.Tip="{l10n:Translate Status_SwitchDeviceTooltip}"/>
-     <Button x:Name="BtnRefreshDevices" Grid.Column="2" Content="⟳" Height="26" Width="26" FontSize="13"
-       Click="RefreshDevices_Click" Padding="0" IsVisible="False" Margin="0,0,8,0"
-       ToolTip.Tip="{l10n:Translate Status_RefreshDevicesTooltip}"/>
-     <Button x:Name="BtnReconnect" Grid.Column="3" Content="{l10n:Translate Status_Reconnect}" Height="26" FontSize="13"
-       Click="Reconnect_Click" Padding="10,0" IsVisible="False" Classes="TextPanelButton"/>
-   </Grid>
-  </Border>
-
   <Border Padding="16,14"
     CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
-   <StackPanel>
-    <TextBlock Text="{l10n:Translate Battery_Title}" FontSize="14" Margin="0,0,0,6"
-       HorizontalAlignment="Center" Foreground="{DynamicResource SukiText}"/>
+   <StackPanel Spacing="6">
+    <!-- 卡片标题为当前耳机名称（连接状态由左侧圆点颜色表示）；
+         行末是多设备切换下拉、刷新与重连按钮——原先独立的顶部连接状态条已并入本卡片。 -->
+    <Grid ColumnDefinitions="*,Auto,Auto,Auto" MinHeight="28" Margin="0,0,10,0">
+     <Grid Grid.Column="0" ColumnDefinitions="Auto,*" Margin="0,0,8,0">
+      <Ellipse x:Name="StatusDot" Grid.Column="0" Width="8" Height="8" Fill="#FF5555" Margin="0,0,6,0"
+         VerticalAlignment="Center"/>
+      <TextBlock x:Name="StatusText" Grid.Column="1" Text="{l10n:Translate Status_Disconnected}" FontSize="14" Foreground="#FF8888"
+         VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+     </Grid>
+      <ComboBox x:Name="CbDevice" Grid.Column="1" Height="26" FontSize="11" MinWidth="96" MaxWidth="150"
+        HorizontalAlignment="Right" Margin="0,0,8,0" IsVisible="False"
+        ToolTip.Tip="{l10n:Translate Status_SwitchDeviceTooltip}"/>
+      <Button x:Name="BtnRefreshDevices" Grid.Column="2" Content="⟳" Height="26" Width="26" FontSize="13"
+        Click="RefreshDevices_Click" Padding="0" IsVisible="False" Margin="0,0,8,0"
+        ToolTip.Tip="{l10n:Translate Status_RefreshDevicesTooltip}"/>
+      <Button x:Name="BtnReconnect" Grid.Column="3" Content="{l10n:Translate Status_Reconnect}" Height="26" FontSize="13"
+        Click="Reconnect_Click" Padding="10,0" IsVisible="False" Classes="TextPanelButton"/>
+    </Grid>
     <Grid x:Name="BatteryGrid" ColumnDefinitions="*,*,*" ColumnSpacing="10" MinHeight="150">
      <StackPanel x:Name="LeftBatteryPanel" Grid.Column="0" Spacing="8" HorizontalAlignment="Stretch" VerticalAlignment="Center">
       <Image x:Name="LeftBatteryImage" Height="96" Stretch="Uniform"
@@ -75,7 +72,7 @@
      </StackPanel>
     </Grid>
     <TextBlock x:Name="WearStatus" Text="" FontSize="12" HorizontalAlignment="Center"
-       Opacity="0.5" Margin="0,8,0,0" Foreground="{DynamicResource SukiText}"/>
+       Opacity="0.5" Margin="0,2,0,0" Foreground="{DynamicResource SukiText}"/>
    </StackPanel>
   </Border>
 

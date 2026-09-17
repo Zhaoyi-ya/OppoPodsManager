@@ -23,6 +23,8 @@ namespace OppoPodsManager.UI.MainWindow;public partial class MainWindow{    priv
 
         CloseOpenComboBoxes();
         CloseOpenDeviceContextMenus();
+        // 自定义耳机图案的菜单同样是代码弹出的 ContextMenu，一并收起。
+        CloseOpenEarphoneMenus();
     }
 
     private static bool IsInsideFloatingMenuTrigger(Visual source)

@@ -36,6 +36,17 @@
       <Path Data="M3,12A9,9 0,1 0,6.64 4.75M3,4V12H11" Stroke="{DynamicResource SukiText}" StrokeThickness="1.5" Fill="Transparent" Width="14" Height="14" Stretch="Uniform"/>
      </Button>
     </StackPanel>
+   </StackPanel>
+  </Border>
+
+  <!-- 弹窗设置 -->
+  <Border Padding="18,16"
+    CornerRadius="14" BoxShadow="0 0 0 0 #00000000" Classes="glassCard">
+   <StackPanel Spacing="10">
+    <TextBlock Text="{l10n:Translate Personal_ToastSettings}" FontSize="14"
+        Foreground="{DynamicResource SukiText}" Opacity="0.8"/>
+    <CheckBox x:Name="CbLowBatteryToast" Content="{l10n:Translate Personal_LowBatteryToast}" Margin="0,2,0,0"/>
+    <CheckBox x:Name="CbConnectionToast" Content="{l10n:Translate Personal_ConnectionToast}" Margin="0,2,0,0"/>
     <StackPanel Orientation="Horizontal" Spacing="12">
      <TextBlock Text="{l10n:Translate Personal_ToastDuration}" FontSize="13" VerticalAlignment="Center"
         Foreground="{DynamicResource SukiText}"/>
